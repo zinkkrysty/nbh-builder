@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serene Valley - Calm 3D City Builder</title>
+  <meta name="description" content="A calm, low-poly 3D city builder game with a realistic economic simulation, zoning, utilities, and cozy aesthetics.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Critical FOUC Prevention Styles */
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0c0e12;
+      color: #f1f3f5;
+      font-family: 'Outfit', sans-serif;
+    }
+    #loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(rgba(12, 16, 26, 0.75), rgba(12, 16, 26, 0.94)), url('/splash.jpg') no-repeat center center / cover;
+      transition: opacity 1s cubic-bezier(0.4, 0, 0.2, 1), visibility 1s;
+      opacity: 1;
+      visibility: visible;
+    }
+    .loader-card {
+      background: rgba(18, 22, 33, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      padding: 3rem;
+      max-width: 500px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      transform: scale(0.95);
+      animation: popCard 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+    @keyframes popCard {
+      to { transform: scale(1); }
+    }
+    .loader-card h1 {
+      font-size: 2.8rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #4ade80, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.04em;
+    }
+    .loader-card p {
+      color: #94a3b8;
+      font-size: 1rem;
+      margin-bottom: 2rem;
+    }
+    .loader-status {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(255, 255, 255, 0.05);
+      border-left-color: #4ade80;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .loader-btn {
+      display: none;
+      background: linear-gradient(135deg, #10b981, #059669);
+      border: none;
+      color: #fff;
+      padding: 0.9rem 2.2rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
+      transition: all 0.25s ease;
+      font-family: 'Outfit', sans-serif;
+    }
+    .loader-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+      filter: brightness(1.1);
+    }
+    .loader-btn:active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <!-- Canvas container for Three.js -->
+  <div id="canvas-container"></div>
+
+  <!-- Loading Screen -->
+  <div id="loader">
+    <div class="loader-card">
+      <h1>Serene Valley</h1>
+      <p id="loader-subtitle">Preparing neighborhood simulation...</p>
+      
+      <div class="loader-status">
+        <div id="loader-spinner" class="spinner"></div>
+        <button id="btn-enter" class="loader-btn">Enter Neighborhood</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- UI HUD Layer -->
+  <div id="hud-layer">
+    <!-- Top Bar: General Stats -->
+    <header class="hud-header glass">
+      <div class="hud-brand">
+        <h1 id="city-name">Serene Valley</h1>
+        <span class="hud-status-badge">Neighborhood</span>
+      </div>
+
+      <div class="hud-stats">
+        <div class="stat-item" title="Treasury Balance">
+          <span class="stat-icon">💵</span>
+          <span class="stat-value" id="stat-money">$50,000</span>
+          <span class="stat-trend positive" id="stat-income">+$250</span>
+        </div>
+
+        <div class="stat-item" title="Population">
+          <span class="stat-icon">👥</span>
+          <span class="stat-value" id="stat-population">0</span>
+          <span class="stat-trend" id="stat-pop-trend">→</span>
+        </div>
+
+        <div class="stat-item" title="Citizen Happiness">
+          <span class="stat-icon">😊</span>
+          <span class="stat-value" id="stat-happiness">100%</span>
+        </div>
+
+        <div class="stat-item" title="Simulation Speed & Time">
+          <span class="stat-icon" id="time-icon">☀️</span>
+          <span class="stat-value" id="stat-time">08:00 AM</span>
+          <span class="stat-detail" id="stat-day">Day 1</span>
+        </div>
+      </div>
+
+      <div class="hud-controls">
+        <button id="btn-save" class="control-btn" title="Save Neighborhood">💾</button>
+        <button id="btn-load" class="control-btn" title="Load Neighborhood">📂</button>
+        <button id="btn-reset" class="control-btn danger" title="Reset Neighborhood">🔄</button>
+        <button id="btn-speed-pause" class="speed-btn" title="Pause">⏸️</button>
+        <button id="btn-speed-normal" class="speed-btn active" title="Normal Speed">▶️</button>
+        <button id="btn-speed-fast" class="speed-btn" title="Fast Forward">⏩</button>
+        <button id="btn-music-toggle" class="control-btn" title="Toggle Calm Music">🎵</button>
+        <button id="btn-sfx-toggle" class="control-btn" title="Toggle Sound Effects">🔊</button>
+      </div>
+    </header>
+
+    <!-- Left Panel: Demand & Info -->
+    <aside class="hud-left glass">
+      <h2>Zoning Demand</h2>
+      <div class="demand-container">
+        <div class="demand-bar-group">
+          <label for="demand-r">Residential</label>
+          <div class="demand-track">
+            <div id="demand-r" class="demand-fill residential" style="width: 50%;"></div>
+          </div>
+        </div>
+        <div class="demand-bar-group">
+          <label for="demand-c">Commercial</label>
+          <div class="demand-track">
+            <div id="demand-c" class="demand-fill commercial" style="width: 30%;"></div>
+          </div>
+        </div>
+        <div class="demand-bar-group">
+          <label for="demand-i">Industrial</label>
+          <div class="demand-track">
+            <div id="demand-i" class="demand-fill industrial" style="width: 20%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="panel-divider">
+
+      <h2>Neighborhood Status</h2>
+      <div class="status-grid">
+        <div class="status-card">
+          <span class="status-label">Power Supply</span>
+          <span class="status-value" id="status-power">100%</span>
+        </div>
+        <div class="status-card">
+          <span class="status-label">Water Supply</span>
+          <span class="status-value" id="status-water">100%</span>
+        </div>
+        <div class="status-card">
+          <span class="status-label">Tax Rate</span>
+          <div class="tax-control">
+            <button id="btn-tax-down" class="small-btn">-</button>
+            <span id="stat-tax-rate">12%</span>
+            <button id="btn-tax-up" class="small-btn">+</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Bottom Right Panel: Inspector -->
+    <aside id="inspector-panel" class="hud-right-bottom glass hidden">
+      <div class="panel-header">
+        <h2 id="inspect-title">Tile Info</h2>
+        <button id="btn-inspect-close" class="close-btn">&times;</button>
+      </div>
+      <div class="inspect-body">
+        <div class="inspect-row">
+          <span class="inspect-label">Coordinates:</span>
+          <span class="inspect-value" id="inspect-coords">0, 0</span>
+        </div>
+        <div class="inspect-row">
+          <span class="inspect-label">Zone/Type:</span>
+          <span class="inspect-value" id="inspect-type">Empty</span>
+        </div>
+        <div id="inspect-simulation-details">
+          <!-- Dynamically populated details like occupancy, power, water, level -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- Bottom Bar: Toolbar -->
+    <nav class="hud-footer glass">
+      <div class="toolbar">
+        <button id="tool-select" class="tool-btn active" data-tool="select" title="Inspect & Select (1)">
+          <span class="tool-emoji">🔍</span>
+          <span class="tool-name">Inspect</span>
+        </button>
+        <button id="tool-road" class="tool-btn" data-tool="road" title="Build Road - $10 (2)">
+          <span class="tool-emoji">🛣️</span>
+          <span class="tool-name">Road</span>
+        </button>
+        <button id="tool-residential" class="tool-btn" data-tool="residential" title="Zone Residential - $20 (3)">
+          <span class="tool-emoji">🟢</span>
+          <span class="tool-name">Res Zone</span>
+        </button>
+        <button id="tool-commercial" class="tool-btn" data-tool="commercial" title="Zone Commercial - $30 (4)">
+          <span class="tool-emoji">🔵</span>
+          <span class="tool-name">Com Zone</span>
+        </button>
+        <button id="tool-industrial" class="tool-btn" data-tool="industrial" title="Zone Industrial - $40 (5)">
+          <span class="tool-emoji">🟡</span>
+          <span class="tool-name">Ind Zone</span>
+        </button>
+        <button id="tool-power" class="tool-btn" data-tool="power" title="Wind Turbine - $500 (6)">
+          <span class="tool-emoji">⚡</span>
+          <span class="tool-name">Turbine</span>
+        </button>
+        <button id="tool-water" class="tool-btn" data-tool="water" title="Water Tower - $400 (7)">
+          <span class="tool-emoji">💧</span>
+          <span class="tool-name">Water Tower</span>
+        </button>
+        <button id="tool-park" class="tool-btn" data-tool="park" title="Cozy Park - $300 (8)">
+          <span class="tool-emoji">🌳</span>
+          <span class="tool-name">Park</span>
+        </button>
+        <button id="tool-bulldoze" class="tool-btn danger" data-tool="bulldoze" title="Bulldozer - $5 (9)">
+          <span class="tool-emoji">🚜</span>
+          <span class="tool-name">Demolish</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container"></div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
