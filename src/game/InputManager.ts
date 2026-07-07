@@ -21,6 +21,7 @@ export class InputManager {
   hoveredCell: { x: number; y: number } | null = null;
   isBuildingDrag = false;
   lastBuiltCell: { x: number; y: number } | null = null;
+  dragStartCell: { x: number; y: number } | null = null;
 
   // Ghost indicators
   ghostMesh: THREE.Object3D | null = null;
@@ -28,8 +29,9 @@ export class InputManager {
 
   // Event handlers
   onBuild: (x: number, y: number, tool: TileType | 'bulldoze') => void = () => {};
+  onBuildLine: (cells: { x: number; y: number }[], tool: TileType) => void = () => {};
   onSelect: (x: number, y: number) => void = () => {};
-  onHover: (x: number, y: number) => void = () => {};
+  onHover: (x: number, y: number, coordsList?: { x: number; y: number }[]) => void = () => {};
 
   constructor(rendererElement: HTMLCanvasElement, camera: THREE.OrthographicCamera, scene: THREE.Scene) {
     this.rendererElement = rendererElement;
@@ -57,6 +59,7 @@ export class InputManager {
 
   setTool(tool: TileType | 'select' | 'bulldoze') {
     this.activeTool = tool;
+    this.dragStartCell = null;
     this.updateGhostMesh();
   }
 
@@ -143,25 +146,78 @@ export class InputManager {
     return null;
   }
 
+  getPathCoordinates(start: { x: number; y: number }, end: { x: number; y: number }): { x: number; y: number }[] {
+    const coordsList: { x: number; y: number }[] = [];
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      // Horizontal line
+      const step = dx >= 0 ? 1 : -1;
+      const length = Math.abs(dx);
+      for (let i = 0; i <= length; i++) {
+        coordsList.push({ x: start.x + i * step, y: start.y });
+      }
+    } else {
+      // Vertical line
+      const step = dy >= 0 ? 1 : -1;
+      const length = Math.abs(dy);
+      for (let i = 0; i <= length; i++) {
+        coordsList.push({ x: start.x, y: start.y + i * step });
+      }
+    }
+    return coordsList;
+  }
+
+  updateGhostMeshLine(cells: { x: number; y: number }[]) {
+    if (this.ghostMesh) {
+      this.scene.remove(this.ghostMesh);
+      this.ghostMesh = null;
+    }
+
+    if (this.activeTool !== 'road') return;
+
+    const group = new THREE.Group();
+    const mat = this.ghostMaterials.valid;
+
+    for (const cell of cells) {
+      const geo = new THREE.BoxGeometry(1.9, 0.08, 1.9);
+      const mesh = new THREE.Mesh(geo, mat);
+      const xPos = (cell.x - this.gridOffset) * 2;
+      const zPos = (cell.y - this.gridOffset) * 2;
+      mesh.position.set(xPos, 0, zPos);
+      group.add(mesh);
+    }
+
+    this.ghostMesh = group;
+    this.scene.add(this.ghostMesh);
+  }
+
   onMouseMove(e: MouseEvent) {
     const coords = this.getIntersectionCoords(e);
 
     if (coords) {
       this.hoveredCell = coords;
-      this.onHover(coords.x, coords.y);
 
-      // Snap ghost overlay position to center of hovered cell
-      if (this.ghostMesh) {
-        const xPos = (coords.x - this.gridOffset) * 2;
-        const zPos = (coords.y - this.gridOffset) * 2;
-        this.ghostMesh.position.set(xPos, 0, zPos);
-      }
+      if (this.isBuildingDrag && this.activeTool === 'road' && this.dragStartCell) {
+        const cells = this.getPathCoordinates(this.dragStartCell, coords);
+        this.updateGhostMeshLine(cells);
+        this.onHover(coords.x, coords.y, cells);
+      } else {
+        this.onHover(coords.x, coords.y);
 
-      // Perform drag building if mouse down
-      if (this.isBuildingDrag && this.activeTool !== 'select') {
-        if (!this.lastBuiltCell || this.lastBuiltCell.x !== coords.x || this.lastBuiltCell.y !== coords.y) {
-          this.onBuild(coords.x, coords.y, this.activeTool);
-          this.lastBuiltCell = coords;
+        if (this.ghostMesh) {
+          // If we are not dragging, ensure position snaps to single hovered cell
+          const xPos = (coords.x - this.gridOffset) * 2;
+          const zPos = (coords.y - this.gridOffset) * 2;
+          this.ghostMesh.position.set(xPos, 0, zPos);
+        }
+
+        if (this.isBuildingDrag && this.activeTool !== 'select') {
+          if (!this.lastBuiltCell || this.lastBuiltCell.x !== coords.x || this.lastBuiltCell.y !== coords.y) {
+            this.onBuild(coords.x, coords.y, this.activeTool);
+            this.lastBuiltCell = coords;
+          }
         }
       }
     } else {
@@ -181,15 +237,27 @@ export class InputManager {
         this.onSelect(coords.x, coords.y);
       } else {
         this.isBuildingDrag = true;
-        this.onBuild(coords.x, coords.y, this.activeTool);
-        this.lastBuiltCell = coords;
+        if (this.activeTool === 'road') {
+          this.dragStartCell = coords;
+          this.onMouseMove(e);
+        } else {
+          this.onBuild(coords.x, coords.y, this.activeTool);
+          this.lastBuiltCell = coords;
+        }
       }
     }
   }
 
   onMouseUp() {
+    if (this.isBuildingDrag && this.activeTool === 'road' && this.dragStartCell && this.hoveredCell) {
+      const cells = this.getPathCoordinates(this.dragStartCell, this.hoveredCell);
+      this.onBuildLine(cells, 'road');
+    }
+
     this.isBuildingDrag = false;
     this.lastBuiltCell = null;
+    this.dragStartCell = null;
+    this.updateGhostMesh();
   }
 
   // Dynamic status feedback to color ghost valid/invalid

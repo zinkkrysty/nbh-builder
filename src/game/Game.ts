@@ -124,19 +124,49 @@ export class Game {
       }
     };
 
+    this.input.onBuildLine = (cells, tool) => {
+      const emptyCells = cells.filter(cell => {
+        if (cell.x < 0 || cell.x >= this.sim.gridSize || cell.y < 0 || cell.y >= this.sim.gridSize) return false;
+        return this.sim.grid[cell.x][cell.y].type === 'empty';
+      });
+
+      if (emptyCells.length === 0) return;
+
+      const success = this.sim.buildLine(cells, tool);
+      if (success) {
+        this.sounds.playBuildSFX();
+        for (const cell of emptyCells) {
+          this.renderer.triggerPlacementParticles(cell.x, cell.y);
+        }
+      }
+    };
+
     this.input.onSelect = (x, y) => {
       this.sounds.playClickSFX();
       this.selectedTile = { x, y };
       this.updateInspector();
     };
 
-    this.input.onHover = (x, y) => {
+    this.input.onHover = (x, y, coordsList) => {
       // Dynamic placement feedback
       const tool = this.input.activeTool;
       if (tool !== 'select' && tool !== 'bulldoze') {
-        const cost = this.sim.getBuildCost(tool);
-        const tile = this.sim.grid[x][y];
-        const isValid = tile.type === 'empty' && this.sim.money >= cost;
+        let isValid = true;
+        if (coordsList && coordsList.length > 0) {
+          let emptyCount = 0;
+          for (const cell of coordsList) {
+            const tile = this.sim.grid[cell.x][cell.y];
+            if (tile.type === 'empty') {
+              emptyCount++;
+            }
+          }
+          const totalCost = emptyCount * this.sim.getBuildCost(tool);
+          isValid = this.sim.money >= totalCost;
+        } else {
+          const cost = this.sim.getBuildCost(tool);
+          const tile = this.sim.grid[x][y];
+          isValid = tile.type === 'empty' && this.sim.money >= cost;
+        }
         this.input.setPlacementValidity(isValid);
       }
     };

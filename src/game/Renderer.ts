@@ -289,6 +289,11 @@ export class Renderer {
     const oldMesh = this.buildingMeshes.get(key);
 
     if (oldMesh) {
+      // Visuals are already up to date, avoid rebuilding and flickering!
+      if (oldMesh.userData && oldMesh.userData.type === tile.type && oldMesh.userData.level === tile.level) {
+        return;
+      }
+
       this.scene.remove(oldMesh);
       // Clean up memory
       oldMesh.traverse((child) => {
@@ -332,6 +337,7 @@ export class Renderer {
 
     if (newMesh) {
       newMesh.position.set(xPos, 0, zPos);
+      newMesh.userData = { type: tile.type, level: tile.level };
       
       // Shadow casting configurations
       newMesh.traverse((child) => {

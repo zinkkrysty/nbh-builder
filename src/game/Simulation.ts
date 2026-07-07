@@ -151,6 +151,43 @@ export class Simulation {
     return true;
   }
 
+  buildLine(cells: { x: number; y: number }[], type: TileType): boolean {
+    const emptyCells = cells.filter(cell => {
+      if (cell.x < 0 || cell.x >= this.gridSize || cell.y < 0 || cell.y >= this.gridSize) return false;
+      return this.grid[cell.x][cell.y].type === 'empty';
+    });
+    if (emptyCells.length === 0) return false;
+
+    const cost = emptyCells.length * this.getBuildCost(type);
+    if (this.money < cost) {
+      this.onNotification("Not enough money to build this!", "danger");
+      return false;
+    }
+
+    this.money -= cost;
+    for (const cell of emptyCells) {
+      const tile = this.grid[cell.x][cell.y];
+      tile.type = type;
+      tile.level = 0;
+      tile.progress = 0;
+      tile.powered = false;
+      tile.watered = false;
+      tile.occupancy = 0;
+      tile.maxOccupancy = 0;
+      tile.happiness = 100;
+      tile.abandoned = false;
+    }
+
+    this.updateUtilities();
+
+    for (const cell of emptyCells) {
+      this.onTileUpdate(this.grid[cell.x][cell.y]);
+    }
+
+    return true;
+  }
+
+
   demolish(x: number, y: number): boolean {
     if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
     const tile = this.grid[x][y];
@@ -181,6 +218,12 @@ export class Simulation {
 
   // Update utilities propagation along the 100x100 grid
   updateUtilities() {
+    // Store previous utility states before resetting
+    const prevStates = this.grid.map(row => row.map(tile => ({
+      powered: tile.powered,
+      watered: tile.watered
+    })));
+
     // Reset power and water for all cells
     for (let x = 0; x < this.gridSize; x++) {
       for (let y = 0; y < this.gridSize; y++) {
@@ -258,12 +301,15 @@ export class Simulation {
     propagate(powerSources, 'powered');
     propagate(waterSources, 'watered');
 
-    // Notify updates for modified tiles (could filter, but let's notify for zones)
+    // Notify updates only for tiles whose utility status actually changed
     for (let x = 0; x < this.gridSize; x++) {
       for (let y = 0; y < this.gridSize; y++) {
         const tile = this.grid[x][y];
         if (tile.type !== 'empty' && tile.type !== 'road') {
-          this.onTileUpdate(tile);
+          const prev = prevStates[x][y];
+          if (tile.powered !== prev.powered || tile.watered !== prev.watered) {
+            this.onTileUpdate(tile);
+          }
         }
       }
     }
@@ -293,6 +339,7 @@ export class Simulation {
 
     let localPop = 0;
     let localJobs = 0;
+    let localComJobs = 0;
     let happySum = 0;
     let zonedCount = 0;
 
@@ -387,6 +434,7 @@ export class Simulation {
         } else if (tile.type === 'commercial') {
           totalCLevel += tile.level;
           localJobs += tile.occupancy;
+          localComJobs += tile.occupancy;
         } else if (tile.type === 'industrial') {
           totalILevel += tile.level;
           localJobs += tile.occupancy;
@@ -403,15 +451,18 @@ export class Simulation {
     // 3. Update Demand Indices
     // Residential demand: driven by vacant jobs (jobs > pop) and overall happiness
     const jobMarketR = this.jobs - this.population;
-    this.demandR = Math.max(-100, Math.min(100, Math.round(jobMarketR * 1.5 + (this.overallHappiness - 70) * 0.5)));
+    const targetR = Math.max(-100, Math.min(100, Math.round(jobMarketR * 1.5 + (this.overallHappiness - 70) * 0.5)));
+    this.demandR = Math.round(this.demandR * 0.7 + targetR * 0.3);
 
     // Commercial demand: driven by population (customers) and job supply
-    const comRatio = this.population > 0 ? (totalCLevel * 4) / this.population : 0;
-    this.demandC = Math.max(-100, Math.min(100, Math.round((0.15 - comRatio) * 400 + (this.overallHappiness - 50) * 0.2)));
+    const comRatio = this.population > 0 ? localComJobs / this.population : 0.5;
+    const targetC = Math.max(-100, Math.min(100, Math.round((0.15 - comRatio) * 200 + (this.overallHappiness - 50) * 0.2)));
+    this.demandC = Math.round(this.demandC * 0.7 + targetC * 0.3);
 
     // Industrial demand: driven by unemployment (pop > jobs) and low tax rates
     const laborSupply = this.population - this.jobs;
-    this.demandI = Math.max(-100, Math.min(100, Math.round(laborSupply * 1.0 + (0.15 - this.taxRate) * 300)));
+    const targetI = Math.max(-100, Math.min(100, Math.round(laborSupply * 1.0 + (0.15 - this.taxRate) * 300)));
+    this.demandI = Math.round(this.demandI * 0.7 + targetI * 0.3);
   }
 
   // Search adjacent tiles (5-tile radius) for parks
