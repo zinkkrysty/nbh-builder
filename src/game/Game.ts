@@ -377,10 +377,11 @@ export class Game {
 
       // Update sun/moon icons
       if (timeIconEl) {
-        if (hrs >= 19 || hrs < 5) timeIconEl.innerText = '🌙';
-        else if (hrs >= 5 && hrs < 7) timeIconEl.innerText = '🌅';
-        else if (hrs >= 17 && hrs < 19) timeIconEl.innerText = '🌇';
-        else timeIconEl.innerText = '☀️';
+        const timeIconImg = timeIconEl as HTMLImageElement;
+        if (hrs >= 19 || hrs < 5) timeIconImg.src = '/moon_icon.png';
+        else if (hrs >= 5 && hrs < 7) timeIconImg.src = '/dawn_icon.png';
+        else if (hrs >= 17 && hrs < 19) timeIconImg.src = '/dusk_icon.png';
+        else timeIconImg.src = '/sun_icon.png';
       }
     }
 

@@ -42,5 +42,21 @@ This roadmap outlines proposed future phases to expand Serene Valley into a rich
     *   *Cozy Fog*: Misty fog rolls in, reducing rendering view distance and increasing cozy lofi synthesizer wind noise.
 *   **Seasonal Transitions**: Gradually shift ground/tree colors over time. Winter overlays snow on rooftops, while Spring triggers pink cherry blossom petals.
 *   **Calm Community Events**:
-    *   *Farmers Market*: Celebrated on weekends, boosting commercial sales.
     *   *Confetti Festivals*: Citizens gather at parks and set off colorful floating paper particles.
+
+### Phase 5: Cozy Community & Synergy
+*   **Neighborhood Synergy & Curb Appeal**:
+    *   *Cul-de-sac & Co-housing*: Clustering residential zones grants happiness and decreases utility demand.
+    *   *Corner Store Synergy*: Adjacent commercial/residential zones boost sales and resident happiness.
+    *   *Procedural Curb Appeal*: Happy residences sprout flowerbeds, swings, mailboxes, and fences.
+*   **Cooperative Agriculture**:
+    *   *Agricultural Zoning*: Establish community gardens with procedural rows of crops, scarecrows, and compost piles.
+    *   *Farm-to-Table Loop*: Adjacent gardens boost local home happiness and supply nearby stores with locally grown produce.
+*   **Calm Community Events**:
+    *   *Neighborhood Block Parties*: Residential streets temporarily close, spawning barbecues, string lights, and redirecting traffic.
+    *   *Saturday Yard Sales*: Happy homes spawn front-lawn sale tables, creating small citizen flows and tax contributions.
+    *   *Farmers Markets*: Park stalls sell garden produce on Sunday mornings.
+*   **Citizen Projects & Crowdfunding**:
+    *   *Neighborhood Request Board*: Notepad listing local requests (e.g. library, parks, power).
+    *   *Community Fund*: Happy citizens pool savings to fund zero-maintenance landmarks (Gazebos, Libraries, Cafes).
+
