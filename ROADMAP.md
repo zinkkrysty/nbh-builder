@@ -1,6 +1,6 @@
-# Serene Valley - Development Roadmap
+# NaboCity - Development Roadmap
 
-This roadmap outlines proposed future phases to expand Serene Valley into a richer, more detailed, and deeply immersive calm city builder.
+This roadmap outlines proposed future phases to expand NaboCity into a richer, more detailed, and deeply immersive calm city builder.
 
 ---
 

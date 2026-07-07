@@ -57,12 +57,12 @@ export class Game {
         }
 
         // Try to auto-load saved game if exists
-        if (localStorage.getItem('serene_valley_save')) {
+        if (localStorage.getItem('nabocity_save') || localStorage.getItem('serene_valley_save')) {
           setTimeout(() => {
             this.loadGame();
           }, 400);
         } else {
-          this.sim.onNotification('Welcome to Serene Valley! Start by laying some roads and zoning Residential zones.', 'success');
+          this.sim.onNotification('Welcome to NaboCity! Start by laying some roads and zoning Residential zones.', 'success');
         }
       });
     } else {
@@ -594,13 +594,16 @@ export class Game {
   saveGame() {
     this.sounds.playClickSFX();
     const saveData = this.sim.saveState();
-    localStorage.setItem('serene_valley_save', saveData);
+    localStorage.setItem('nabocity_save', saveData);
     this.sim.onNotification('Neighborhood saved successfully to Local Storage!', 'success');
   }
 
   loadGame() {
     this.sounds.playClickSFX();
-    const saveData = localStorage.getItem('serene_valley_save');
+    let saveData = localStorage.getItem('nabocity_save');
+    if (!saveData) {
+      saveData = localStorage.getItem('serene_valley_save');
+    }
     if (!saveData) {
       this.sim.onNotification('No saved neighborhood data found in this browser!', 'warning');
       this.sounds.playWarningSFX();

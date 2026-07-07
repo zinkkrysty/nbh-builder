@@ -1,6 +1,6 @@
-# Serene Valley - Calm 3D City Builder
+# NaboCity - Calm 3D City Builder
 
-Serene Valley is a cozy, low-poly 3D city builder game set in a peaceful neighborhood, complete with a realistic economic simulation, zoning, utility propagation grids, a day/night cycle, and a custom procedurally generated lofi soundtrack.
+NaboCity is a cozy, low-poly 3D city builder game set in a peaceful neighborhood, complete with a realistic economic simulation, zoning, utility propagation grids, a day/night cycle, and a custom procedurally generated lofi soundtrack.
 
 Built using **Three.js** and **Vite** with **TypeScript**, the game runs completely client-side in the browser.
 
@@ -49,7 +49,7 @@ Built using **Three.js** and **Vite** with **TypeScript**, the game runs complet
 ### Installation
 1.  Clone the repository or navigate to the directory:
     ```bash
-    cd nbh-builder
+    cd nabocity
     ```
 2.  Install dependencies:
     ```bash
@@ -72,7 +72,7 @@ The output files will be built in the `dist/` directory.
 
 ## 📁 Project Structure
 ```
-nbh-builder/
+nabocity/
 ├── index.html            # Entry markup and inline splash screen styling
 ├── package.json          # Dependency configurations
 ├── tsconfig.json         # TypeScript configuration
