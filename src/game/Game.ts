@@ -310,8 +310,8 @@ export class Game {
   processIndustrialSmoke() {
     if (this.sim.speed === 0) return;
 
-    for (let x = 0; x < this.sim.gridSize; x += 3) { // Step to avoid heavy loops
-      for (let y = 0; y < this.sim.gridSize; y += 3) {
+    for (let x = 0; x < this.sim.gridSize; x++) {
+      for (let y = 0; y < this.sim.gridSize; y++) {
         const tile = this.sim.grid[x][y];
         if (tile.type === 'industrial' && tile.level > 0 && !tile.abandoned && tile.powered && tile.watered) {
           // Random probability per frame to puff smoke

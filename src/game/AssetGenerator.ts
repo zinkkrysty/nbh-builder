@@ -3,6 +3,7 @@ import * as THREE from 'three';
 export class AssetGenerator {
   // Shared materials for performance
   materials: { [key: string]: THREE.Material } = {};
+  isNightMode: boolean = false;
 
   constructor() {
     this.initMaterials();
@@ -99,6 +100,9 @@ export class AssetGenerator {
 
   // Set emissive intensity of windows & headlights (0.0 for day, 1.2+ for night)
   setNightMode(isNight: boolean) {
+    if (this.isNightMode === isNight) return;
+    this.isNightMode = isNight;
+
     const winMat = this.materials.window as THREE.MeshStandardMaterial;
     gsapAnimate(winMat, 'emissiveIntensity', isNight ? 1.4 : 0.0, 1.5);
 

@@ -236,7 +236,7 @@ export class Simulation {
               const conducts = neighborTile.type === 'road' || 
                                neighborTile.type === 'power' ||
                                neighborTile.type === 'water' ||
-                               (neighborTile.type !== 'empty' && neighborTile.level > 0);
+                               (neighborTile.type !== 'empty' && neighborTile.type !== 'park' && neighborTile.level > 0);
 
               if (conducts) {
                 neighborTile[propKey] = true;
@@ -416,7 +416,7 @@ export class Simulation {
 
   // Search adjacent tiles (5-tile radius) for parks
   hasParkNearby(x: number, y: number): boolean {
-    const radius = 4;
+    const radius = 5;
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -radius; dy <= radius; dy++) {
         const nx = x + dx;
