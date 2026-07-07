@@ -401,7 +401,7 @@ export class Renderer {
 
   // Trigger smoke particle for active factory chimneys
   emitChimneySmoke(xPos: number, yPos: number, zPos: number) {
-    const p = new THREE.Mesh(this.smokeGeometry, this.smokeMaterial);
+    const p = new THREE.Mesh(this.smokeGeometry, this.smokeMaterial.clone());
     p.position.set(xPos, yPos, zPos);
     this.scene.add(p);
 
@@ -513,7 +513,9 @@ export class Renderer {
 
       if (p.life >= p.maxLife) {
         this.scene.remove(p.mesh);
-        p.mesh.geometry.dispose();
+        if (p.mesh.material instanceof THREE.Material) {
+          p.mesh.material.dispose();
+        }
         this.particles.splice(i, 1);
       }
     }
