@@ -167,6 +167,13 @@
         <button id="btn-speed-fast" class="speed-btn" title="Fast Forward"><img class="btn-icon" src="/fast_icon.png" alt="Fast Forward"></button>
         <button id="btn-music-toggle" class="control-btn" title="Toggle Calm Music"><img class="btn-icon" src="/music_icon.png" alt="Music"></button>
         <button id="btn-sfx-toggle" class="control-btn" title="Toggle Sound Effects"><img class="btn-icon" src="/sfx_icon.png" alt="SFX"></button>
+        <button id="btn-dev-toggle" class="control-btn" title="Open Developer Menu">
+          <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px; display: block; margin: 0 auto; color: #60a5fa; transition: color 0.2s;">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+            <line x1="12" y1="4" x2="12" y2="20"></line>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -282,6 +289,74 @@
 
     <!-- Toast Notification Container -->
     <div id="toast-container"></div>
+  </div>
+
+  <!-- Dev Menu Panel -->
+  <div id="dev-menu" class="glass hidden">
+    <div class="dev-menu-header">
+      <div class="dev-menu-title-group">
+        <svg class="dev-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px; color: #60a5fa; margin-right: 8px; display: inline-block; vertical-align: middle;">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+          <line x1="12" y1="4" x2="12" y2="20"></line>
+        </svg>
+        <span class="dev-menu-title">Developer Menu</span>
+      </div>
+      <button id="btn-dev-close" class="close-btn" title="Close Panel">&times;</button>
+    </div>
+    <div class="dev-menu-body">
+      <!-- 3D Canvas Preview Viewport -->
+      <div class="preview-panel">
+        <div id="dev-preview-canvas-container"></div>
+        <div class="preview-controls">
+          <button id="btn-preview-rotate" class="preview-btn active">Auto Rotate</button>
+          <button id="btn-preview-time" class="preview-btn">Day Mode</button>
+        </div>
+      </div>
+
+      <!-- Controls Panel -->
+      <div class="controls-panel">
+        <div class="control-group">
+          <label for="dev-asset-select">Select Asset</label>
+          <div class="select-wrapper">
+            <select id="dev-asset-select">
+              <option value="residential">Residential House</option>
+              <option value="commercial">Commercial Building</option>
+              <option value="industrial">Industrial Building</option>
+              <option value="turbine">Wind Turbine</option>
+              <option value="water">Water Tower</option>
+              <option value="park">Cozy Park</option>
+              <option value="tree">Tree</option>
+              <option value="car">Traffic Car</option>
+              <option value="road">Road Segment</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-group" id="dev-level-group">
+          <label for="dev-level-select">Density Level</label>
+          <div class="select-wrapper">
+            <select id="dev-level-select">
+              <option value="0">Level 0 (Zone)</option>
+              <option value="1">Level 1</option>
+              <option value="2" selected>Level 2 (Cozy Redesign)</option>
+              <option value="3">Level 3</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Road Connection Options (Only shown when Road is selected) -->
+        <div class="control-group hidden" id="dev-road-group">
+          <label>Road Connections</label>
+          <div class="checkbox-grid">
+            <label><input type="checkbox" id="dev-road-n" checked> North</label>
+            <label><input type="checkbox" id="dev-road-s" checked> South</label>
+            <label><input type="checkbox" id="dev-road-e"> East</label>
+            <label><input type="checkbox" id="dev-road-w"> West</label>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

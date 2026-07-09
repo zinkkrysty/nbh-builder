@@ -222,7 +222,7 @@ export class AssetGenerator {
   }
 
   // Helpers to add glowing window details on walls
-  addWindows(group: THREE.Group, size: { w: number; h: number; d: number }, rows: number, cols: number) {
+  addWindows(group: THREE.Group, size: { w: number; h: number; d: number }, rows: number, cols: number, yOffset: number = 0.1) {
     const winGeo = new THREE.BoxGeometry(0.12, 0.18, 0.03);
     const winMat = this.materials.window;
 
@@ -231,7 +231,7 @@ export class AssetGenerator {
     const spacingY = size.h / (rows + 1);
 
     for (let r = 1; r <= rows; r++) {
-      const y = spacingY * r - size.h / 2;
+      const y = spacingY * r + yOffset;
       
       // Front and Back Walls
       for (let c = 1; c <= cols; c++) {
@@ -319,32 +319,229 @@ export class AssetGenerator {
       this.addWindows(group, { w, h, d }, 1, 2);
 
     } else if (level === 2) {
-      // Level 2: Two-story suburban house
-      const w = 1.3, h = 1.4, d = 1.3;
-      const wallGeo = new THREE.BoxGeometry(w, h, d);
-      wallGeo.translate(0, h / 2 + 0.1, 0);
-      const wall = new THREE.Mesh(wallGeo, this.materials.wallRes2);
-      wall.castShadow = true;
-      wall.receiveShadow = true;
-      group.add(wall);
+      // Level 2: High-fidelity low-poly cozy house matching concept art
+      
+      const brickMat = new THREE.MeshStandardMaterial({ color: 0xa84c3e, roughness: 0.8 }); // Red brick
+      const roofCozyMat = new THREE.MeshStandardMaterial({ color: 0x70655c, roughness: 0.75 }); // Warm slate-brown
+      
+      // 1. Main Block (Two-story)
+      const mainBlock = new THREE.Group();
+      const w1 = 1.05, h1 = 1.25, d1 = 0.85;
+      
+      // Wall Split: Lower Brick Foundation
+      const hBrick1 = 0.25;
+      const wallBrickGeo1 = new THREE.BoxGeometry(w1, hBrick1, d1);
+      wallBrickGeo1.translate(0, hBrick1 / 2 + 0.1, 0);
+      const wallBrick1 = new THREE.Mesh(wallBrickGeo1, brickMat);
+      wallBrick1.castShadow = true;
+      wallBrick1.receiveShadow = true;
+      mainBlock.add(wallBrick1);
 
-      // Double pitched roof
-      const roofGeo = new THREE.CylinderGeometry(0.01, 1.05, 1.4, 4);
-      roofGeo.rotateX(Math.PI / 2);
-      roofGeo.rotateY(Math.PI / 4);
-      roofGeo.translate(0, h + 0.35 + 0.1, 0);
-      const roof = new THREE.Mesh(roofGeo, this.materials.roof);
-      roof.castShadow = true;
-      group.add(roof);
+      // Wall Split: Upper Cream Walls
+      const hCream1 = 1.0;
+      const wallCreamGeo1 = new THREE.BoxGeometry(w1, hCream1, d1);
+      wallCreamGeo1.translate(0, hCream1 / 2 + 0.1 + hBrick1, 0);
+      const wallCream1 = new THREE.Mesh(wallCreamGeo1, this.materials.wallRes1);
+      wallCream1.castShadow = true;
+      wallCream1.receiveShadow = true;
+      mainBlock.add(wallCream1);
 
-      // Chimney
-      const chimGeo = new THREE.BoxGeometry(0.18, 0.6, 0.18);
-      chimGeo.translate(0.35, h + 0.4, 0.2);
-      const chimney = new THREE.Mesh(chimGeo, this.materials.dirt);
+      // Main Block peaked roof (Hipped pyramid)
+      // Base diagonal for cone is roughly 1.0. We scale it in X and Z to overhang correctly.
+      const roofGeo1 = new THREE.ConeGeometry(0.75, 0.55, 4);
+      roofGeo1.rotateY(Math.PI / 4);
+      roofGeo1.translate(0, h1 + 0.275 + 0.1, 0);
+      const roof1 = new THREE.Mesh(roofGeo1, roofCozyMat);
+      roof1.scale.set(1.22, 1.0, 1.02); // Overhang match
+      roof1.castShadow = true;
+      mainBlock.add(roof1);
+
+      // Main Block chimney
+      const chimGeo = new THREE.BoxGeometry(0.14, 0.55, 0.14);
+      const chimney = new THREE.Mesh(chimGeo, brickMat); // Brick chimney
+      chimney.position.set(-0.25, h1 + 0.15, -0.2);
       chimney.castShadow = true;
-      group.add(chimney);
+      mainBlock.add(chimney);
 
-      this.addWindows(group, { w, h, d }, 2, 2);
+      // Chimney slate cap
+      const chimCapGeo = new THREE.BoxGeometry(0.18, 0.04, 0.18);
+      const chimCap = new THREE.Mesh(chimCapGeo, this.materials.road);
+      chimCap.position.set(-0.25, h1 + 0.41, -0.2);
+      chimCap.castShadow = true;
+      mainBlock.add(chimCap);
+
+      // Chimney pots (clay tubes)
+      const potGeo1 = new THREE.CylinderGeometry(0.024, 0.024, 0.08, 4);
+      const pot1 = new THREE.Mesh(potGeo1, this.materials.roof); // Terracotta red pots
+      pot1.position.set(-0.28, h1 + 0.45, -0.2);
+      mainBlock.add(pot1);
+
+      const potGeo2 = new THREE.CylinderGeometry(0.024, 0.024, 0.08, 4);
+      const pot2 = new THREE.Mesh(potGeo2, this.materials.roof);
+      pot2.position.set(-0.22, h1 + 0.45, -0.2);
+      mainBlock.add(pot2);
+
+      // Main Block front door
+      const doorGeo = new THREE.BoxGeometry(0.2, 0.45, 0.04);
+      const door = new THREE.Mesh(doorGeo, this.materials.trunk);
+      door.position.set(-0.1, 0.325, d1 / 2 + 0.01);
+      mainBlock.add(door);
+
+      // Porch deck (wooden platform spanning front door + window)
+      const porchGeo = new THREE.BoxGeometry(0.7, 0.03, 0.25);
+      const porch = new THREE.Mesh(porchGeo, this.materials.trunk);
+      porch.position.set(-0.1, 0.115, d1 / 2 + 0.125);
+      porch.receiveShadow = true;
+      mainBlock.add(porch);
+
+      // Porch columns (two white pillars)
+      const colGeo1 = new THREE.CylinderGeometry(0.015, 0.015, 0.46, 4);
+      const col1 = new THREE.Mesh(colGeo1, this.materials.whiteMetal);
+      col1.position.set(-0.4, 0.36, d1 / 2 + 0.22);
+      col1.castShadow = true;
+      mainBlock.add(col1);
+
+      const colGeo2 = new THREE.CylinderGeometry(0.015, 0.015, 0.46, 4);
+      const col2 = new THREE.Mesh(colGeo2, this.materials.whiteMetal);
+      col2.position.set(0.2, 0.36, d1 / 2 + 0.22);
+      col2.castShadow = true;
+      mainBlock.add(col2);
+
+      // Peaked Porch Roof / Awning (wide sloped awning)
+      const porchRoofGeo = new THREE.BoxGeometry(0.76, 0.04, 0.3);
+      const porchRoof = new THREE.Mesh(porchRoofGeo, roofCozyMat);
+      porchRoof.rotation.x = 0.15;
+      porchRoof.position.set(-0.1, 0.58, d1 / 2 + 0.15);
+      porchRoof.castShadow = true;
+      mainBlock.add(porchRoof);
+
+      // Front porch lantern
+      const lanternGeo = new THREE.BoxGeometry(0.03, 0.06, 0.06);
+      const lantern = new THREE.Mesh(lanternGeo, this.materials.trunk);
+      lantern.position.set(0.06, 0.46, d1 / 2 + 0.03);
+      mainBlock.add(lantern);
+
+      const bulbGeo = new THREE.SphereGeometry(0.024, 4, 4);
+      const bulb = new THREE.Mesh(bulbGeo, this.materials.window);
+      bulb.position.set(0.06, 0.42, d1 / 2 + 0.06);
+      mainBlock.add(bulb);
+
+      // Planter boxes and flowers under bottom front windows (x = -0.175 and x = 0.175, y = 0.37)
+      const addPlanter = (xPos: number) => {
+        // Wooden planter box
+        const boxGeo = new THREE.BoxGeometry(0.18, 0.05, 0.08);
+        const box = new THREE.Mesh(boxGeo, this.materials.trunk);
+        box.position.set(xPos, 0.37, d1 / 2 + 0.04);
+        box.castShadow = true;
+        mainBlock.add(box);
+
+        // Green leaves foliage
+        const leavesGeo = new THREE.BoxGeometry(0.16, 0.04, 0.06);
+        const leaves = new THREE.Mesh(leavesGeo, this.materials.leaves);
+        leaves.position.set(xPos, 0.4, d1 / 2 + 0.04);
+        mainBlock.add(leaves);
+
+        // Pink blossom highlight
+        const flowerGeo = new THREE.BoxGeometry(0.04, 0.03, 0.04);
+        const flower = new THREE.Mesh(flowerGeo, this.materials.blossom);
+        flower.position.set(xPos + 0.02, 0.42, d1 / 2 + 0.04);
+        mainBlock.add(flower);
+      };
+      // Place one on the right bottom window
+      addPlanter(0.175); // Bottom right window planter
+
+      // Main Block windows (2 rows, 2 columns)
+      this.addWindows(mainBlock, { w: w1, h: h1, d: d1 }, 2, 2, 0.1);
+
+      mainBlock.position.set(-0.2, 0, 0.05);
+      group.add(mainBlock);
+
+      // 2. Side Wing Block (One-story garage/extension)
+      const wingBlock = new THREE.Group();
+      const w2 = 0.75, h2 = 0.75, d2 = 0.8;
+      
+      // Side Wing Split: Lower Brick Foundation
+      const hBrick2 = 0.2;
+      const wallBrickGeo2 = new THREE.BoxGeometry(w2, hBrick2, d2);
+      wallBrickGeo2.translate(0, hBrick2 / 2 + 0.1, 0);
+      const wallBrick2 = new THREE.Mesh(wallBrickGeo2, brickMat);
+      wallBrick2.castShadow = true;
+      wallBrick2.receiveShadow = true;
+      wingBlock.add(wallBrick2);
+
+      // Side Wing Split: Upper Cream Walls
+      const hCream2 = 0.55;
+      const wallCreamGeo2 = new THREE.BoxGeometry(w2, hCream2, d2);
+      wallCreamGeo2.translate(0, hCream2 / 2 + 0.1 + hBrick2, 0);
+      const wallCream2 = new THREE.Mesh(wallCreamGeo2, this.materials.wallRes1);
+      wallCream2.castShadow = true;
+      wallCream2.receiveShadow = true;
+      wingBlock.add(wallCream2);
+
+      // Wing Block peaked roof
+      const roofGeo2 = new THREE.ConeGeometry(0.55, 0.4, 4);
+      roofGeo2.rotateY(Math.PI / 4);
+      roofGeo2.translate(0, h2 + 0.2 + 0.1, 0);
+      const roof2 = new THREE.Mesh(roofGeo2, roofCozyMat);
+      roof2.scale.set(1.02, 1.0, 1.05); // Overhang match
+      roof2.castShadow = true;
+      wingBlock.add(roof2);
+
+      // Garage Door (White/cream paneled door in front of the side wing)
+      const garageDoorGeo = new THREE.BoxGeometry(0.55, 0.48, 0.02);
+      const garageDoor = new THREE.Mesh(garageDoorGeo, this.materials.whiteMetal);
+      garageDoor.position.set(0, 0.34, d2 / 2 + 0.01);
+      garageDoor.castShadow = true;
+      wingBlock.add(garageDoor);
+
+      // Garage panels/lines (using dark metal for shadows)
+      const panelGeo = new THREE.BoxGeometry(0.51, 0.02, 0.01);
+      const line1 = new THREE.Mesh(panelGeo, this.materials.road);
+      line1.position.set(0, 0.2, d2 / 2 + 0.015);
+      wingBlock.add(line1);
+
+      const line2 = new THREE.Mesh(panelGeo, this.materials.road);
+      line2.position.set(0, 0.32, d2 / 2 + 0.015);
+      wingBlock.add(line2);
+
+      const line3 = new THREE.Mesh(panelGeo, this.materials.road);
+      line3.position.set(0, 0.44, d2 / 2 + 0.015);
+      wingBlock.add(line3);
+
+      // Wing Block windows (1 row, 1 column)
+      this.addWindows(wingBlock, { w: w2, h: h2, d: d2 }, 1, 1, 0.1);
+
+      wingBlock.position.set(0.4, 0, -0.15);
+      group.add(wingBlock);
+
+      // 3. Flagstone walkway (4 organic paving stones in front of the porch)
+      const stone1Geo = new THREE.BoxGeometry(0.16, 0.01, 0.16);
+      const stone1 = new THREE.Mesh(stone1Geo, this.materials.whiteMetal);
+      stone1.rotation.y = 0.3;
+      stone1.position.set(-0.30, 0.105, 0.74);
+      stone1.receiveShadow = true;
+      group.add(stone1);
+
+      const stone2Geo = new THREE.BoxGeometry(0.18, 0.01, 0.14);
+      const stone2 = new THREE.Mesh(stone2Geo, this.materials.whiteMetal);
+      stone2.rotation.y = -0.2;
+      stone2.position.set(-0.27, 0.105, 0.82);
+      stone2.receiveShadow = true;
+      group.add(stone2);
+
+      const stone3Geo = new THREE.BoxGeometry(0.14, 0.01, 0.16);
+      const stone3 = new THREE.Mesh(stone3Geo, this.materials.whiteMetal);
+      stone3.rotation.y = 0.5;
+      stone3.position.set(-0.32, 0.105, 0.90);
+      stone3.receiveShadow = true;
+      group.add(stone3);
+
+      const stone4Geo = new THREE.BoxGeometry(0.16, 0.01, 0.18);
+      const stone4 = new THREE.Mesh(stone4Geo, this.materials.whiteMetal);
+      stone4.rotation.y = -0.4;
+      stone4.position.set(-0.28, 0.105, 0.98);
+      stone4.receiveShadow = true;
+      group.add(stone4);
 
     } else if (level >= 3) {
       // Level 3: Three-story brick/modern apartment
@@ -422,7 +619,7 @@ export class AssetGenerator {
       gc.position.set(w / 2 - 0.2, h / 2 + 0.08, d / 2 - 0.2);
       group.add(gc);
 
-      this.addWindows(group, { w, h, d }, 2, 2);
+      this.addWindows(group, { w, h, d }, 2, 2, 0.08);
 
     } else if (level >= 3) {
       // Level 3: Modern corporate skyscraper
@@ -439,7 +636,7 @@ export class AssetGenerator {
       strip.position.set(0, h / 2 + 0.08, d / 2 + 0.01);
       group.add(strip);
 
-      this.addWindows(group, { w, h, d }, 4, 3);
+      this.addWindows(group, { w, h, d }, 4, 3, 0.08);
     }
 
     return group;

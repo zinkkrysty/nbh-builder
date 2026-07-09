@@ -4,6 +4,7 @@ import { InputManager } from './InputManager';
 import { AssetGenerator } from './AssetGenerator';
 import { SoundManager } from './SoundManager';
 import { TrafficManager } from './TrafficManager';
+import { DevMenu } from './DevMenu';
 
 export class Game {
   sim: Simulation;
@@ -12,6 +13,7 @@ export class Game {
   input: InputManager;
   sounds: SoundManager;
   traffic: TrafficManager;
+  devMenu: DevMenu;
 
   // Loop references
   lastFrameTime = performance.now();
@@ -30,6 +32,7 @@ export class Game {
     this.sounds = new SoundManager();
     this.traffic = new TrafficManager(this.sim, this.renderer);
     this.renderer.traffic = this.traffic;
+    this.devMenu = new DevMenu(this.assets);
 
     this.setupBindings();
     this.startLoops();
