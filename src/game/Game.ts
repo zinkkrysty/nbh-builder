@@ -26,6 +26,7 @@ export class Game {
     this.sim = new Simulation();
     this.assets = new AssetGenerator();
     this.renderer = new Renderer('canvas-container', this.assets);
+    this.renderer.sim = this.sim;
     
     const canvas = this.renderer.renderer.domElement;
     this.input = new InputManager(canvas, this.renderer.camera, this.renderer.scene);
@@ -388,8 +389,15 @@ export class Game {
             const zPos = (tile.y - gridOffset) * 2;
 
             const chimneyOffsets = this.renderer.assets.getResidentialChimneyPos(tile.level, tile.x, tile.y);
+            const targetRotation = this.renderer.calculateTileRotation(tile);
+            const cos = Math.cos(targetRotation);
+            const sin = Math.sin(targetRotation);
+
             for (const offset of chimneyOffsets) {
-              this.renderer.emitChimneySmoke(xPos + offset.x, offset.y, zPos + offset.z);
+              const rx = offset.x * cos - offset.z * sin;
+              const rz = offset.x * sin + offset.z * cos;
+              const ry = offset.y - 0.06;
+              this.renderer.emitChimneySmoke(xPos + rx, ry, zPos + rz);
             }
           }
         }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { AssetGenerator } from './AssetGenerator';
-import { TileState } from './Simulation';
+import { Simulation, TileState } from './Simulation';
 import { TrafficManager } from './TrafficManager';
 
 export class Renderer {
@@ -9,6 +9,7 @@ export class Renderer {
   camera!: THREE.OrthographicCamera;
   renderer!: THREE.WebGLRenderer;
   assets: AssetGenerator;
+  sim?: Simulation;
 
   // Lights
   dirLight!: THREE.DirectionalLight;
@@ -283,14 +284,44 @@ export class Renderer {
     });
   }
 
+  calculateTileRotation(tile: TileState): number {
+    if (!this.sim) return 0;
+    if (tile.type !== 'residential' && tile.type !== 'commercial' && tile.type !== 'industrial') {
+      return 0;
+    }
+    const x = tile.x;
+    const y = tile.y;
+    const gridSize = this.sim.gridSize;
+
+    // Check neighbors: South (y+1) is +Z, North (y-1) is -Z, East (x+1) is +X, West (x-1) is -X.
+    // Order of preference: South, North, East, West.
+    const hasRoadSouth = y < gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
+    const hasRoadNorth = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+    const hasRoadEast = x < gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
+    const hasRoadWest = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+
+    if (hasRoadSouth) return 0;
+    if (hasRoadNorth) return Math.PI;
+    if (hasRoadEast) return Math.PI / 2;
+    if (hasRoadWest) return -Math.PI / 2;
+
+    return 0;
+  }
+
   // Render individual zoned structures on state changes
   updateTileMesh(tile: TileState) {
     const key = `${tile.x},${tile.y}`;
     const oldMesh = this.buildingMeshes.get(key);
+    const targetRotation = this.calculateTileRotation(tile);
 
     if (oldMesh) {
       // Visuals are already up to date, avoid rebuilding and flickering!
-      if (oldMesh.userData && oldMesh.userData.type === tile.type && oldMesh.userData.level === tile.level) {
+      if (
+        oldMesh.userData &&
+        oldMesh.userData.type === tile.type &&
+        oldMesh.userData.level === tile.level &&
+        oldMesh.userData.rotation === targetRotation
+      ) {
         return;
       }
 
@@ -336,8 +367,12 @@ export class Renderer {
     }
 
     if (newMesh) {
-      newMesh.position.set(xPos, 0, zPos);
-      newMesh.userData = { type: tile.type, level: tile.level };
+      const yOffset = tile.type === 'residential' ? -0.06 : 0;
+      newMesh.position.set(xPos, yOffset, zPos);
+      if (tile.type === 'residential' || tile.type === 'commercial' || tile.type === 'industrial') {
+        newMesh.rotation.y = targetRotation;
+      }
+      newMesh.userData = { type: tile.type, level: tile.level, rotation: targetRotation };
       
       // Shadow casting configurations
       newMesh.traverse((child) => {
