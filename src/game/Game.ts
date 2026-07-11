@@ -323,6 +323,9 @@ export class Game {
 
       // Trigger random industrial chimney smoke
       this.processIndustrialSmoke();
+
+      // Trigger random residential chimney smoke
+      this.processResidentialSmoke();
     };
     requestAnimationFrame(animateLoop);
 
@@ -363,6 +366,30 @@ export class Game {
               // Level 3 double chimney
               this.renderer.emitChimneySmoke(xPos - 0.4, 2.2, zPos - 0.4);
               this.renderer.emitChimneySmoke(xPos - 0.1, 2.2, zPos - 0.4);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Generate smoke particles dynamically for functioning residential buildings
+  processResidentialSmoke() {
+    if (this.sim.speed === 0) return;
+
+    for (let x = 0; x < this.sim.gridSize; x++) {
+      for (let y = 0; y < this.sim.gridSize; y++) {
+        const tile = this.sim.grid[x][y];
+        if (tile.type === 'residential' && tile.level > 0 && !tile.abandoned && tile.powered && tile.watered) {
+          // Residential chimney smoke (less frequent than factories to look calmer)
+          if (Math.random() > 0.992) {
+            const gridOffset = 25;
+            const xPos = (tile.x - gridOffset) * 2;
+            const zPos = (tile.y - gridOffset) * 2;
+
+            const chimneyOffsets = this.renderer.assets.getResidentialChimneyPos(tile.level, tile.x, tile.y);
+            for (const offset of chimneyOffsets) {
+              this.renderer.emitChimneySmoke(xPos + offset.x, offset.y, zPos + offset.z);
             }
           }
         }

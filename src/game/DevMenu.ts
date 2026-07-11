@@ -6,6 +6,7 @@ export class DevMenu {
   isOpen = false;
   isAutoRotating = true;
   isNightMode = false;
+  cameraDistance = 3.41;
 
   // DOM Elements
   devMenuEl: HTMLElement | null = null;
@@ -47,6 +48,14 @@ export class DevMenu {
     this.setupEventListeners();
   }
 
+  updateCameraPosition() {
+    if (!this.camera) return;
+    const dir = new THREE.Vector3(2.2, 1.4, 2.2).normalize();
+    const target = new THREE.Vector3(0, 0.4, 0);
+    this.camera.position.copy(target).addScaledVector(dir, this.cameraDistance);
+    this.camera.lookAt(target);
+  }
+
   initThree() {
     if (!this.canvasContainer || this.renderer) return;
 
@@ -60,8 +69,7 @@ export class DevMenu {
 
     // 2. Camera setup
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    this.camera.position.set(2.2, 1.8, 2.2);
-    this.camera.lookAt(0, 0.4, 0);
+    this.updateCameraPosition();
 
     // 3. Renderer setup
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -114,6 +122,13 @@ export class DevMenu {
       this.updatePreview();
     });
     this.levelSelect?.addEventListener('change', () => this.updatePreview());
+    
+    // Seed changes
+    const seedX = document.getElementById('dev-seed-x');
+    const seedY = document.getElementById('dev-seed-y');
+    [seedX, seedY].forEach(el => {
+      el?.addEventListener('input', () => this.updatePreview());
+    });
 
     // Road connection checkboxes
     const connN = document.getElementById('dev-road-n');
@@ -127,6 +142,9 @@ export class DevMenu {
     // Control buttons
     this.rotateBtn?.addEventListener('click', () => this.toggleRotation());
     this.timeBtn?.addEventListener('click', () => this.toggleTimeMode());
+
+    // Generate Grid button
+    document.getElementById('dev-gen-grid-btn')?.addEventListener('click', () => this.generateGridImage());
 
     // Resize event
     window.addEventListener('resize', () => this.onResize());
@@ -184,22 +202,19 @@ export class DevMenu {
     window.addEventListener('touchend', () => {
       this.isDragging = false;
     });
+
+    // Zoom support via scroll/wheel interaction
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomSpeed = 0.002;
+      this.cameraDistance += e.deltaY * zoomSpeed;
+      this.cameraDistance = Math.max(1.0, Math.min(8.0, this.cameraDistance));
+      this.updateCameraPosition();
+    }, { passive: false });
   }
 
   toggleOpen() {
-    this.isOpen = !this.isOpen;
-    this.devMenuEl?.classList.toggle('hidden', !this.isOpen);
-    this.toggleBtn?.classList.toggle('active', this.isOpen);
-
-    if (this.isOpen) {
-      // Lazy init Three.js when first opened
-      setTimeout(() => {
-        this.initThree();
-        this.onResize();
-      }, 50);
-    } else {
-      this.stopAnimation();
-    }
+    window.location.href = '/assets.html';
   }
 
   toggleRotation() {
@@ -241,15 +256,20 @@ export class DevMenu {
 
     const hasLevels = ['residential', 'commercial', 'industrial'].includes(assetType);
     const isRoad = assetType === 'road';
+    const hasSeed = assetType === 'residential';
 
     const levelGroup = document.getElementById('dev-level-group');
     const roadGroup = document.getElementById('dev-road-group');
+    const seedGroup = document.getElementById('dev-seed-group');
 
     if (levelGroup) {
       levelGroup.classList.toggle('hidden', !hasLevels);
     }
     if (roadGroup) {
       roadGroup.classList.toggle('hidden', !isRoad);
+    }
+    if (seedGroup) {
+      seedGroup.classList.toggle('hidden', !hasSeed);
     }
   }
 
@@ -262,13 +282,16 @@ export class DevMenu {
     }
 
     const assetType = this.assetSelect?.value;
-    const level = parseInt(this.levelSelect?.value || '2');
+    const level = parseInt(this.levelSelect?.value || '1');
+
+    const seedX = parseInt((document.getElementById('dev-seed-x') as HTMLInputElement)?.value || '0');
+    const seedY = parseInt((document.getElementById('dev-seed-y') as HTMLInputElement)?.value || '0');
 
     let newMesh: THREE.Group;
 
     switch (assetType) {
       case 'residential':
-        newMesh = this.assets.createResidentialMesh(level);
+        newMesh = this.assets.createResidentialMesh(level, seedX, seedY);
         break;
       case 'commercial':
         newMesh = this.assets.createCommercialMesh(level);
@@ -351,5 +374,103 @@ export class DevMenu {
         // Shared materials (from AssetGenerator) should NOT be disposed
       }
     });
+  }
+
+  async generateGridImage() {
+    if (!this.scene || !this.renderer || !this.camera) return;
+
+    // Stop auto-rotation and save current state
+    const wasAutoRotating = this.isAutoRotating;
+    this.isAutoRotating = false;
+
+    // Dispose current mesh
+    if (this.currentMesh) {
+      this.disposeMesh(this.currentMesh);
+    }
+
+    // Setup a temporary grid canvas (size: 2048 x 2048 for high res)
+    const gridCanvas = document.createElement('canvas');
+    gridCanvas.width = 2048;
+    gridCanvas.height = 2048;
+    const ctx = gridCanvas.getContext('2d')!;
+
+    // Fill background
+    ctx.fillStyle = '#111827'; // Dark gray
+    ctx.fillRect(0, 0, 2048, 2048);
+
+    // Fix camera distance and angle for uniform view
+    this.cameraDistance = 3.2;
+    this.updateCameraPosition();
+
+    const level = 1;
+    const cellSize = 512;
+
+    // Generate a 4x4 grid of 16 different seeds
+    const seeds = [
+      { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 },
+      { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 },
+      { x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 },
+      { x: 0, y: 3 }, { x: 1, y: 3 }, { x: 2, y: 3 }, { x: 3, y: 3 }
+    ];
+
+    for (let i = 0; i < 16; i++) {
+      const seed = seeds[i];
+      const col = i % 4;
+      const row = Math.floor(i / 4);
+
+      // Build the mesh for this seed
+      const mesh = this.assets.createResidentialMesh(level, seed.x, seed.y);
+      mesh.position.set(0, 0.06, 0);
+      mesh.rotation.set(0.18, Math.PI / 4, 0); // 3/4 axonometric view
+      this.scene.add(mesh);
+
+      // Render the frame
+      this.renderer.render(this.scene, this.camera);
+
+      // Extract the image from the WebGL canvas
+      const frameImg = new Image();
+      frameImg.src = this.renderer.domElement.toDataURL('image/png');
+      
+      // Wait for image load
+      await new Promise(resolve => frameImg.onload = resolve);
+
+      // Draw cell to the grid canvas
+      const dx = col * cellSize;
+      const dy = row * cellSize;
+      ctx.drawImage(frameImg, dx, dy, cellSize, cellSize);
+
+      // Draw overlay text label
+      ctx.fillStyle = '#f3f4f6';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillText(`House #${i + 1}`, dx + 20, dy + 40);
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '18px sans-serif';
+      ctx.fillText(`Seed: (${seed.x}, ${seed.y})`, dx + 20, dy + 70);
+
+      // Clean up mesh
+      this.disposeMesh(mesh);
+    }
+
+    // Restore original state
+    this.isAutoRotating = wasAutoRotating;
+    this.updatePreview();
+
+    // Send grid canvas to local save server
+    const dataUrl = gridCanvas.toDataURL('image/png');
+    try {
+      const res = await fetch('http://localhost:8080/upload-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl })
+      });
+      const result = await res.json();
+      if (result.success) {
+        console.log('Grid image generated and saved successfully!');
+      } else {
+        console.error('Failed to save grid image:', result.error);
+      }
+    } catch (err) {
+      console.error('Error sending grid image to server:', err);
+    }
   }
 }

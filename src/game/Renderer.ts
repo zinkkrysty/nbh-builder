@@ -316,7 +316,7 @@ export class Renderer {
         // Determine road neighbors (we will delegate connection computation in input or coordinator)
         break;
       case 'residential':
-        newMesh = this.assets.createResidentialMesh(tile.level);
+        newMesh = this.assets.createResidentialMesh(tile.level, tile.x, tile.y);
         break;
       case 'commercial':
         newMesh = this.assets.createCommercialMesh(tile.level);
