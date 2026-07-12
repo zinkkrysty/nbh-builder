@@ -363,13 +363,14 @@ export class Simulation {
           // Decay if no utilities
           tile.progress -= 5;
           if (tile.progress <= 0) {
-            tile.progress = 100;
+            tile.progress = 70; // 70% progress buffer on downgrade for hysteresis stability
             tile.level = Math.max(0, tile.level - 1);
             if (tile.level === 0) {
               tile.abandoned = true;
               tile.occupancy = 0;
               this.onNotification(`A building at (${tile.x}, ${tile.y}) has been abandoned due to lack of utilities!`, 'warning');
             }
+            this.onTileUpdate(tile);
           }
           tile.happiness = Math.max(10, tile.happiness - 10);
         } else if (hasUtilities) {
@@ -396,14 +397,14 @@ export class Simulation {
           if (growthRate > 0 && tile.level < 3) {
             tile.progress += growthRate * this.speed;
             if (tile.progress >= 100) {
-              tile.progress = 0;
+              tile.progress = 30; // 30% progress buffer on upgrade for hysteresis stability
               tile.level++;
               this.onTileUpdate(tile);
             }
           } else if (growthRate < 0 && tile.level > 0) {
             tile.progress += growthRate * this.speed;
             if (tile.progress <= 0) {
-              tile.progress = 100;
+              tile.progress = 70; // 70% progress buffer on downgrade for hysteresis stability
               tile.level--;
               this.onTileUpdate(tile);
             }

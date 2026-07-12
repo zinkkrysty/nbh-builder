@@ -328,7 +328,7 @@ export class DevMenu {
     this.currentMesh = newMesh;
     
     // Position asset to sit perfectly on top of the plinth
-    this.currentMesh.position.set(0, 0.06, 0);
+    this.currentMesh.position.set(0, assetType === 'residential' ? 0.00 : 0.06, 0);
     this.currentMesh.rotation.set(0, 0, 0); // Reset drag rotations
 
     this.scene.add(this.currentMesh);

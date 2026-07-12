@@ -343,6 +343,7 @@ export class AssetGenerator {
       // Level 0: Zoned Outline
       const lineGeo = this.getGeometry('res_geom_59_box_1_9_0_05_1_9', () => new THREE.BoxGeometry(1.9, 0.05, 1.9));
       const line = new THREE.Mesh(lineGeo, this.materials.zoneR);
+      line.position.y = 0.06;
       group.add(line);
       return group;
     }
