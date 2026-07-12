@@ -354,8 +354,11 @@ export class AssetGenerator {
 
     const foundHeight = 0.04;
     const addFoundationAndStep = (fw: number, fd: number, doorXCoord: number | null, fx = 0, fz = 0) => {
-      const foundGeo = this.getGeometry(`res_geom_58_box_${fw}_${foundHeight}_${fd}`, () => new THREE.BoxGeometry(fw + 0.05, foundHeight, fd + 0.05));
-      foundGeo.translate(0, foundHeight / 2, 0);
+      const foundGeo = this.getGeometry(`res_geom_58_box_${fw}_${foundHeight}_${fd}`, () => {
+        const geo = new THREE.BoxGeometry(fw + 0.05, foundHeight, fd + 0.05);
+        geo.translate(0, foundHeight / 2, 0);
+        return geo;
+      });
       const found = new THREE.Mesh(foundGeo, palette.brick);
       found.position.set(fx, 0.06, fz);
       found.castShadow = true;
@@ -363,8 +366,11 @@ export class AssetGenerator {
       group.add(found);
 
       if (doorXCoord !== null) {
-        const stepGeo = this.getGeometry(`res_geom_57_box_${foundHeight}`, () => new THREE.BoxGeometry(0.3, foundHeight / 2, 0.15));
-        stepGeo.translate(0, foundHeight / 4, 0);
+        const stepGeo = this.getGeometry(`res_geom_57_box_${foundHeight}`, () => {
+          const geo = new THREE.BoxGeometry(0.3, foundHeight / 2, 0.15);
+          geo.translate(0, foundHeight / 4, 0);
+          return geo;
+        });
         const step = new THREE.Mesh(stepGeo, palette.brick);
         step.position.set(fx + doorXCoord, 0.06, fz + fd / 2 + 0.025);
         step.castShadow = true;
@@ -598,18 +604,24 @@ export class AssetGenerator {
         }
 
         // Cylindrical ridge cap running along X axis (left-to-right)
-        const ridgeCapGeo = this.getGeometry(`res_geom_47_cylinder_${slabW}`, () => new THREE.CylinderGeometry(0.045, 0.045, slabW + 0.02, 8));
-        ridgeCapGeo.rotateZ(Math.PI / 2); // align with X axis
+        const ridgeCapGeo = this.getGeometry(`res_geom_47_cylinder_${slabW}`, () => {
+          const geo = new THREE.CylinderGeometry(0.045, 0.045, slabW + 0.02, 8);
+          geo.rotateZ(Math.PI / 2); // align with X axis
+          return geo;
+        });
         const ridgeCap = new THREE.Mesh(ridgeCapGeo, palette.roof);
         ridgeCap.position.set(0, h + 0.1 + 0.38 + 0.01, 0);
         ridgeCap.castShadow = true;
         group.add(ridgeCap);
       } else {
         // Pyramid Hip Roof
-        const roofGeo = this.getGeometry('res_geom_46_cone_0_72_0_35_4', () => new THREE.ConeGeometry(0.72, 0.35, 4));
-        roofGeo.rotateY(Math.PI / 4);
-        roofGeo.scale(1.15, 1.0, 1.15);
-        roofGeo.translate(0, h + 0.175 + 0.1, 0);
+        const roofGeo = this.getGeometry('res_geom_46_cone_0_72_0_35_4', () => {
+          const geo = new THREE.ConeGeometry(0.72, 0.35, 4);
+          geo.rotateY(Math.PI / 4);
+          geo.scale(1.15, 1.0, 1.15);
+          geo.translate(0, h + 0.175 + 0.1, 0);
+          return geo;
+        });
         const roof = new THREE.Mesh(roofGeo, palette.roof);
         roof.castShadow = true;
         group.add(roof);
@@ -955,8 +967,11 @@ export class AssetGenerator {
       }
 
       // Cylindrical ridge cap
-      const ridgeCapGeo = this.getGeometry(`res_geom_31_cylinder_${slabW}`, () => new THREE.CylinderGeometry(0.045, 0.045, slabW + 0.02, 8));
-      ridgeCapGeo.rotateZ(Math.PI / 2);
+      const ridgeCapGeo = this.getGeometry(`res_geom_31_cylinder_${slabW}`, () => {
+        const geo = new THREE.CylinderGeometry(0.045, 0.045, slabW + 0.02, 8);
+        geo.rotateZ(Math.PI / 2);
+        return geo;
+      });
       const ridgeCap = new THREE.Mesh(ridgeCapGeo, palette.roof);
       ridgeCap.position.set(0, h + 0.1 + peakH + 0.01, 0);
       ridgeCap.castShadow = true;
@@ -1178,8 +1193,11 @@ export class AssetGenerator {
         // Firewood stack and pine tree
         const woodpile = new THREE.Group();
         woodpile.position.set(0.4, 0.06, -0.4);
-        const logGeo = this.getGeometry('res_geom_14_cylinder_0_03_0_03_0_22_5', () => new THREE.CylinderGeometry(0.03, 0.03, 0.22, 5));
-        logGeo.rotateX(Math.PI / 2);
+        const logGeo = this.getGeometry('res_geom_14_cylinder_0_03_0_03_0_22_5', () => {
+          const geo = new THREE.CylinderGeometry(0.03, 0.03, 0.22, 5);
+          geo.rotateX(Math.PI / 2);
+          return geo;
+        });
 
         const logOffsets = [
           [-0.06, 0.025, 0], [0, 0.025, 0], [0.06, 0.025, 0],
