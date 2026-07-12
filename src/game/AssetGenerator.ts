@@ -15,6 +15,15 @@ export class AssetGenerator {
     brick: THREE.MeshStandardMaterial;
   }[] = [];
 
+  // Curated color palettes for procedural commercial buildings
+  commercialPalettes: {
+    wall: THREE.MeshStandardMaterial;
+    roof: THREE.MeshStandardMaterial;
+    trim: THREE.MeshStandardMaterial;
+    accent: THREE.MeshStandardMaterial;
+    brick: THREE.MeshStandardMaterial;
+  }[] = [];
+
   constructor() {
     this.initMaterials();
   }
@@ -62,6 +71,23 @@ export class AssetGenerator {
       roof: new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.7 }),
       trim: new THREE.MeshStandardMaterial({ color: p.trimColor, roughness: 0.5 }),
       brick: new THREE.MeshStandardMaterial({ color: p.brickColor, roughness: 0.8 })
+    }));
+
+    // Curated Commercial Palettes
+    const COMMERCIAL_PALETTES = [
+      { wallColor: 0xdf8a6c, roofColor: 0x513829, trimColor: 0xfef3c7, accentColor: 0xcc5a37 }, // Bakery/Cafe: Peach/Warm wood/Cream/Orange
+      { wallColor: 0x7aa874, roofColor: 0x3d5c36, trimColor: 0xf8fafc, accentColor: 0xe8db7d }, // Grocery/Flower: Sage/Forest/White/Lemon
+      { wallColor: 0x486b7c, roofColor: 0x22323d, trimColor: 0xfef5e7, accentColor: 0xca8a04 }, // Bookstore: Deep blue/Slate/Warm-cream/Gold
+      { wallColor: 0xe8ebeb, roofColor: 0xc2410c, trimColor: 0x1e293b, accentColor: 0xeab308 }, // Diner: Cream/Orange-red/Dark trim/Yellow
+      { wallColor: 0xf3f4f6, roofColor: 0x4b5563, trimColor: 0x0ea5e9, accentColor: 0x0284c7 }  // Office Studio: Light Grey/Slate/Cyan/Blue
+    ];
+
+    this.commercialPalettes = COMMERCIAL_PALETTES.map(p => ({
+      wall: new THREE.MeshStandardMaterial({ color: p.wallColor, roughness: 0.5 }),
+      roof: new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.7 }),
+      trim: new THREE.MeshStandardMaterial({ color: p.trimColor, roughness: 0.4 }),
+      accent: new THREE.MeshStandardMaterial({ color: p.accentColor, roughness: 0.6 }),
+      brick: new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.8 })
     }));
 
     // Residential Colors (cozy pastels - fallbacks/legacy)
@@ -1382,88 +1408,625 @@ export class AssetGenerator {
   }
 
   // 5. Commercial Buildings (Levels 0-3)
-  createCommercialMesh(level: number): THREE.Group {
+  createCommercialMesh(level: number, tileX: number = 0, tileY: number = 0): THREE.Group {
     const group = new THREE.Group();
 
     if (level === 0) {
       const lineGeo = this.getGeometry('com_level0_line', () => new THREE.BoxGeometry(1.9, 0.05, 1.9));
       const line = new THREE.Mesh(lineGeo, this.materials.zoneC);
+      line.position.y = 0.06;
       group.add(line);
       return group;
     }
 
-    // Foundation
-    const foundGeo = this.getGeometry('com_foundation', () => {
-      const geo = new THREE.BoxGeometry(1.7, 0.08, 1.7);
-      geo.translate(0, 0.04, 0);
+    // Seed-based random generator
+    const rand = this.getSeededRandom(tileX, tileY);
+    const paletteIndex = Math.floor(rand() * this.commercialPalettes.length);
+    const palette = this.commercialPalettes[paletteIndex];
+
+    // Paved commercial plinth / plaza
+    const plinthGeo = this.getGeometry('com_plinth', () => {
+      const geo = new THREE.BoxGeometry(1.8, 0.04, 1.8);
+      geo.translate(0, 0.02, 0); // local center at Y=0.02, top at Y=0.04
       return geo;
     });
-    const found = new THREE.Mesh(foundGeo, this.materials.dirt);
-    group.add(found);
+    const plinth = new THREE.Mesh(plinthGeo, this.materials.cement);
+    plinth.position.set(0, 0.06, 0); // top at Y=0.10
+    plinth.castShadow = true;
+    plinth.receiveShadow = true;
+    group.add(plinth);
+
+    const addAwning = (parent: THREE.Group, aw: number, ad: number, ah: number, ax: number, ay: number, az: number) => {
+      const awningGroup = new THREE.Group();
+      const numStripes = 6;
+      const stripeW = aw / numStripes;
+      for (let i = 0; i < numStripes; i++) {
+        const stripeGeo = this.getGeometry(`com_awning_stripe_${stripeW.toFixed(3)}_${ad.toFixed(3)}_${ah.toFixed(3)}`, () => {
+          return new THREE.BoxGeometry(stripeW - 0.005, ah, ad);
+        });
+        const stripeMat = i % 2 === 0 ? palette.accent : this.materials.whiteMetal;
+        const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+        stripe.position.set(-aw / 2 + stripeW / 2 + i * stripeW, 0, 0);
+        stripe.castShadow = true;
+        awningGroup.add(stripe);
+      }
+      awningGroup.position.set(ax, ay, az);
+      awningGroup.rotation.x = Math.PI / 6; // slope down
+      parent.add(awningGroup);
+    };
 
     if (level === 1) {
-      // Level 1: Shop with glass storefront
-      const w = 1.3, h = 0.9, d = 1.3;
-      const wallGeo = this.getGeometry('com_level1_wall', () => {
-        const geo = new THREE.BoxGeometry(w, h, d);
-        geo.translate(0, h / 2 + 0.08, 0);
-        return geo;
-      });
-      const wall = new THREE.Mesh(wallGeo, this.materials.wallCom);
-      wall.castShadow = true;
-      group.add(wall);
+      // 3 variants: 0 = Cafe/Bakery, 1 = Flower/Grocery, 2 = Bookstore
+      const variant = Math.floor(rand() * 3);
+      const w = 1.2, h = 0.7, d = 1.1;
+      const t = 0.04;
+      const yBottom = 0.1; // bottom of walls
 
-      // Storefront glass window
-      const glassGeo = this.getGeometry('com_level1_glass', () => new THREE.BoxGeometry(0.9, 0.5, 0.1));
-      const glass = new THREE.Mesh(glassGeo, this.materials.glass);
-      glass.position.set(0, 0.38, d / 2 + 0.02);
+      // Base wall shape with door and window cutouts
+      const shape = new THREE.Shape();
+      shape.moveTo(-w / 2, 0);
+      shape.lineTo(w / 2, 0);
+      shape.lineTo(w / 2, h);
+      shape.lineTo(-w / 2, h);
+      shape.closePath();
+
+      // Cutout Door (on the right or left)
+      const doorW = 0.22;
+      const doorH = 0.48;
+      const doorX = variant === 0 ? -0.3 : 0.3; // Cafe door left, others right
+
+      const doorPath = new THREE.Path();
+      doorPath.moveTo(doorX - doorW / 2, 0);
+      doorPath.lineTo(doorX - doorW / 2, doorH);
+      doorPath.lineTo(doorX + doorW / 2, doorH);
+      doorPath.lineTo(doorX + doorW / 2, 0);
+      doorPath.closePath();
+      shape.holes.push(doorPath);
+
+      // Cutout Window
+      const winW = 0.45;
+      const winH = 0.35;
+      const winX = variant === 0 ? 0.25 : -0.25; // opposite of door
+      const winY = 0.12;
+
+      const winPath = new THREE.Path();
+      winPath.moveTo(winX - winW / 2, winY);
+      winPath.lineTo(winX - winW / 2, winY + winH);
+      winPath.lineTo(winX + winW / 2, winY + winH);
+      winPath.lineTo(winX + winW / 2, winY);
+      winPath.closePath();
+      shape.holes.push(winPath);
+
+      // Front wall
+      const wallFGeo = this.getGeometry(`com_l1_wallF_${variant}_${w}_${h}_${d}_${t}`, () => new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }));
+      const wallF = new THREE.Mesh(wallFGeo, palette.wall);
+      wallF.position.set(0, yBottom, d / 2 - t);
+      wallF.castShadow = true;
+      wallF.receiveShadow = true;
+      group.add(wallF);
+
+      // Back wall
+      const backGeo = this.getGeometry(`com_l1_wallB_${w}_${h}_${t}`, () => new THREE.BoxGeometry(w, h, t));
+      const wallB = new THREE.Mesh(backGeo, palette.wall);
+      wallB.position.set(0, yBottom + h / 2, -d / 2 + t / 2);
+      wallB.castShadow = true;
+      wallB.receiveShadow = true;
+      group.add(wallB);
+
+      // Left & Right walls
+      const sideW = d - t * 2;
+      const sideGeo = this.getGeometry(`com_l1_wallSide_${sideW}_${h}_${t}`, () => new THREE.BoxGeometry(t, h, sideW));
+      const wallL = new THREE.Mesh(sideGeo, palette.wall);
+      wallL.position.set(-w / 2 + t / 2, yBottom + h / 2, 0);
+      wallL.castShadow = true;
+      wallL.receiveShadow = true;
+      group.add(wallL);
+
+      const wallR = new THREE.Mesh(sideGeo, palette.wall);
+      wallR.position.set(w / 2 - t / 2, yBottom + h / 2, 0);
+      wallR.castShadow = true;
+      wallR.receiveShadow = true;
+      group.add(wallR);
+
+      // Flat cozy roof
+      const roofGeo = this.getGeometry(`com_l1_roof_${w}_${d}`, () => new THREE.BoxGeometry(w + 0.08, 0.06, d + 0.08));
+      const roof = new THREE.Mesh(roofGeo, palette.roof);
+      roof.position.set(0, yBottom + h + 0.03, 0);
+      roof.castShadow = true;
+      group.add(roof);
+
+      // Storefront glass
+      const glassGeo = this.getGeometry(`com_l1_glass_${winW}_${winH}`, () => new THREE.BoxGeometry(winW, winH, 0.02));
+      const glass = new THREE.Mesh(glassGeo, this.materials.window);
+      glass.position.set(winX, yBottom + winY + winH / 2, d / 2 - t / 2);
       group.add(glass);
 
-      // Sign board on top
-      const signGeo = this.getGeometry('com_level1_sign', () => new THREE.BoxGeometry(0.8, 0.2, 0.15));
+      // Storefront door
+      const doorGeo = this.getGeometry(`com_l1_door_${doorW}_${doorH}`, () => new THREE.BoxGeometry(doorW, doorH, 0.02));
+      const door = new THREE.Mesh(doorGeo, palette.trim);
+      door.position.set(doorX, yBottom + doorH / 2, d / 2 - t / 2);
+      group.add(door);
+
+      // Awnings
+      addAwning(group, winW + 0.06, 0.22, 0.02, winX, yBottom + winY + winH + 0.01, d / 2 + 0.05);
+
+      // Signboard
+      const signGeo = this.getGeometry(`com_l1_sign_${w}`, () => new THREE.BoxGeometry(0.5, 0.16, 0.04));
       const sign = new THREE.Mesh(signGeo, this.materials.whiteMetal);
-      sign.position.set(0, h + 0.1, d / 2 - 0.1);
+      sign.position.set(0, yBottom + h + 0.03, d / 2 + 0.05);
       group.add(sign);
 
+      // Variant Specific Props
+      if (variant === 0) {
+        // Cafe / Bakery: Outdoor table and chair
+        const tableGroup = new THREE.Group();
+        tableGroup.position.set(0.4, 0.1, 0.5);
+
+        const legGeo = this.getGeometry('com_prop_table_leg', () => new THREE.CylinderGeometry(0.02, 0.02, 0.16, 6));
+        const leg = new THREE.Mesh(legGeo, this.materials.whiteMetal);
+        leg.position.y = 0.08;
+        tableGroup.add(leg);
+
+        const topGeo = this.getGeometry('com_prop_table_top', () => new THREE.CylinderGeometry(0.18, 0.18, 0.015, 8));
+        const top = new THREE.Mesh(topGeo, palette.trim);
+        top.position.y = 0.16;
+        tableGroup.add(top);
+
+        const chairGeo = this.getGeometry('com_prop_chair', () => new THREE.BoxGeometry(0.1, 0.1, 0.1));
+        const chairMat = this.materials.trunk;
+        
+        const chair1 = new THREE.Mesh(chairGeo, chairMat);
+        chair1.position.set(-0.2, 0.05, 0);
+        tableGroup.add(chair1);
+
+        const chair2 = chair1.clone();
+        chair2.position.set(0.2, 0.05, 0);
+        tableGroup.add(chair2);
+
+        group.add(tableGroup);
+      } else if (variant === 1) {
+        // Grocery / Flower Shop: Crates of flowers/produce
+        const crateGroup = new THREE.Group();
+        crateGroup.position.set(-0.45, 0.1, 0.45);
+
+        const crateGeo = this.getGeometry('com_prop_crate', () => new THREE.BoxGeometry(0.18, 0.06, 0.18));
+        const crate = new THREE.Mesh(crateGeo, this.materials.trunk);
+        crate.position.y = 0.03;
+        crateGroup.add(crate);
+
+        const appleGeo = this.getGeometry('com_prop_apple', () => new THREE.SphereGeometry(0.035, 4, 4));
+        const appleColors = [this.materials.roof, this.materials.leaves, this.materials.carYellow];
+        const appleMat = appleColors[Math.floor(rand() * appleColors.length)];
+
+        for (let i = 0; i < 4; i++) {
+          const apple = new THREE.Mesh(appleGeo, appleMat);
+          const ox = -0.05 + (i % 2) * 0.1;
+          const oz = -0.05 + Math.floor(i / 2) * 0.1;
+          apple.position.set(ox, 0.07, oz);
+          crateGroup.add(apple);
+        }
+        group.add(crateGroup);
+
+        const shrubGeo = this.getGeometry('com_prop_shrub', () => new THREE.SphereGeometry(0.12, 5, 5));
+        const shrub = new THREE.Mesh(shrubGeo, this.materials.leaves);
+        shrub.position.set(0.55, 0.2, -0.2);
+        shrub.castShadow = true;
+        group.add(shrub);
+      } else {
+        // Bookstore: Small book stand
+        const standGroup = new THREE.Group();
+        standGroup.position.set(-0.4, 0.1, 0.45);
+
+        const baseGeo = this.getGeometry('com_prop_stand_base', () => new THREE.BoxGeometry(0.24, 0.18, 0.14));
+        const base = new THREE.Mesh(baseGeo, palette.accent);
+        base.position.y = 0.09;
+        base.castShadow = true;
+        standGroup.add(base);
+
+        const bookGeo = this.getGeometry('com_prop_book', () => new THREE.BoxGeometry(0.03, 0.08, 0.06));
+        const bookMats = [this.materials.carRed, this.materials.carBlue, this.materials.carYellow];
+        for (let i = 0; i < 5; i++) {
+          const book = new THREE.Mesh(bookGeo, bookMats[i % 3]);
+          book.position.set(-0.08 + i * 0.04, 0.19, 0);
+          book.rotation.y = 0.1;
+          standGroup.add(book);
+        }
+        group.add(standGroup);
+
+        const lightGeo = this.getGeometry('com_prop_wall_light', () => new THREE.BoxGeometry(0.04, 0.06, 0.06));
+        const lightFixture = new THREE.Mesh(lightGeo, this.materials.whiteMetal);
+        lightFixture.position.set(doorX, yBottom + doorH + 0.06, d / 2 + 0.02);
+        group.add(lightFixture);
+
+        const bulbGeo = this.getGeometry('com_prop_bulb', () => new THREE.SphereGeometry(0.025, 4, 4));
+        const bulb = new THREE.Mesh(bulbGeo, this.materials.fairyLight);
+        bulb.position.set(doorX, yBottom + doorH + 0.03, d / 2 + 0.05);
+        group.add(bulb);
+      }
     } else if (level === 2) {
-      // Level 2: Two-story mall/office block
-      const w = 1.4, h = 1.6, d = 1.4;
-      const wallGeo = this.getGeometry('com_level2_wall', () => {
-        const geo = new THREE.BoxGeometry(w, h, d);
-        geo.translate(0, h / 2 + 0.08, 0);
-        return geo;
-      });
-      const wall = new THREE.Mesh(wallGeo, this.materials.wallCom);
-      wall.castShadow = true;
-      group.add(wall);
+      const variant = Math.floor(rand() * 3);
+      const yBottom = 0.1;
 
-      // Glass corners
-      const glassCornerGeo = this.getGeometry('com_level2_glass_corner', () => new THREE.BoxGeometry(0.4, h - 0.2, 0.4));
-      const gc = new THREE.Mesh(glassCornerGeo, this.materials.glass);
-      gc.position.set(w / 2 - 0.2, h / 2 + 0.08, d / 2 - 0.2);
-      group.add(gc);
+      if (variant === 0) {
+        // Diner / Fast Food
+        const w = 1.3, h = 0.7, d = 1.1;
+        const wallGeo = this.getGeometry(`com_l2_diner_wall_${w}_${h}_${d}`, () => {
+          const geo = new THREE.BoxGeometry(w, h, d);
+          geo.translate(0, h / 2, 0);
+          return geo;
+        });
+        const wall = new THREE.Mesh(wallGeo, palette.wall);
+        wall.position.set(-0.1, yBottom, 0);
+        wall.castShadow = true;
+        wall.receiveShadow = true;
+        group.add(wall);
 
-      this.addWindows(group, { w, h, d }, 2, 2, 0.08);
+        const glassGeo = this.getGeometry('com_l2_diner_glass', () => new THREE.BoxGeometry(0.8, 0.45, 0.02));
+        const glass = new THREE.Mesh(glassGeo, this.materials.window);
+        glass.position.set(-0.2, yBottom + 0.3, d / 2 + 0.01);
+        group.add(glass);
 
+        const doorGeo = this.getGeometry('com_l2_diner_door', () => new THREE.BoxGeometry(0.2, 0.45, 0.02));
+        const door = new THREE.Mesh(doorGeo, palette.trim);
+        door.position.set(0.3, yBottom + 0.225, d / 2 + 0.01);
+        group.add(door);
+
+        const trimGeo = this.getGeometry(`com_l2_diner_trim_${w}`, () => new THREE.BoxGeometry(w + 0.04, 0.08, d + 0.04));
+        const roofTrim = new THREE.Mesh(trimGeo, palette.accent);
+        roofTrim.position.set(-0.1, yBottom + h + 0.04, 0);
+        roofTrim.castShadow = true;
+        group.add(roofTrim);
+
+        // Signpost
+        const signpost = new THREE.Group();
+        signpost.position.set(0.68, yBottom, 0.45);
+
+        const poleGeo = this.getGeometry('com_l2_diner_pole', () => new THREE.CylinderGeometry(0.03, 0.03, 0.8, 6));
+        const pole = new THREE.Mesh(poleGeo, this.materials.whiteMetal);
+        pole.position.y = 0.4;
+        pole.castShadow = true;
+        signpost.add(pole);
+
+        const boardGeo = this.getGeometry('com_l2_diner_board', () => new THREE.BoxGeometry(0.24, 0.24, 0.1));
+        const board = new THREE.Mesh(boardGeo, palette.accent);
+        board.position.y = 0.8;
+        board.castShadow = true;
+        signpost.add(board);
+
+        const innerBoardGeo = this.getGeometry('com_l2_diner_board_in', () => new THREE.BoxGeometry(0.18, 0.18, 0.11));
+        const innerBoard = new THREE.Mesh(innerBoardGeo, this.materials.window);
+        innerBoard.position.y = 0.8;
+        signpost.add(innerBoard);
+
+        group.add(signpost);
+
+        // Umbrella table
+        const umbrellaGroup = new THREE.Group();
+        umbrellaGroup.position.set(-0.55, yBottom, 0.55);
+
+        const umPoleGeo = this.getGeometry('com_l2_diner_umpole', () => new THREE.CylinderGeometry(0.015, 0.015, 0.35, 5));
+        const umPole = new THREE.Mesh(umPoleGeo, this.materials.whiteMetal);
+        umPole.position.y = 0.175;
+        umbrellaGroup.add(umPole);
+
+        const umConeGeo = this.getGeometry('com_l2_diner_umcone', () => new THREE.ConeGeometry(0.25, 0.1, 8));
+        const umCone = new THREE.Mesh(umConeGeo, palette.accent);
+        umCone.position.y = 0.35;
+        umCone.castShadow = true;
+        umbrellaGroup.add(umCone);
+
+        const tabGeo = this.getGeometry('com_l2_diner_tab', () => new THREE.CylinderGeometry(0.12, 0.12, 0.015, 6));
+        const tab = new THREE.Mesh(tabGeo, palette.trim);
+        tab.position.y = 0.14;
+        umbrellaGroup.add(tab);
+
+        group.add(umbrellaGroup);
+
+      } else if (variant === 1) {
+        // Boutique Design Studio / Office
+        const w1 = 1.3, h1 = 0.5, d1 = 1.1;
+        const w2 = 0.8, h2 = 0.45, d2 = 0.9;
+
+        const gfGeo = this.getGeometry(`com_l2_studio_gf_${w1}_${h1}_${d1}`, () => new THREE.BoxGeometry(w1, h1, d1));
+        const gf = new THREE.Mesh(gfGeo, palette.wall);
+        gf.position.set(0, yBottom + h1 / 2, 0);
+        gf.castShadow = true;
+        gf.receiveShadow = true;
+        group.add(gf);
+
+        const ffGeo = this.getGeometry(`com_l2_studio_ff_${w2}_${h2}_${d2}`, () => new THREE.BoxGeometry(w2, h2, d2));
+        const ff = new THREE.Mesh(ffGeo, palette.wall);
+        ff.position.set(-0.2, yBottom + h1 + h2 / 2, -0.05);
+        ff.castShadow = true;
+        ff.receiveShadow = true;
+        group.add(ff);
+
+        const roofGeo = this.getGeometry(`com_l2_studio_roof_${w2}_${d2}`, () => new THREE.BoxGeometry(w2 + 0.04, 0.04, d2 + 0.04));
+        const roof = new THREE.Mesh(roofGeo, palette.roof);
+        roof.position.set(-0.2, yBottom + h1 + h2 + 0.02, -0.05);
+        group.add(roof);
+
+        // Balcony safety railing
+        const railGroup = new THREE.Group();
+        railGroup.position.set(0.4, yBottom + h1, 0);
+
+        const railPostGeo = this.getGeometry('com_l2_studio_railpost', () => new THREE.BoxGeometry(0.015, 0.16, 0.015));
+        const railBarGeo = this.getGeometry(`com_l2_studio_railbar_${d1}`, () => new THREE.BoxGeometry(0.01, 0.015, d1 - 0.08));
+        
+        for (let i = 0; i < 3; i++) {
+          const post = new THREE.Mesh(railPostGeo, this.materials.whiteMetal);
+          post.position.set(0, 0.08, -d1 / 2 + 0.08 + i * (d1 - 0.16) / 2);
+          railGroup.add(post);
+        }
+        const bar = new THREE.Mesh(railBarGeo, this.materials.whiteMetal);
+        bar.position.set(0, 0.15, 0);
+        railGroup.add(bar);
+
+        const frontRailGeo = this.getGeometry('com_l2_studio_railfront', () => new THREE.BoxGeometry(0.4, 0.015, 0.01));
+        const fBar = new THREE.Mesh(frontRailGeo, this.materials.whiteMetal);
+        fBar.position.set(-0.2, 0.15, d1/2 - 0.04);
+        railGroup.add(fBar);
+
+        group.add(railGroup);
+
+        const winFGeo = this.getGeometry('com_l2_studio_winfg', () => new THREE.BoxGeometry(0.7, 0.3, 0.02));
+        const winFG = new THREE.Mesh(winFGeo, this.materials.window);
+        winFG.position.set(-0.2, yBottom + 0.22, d1 / 2 + 0.01);
+        group.add(winFG);
+
+        const doorGeo = this.getGeometry('com_l2_studio_doorgf', () => new THREE.BoxGeometry(0.18, 0.36, 0.02));
+        const door = new THREE.Mesh(doorGeo, palette.trim);
+        door.position.set(0.35, yBottom + 0.18, d1 / 2 + 0.01);
+        group.add(door);
+
+        const ffWinGeo = this.getGeometry('com_l2_studio_winff', () => new THREE.BoxGeometry(0.4, 0.22, 0.02));
+        const ffWin = new THREE.Mesh(ffWinGeo, this.materials.window);
+        ffWin.position.set(-0.2, yBottom + h1 + 0.22, d2 / 2 - 0.04);
+        group.add(ffWin);
+
+        const panelGroup = new THREE.Group();
+        panelGroup.position.set(-0.2, yBottom + h1 + h2 + 0.04, -0.15);
+
+        const panGeo = this.getGeometry('com_l2_studio_pan', () => new THREE.BoxGeometry(0.24, 0.015, 0.18));
+        const pan = new THREE.Mesh(panGeo, this.materials.road);
+        pan.rotation.x = -Math.PI / 6;
+        pan.castShadow = true;
+        panelGroup.add(pan);
+
+        const supportGeo = this.getGeometry('com_l2_studio_pansupp', () => new THREE.CylinderGeometry(0.01, 0.01, 0.06, 4));
+        const support = new THREE.Mesh(supportGeo, this.materials.whiteMetal);
+        support.position.set(0, -0.02, 0);
+        panelGroup.add(support);
+
+        group.add(panelGroup);
+
+      } else {
+        // Commercial Plaza / Shared Complex
+        const w1 = 0.65, h1 = 0.6, d1 = 1.0;
+        const w2 = 0.65, h2 = 0.55, d2 = 0.9;
+        const x1 = -0.36, z1 = 0.0;
+        const x2 = 0.36, z2 = -0.05;
+
+        const store1 = new THREE.Mesh(this.getGeometry(`com_l2_plaza_s1_${w1}_${h1}_${d1}`, () => new THREE.BoxGeometry(w1, h1, d1)), palette.wall);
+        store1.position.set(x1, yBottom + h1 / 2, z1);
+        store1.castShadow = true;
+        store1.receiveShadow = true;
+        group.add(store1);
+
+        const store2 = new THREE.Mesh(this.getGeometry(`com_l2_plaza_s2_${w2}_${h2}_${d2}`, () => new THREE.BoxGeometry(w2, h2, d2)), palette.accent);
+        store2.position.set(x2, yBottom + h2 / 2, z2);
+        store2.castShadow = true;
+        store2.receiveShadow = true;
+        group.add(store2);
+
+        const r1 = new THREE.Mesh(this.getGeometry(`com_l2_plaza_r1_${w1}_${d1}`, () => new THREE.BoxGeometry(w1 + 0.04, 0.04, d1 + 0.04)), palette.roof);
+        r1.position.set(x1, yBottom + h1 + 0.02, z1);
+        group.add(r1);
+
+        const r2 = new THREE.Mesh(this.getGeometry(`com_l2_plaza_r2_${w2}_${d2}`, () => new THREE.BoxGeometry(w2 + 0.04, 0.04, d2 + 0.04)), palette.roof);
+        r2.position.set(x2, yBottom + h2 + 0.02, z2);
+        group.add(r2);
+
+        const winGeo1 = this.getGeometry('com_l2_plaza_w1', () => new THREE.BoxGeometry(0.3, 0.28, 0.02));
+        const wMesh1 = new THREE.Mesh(winGeo1, this.materials.window);
+        wMesh1.position.set(x1 - 0.1, yBottom + 0.22, z1 + d1 / 2 + 0.01);
+        group.add(wMesh1);
+
+        const winGeo2 = this.getGeometry('com_l2_plaza_w2', () => new THREE.BoxGeometry(0.3, 0.24, 0.02));
+        const wMesh2 = new THREE.Mesh(winGeo2, this.materials.window);
+        wMesh2.position.set(x2 - 0.1, yBottom + 0.2, z2 + d2 / 2 + 0.01);
+        group.add(wMesh2);
+
+        const doorPlazaGeo = this.getGeometry('com_l2_plaza_door', () => new THREE.BoxGeometry(0.16, 0.32, 0.02));
+        const dMesh1 = new THREE.Mesh(doorPlazaGeo, palette.trim);
+        dMesh1.position.set(x1 + 0.18, yBottom + 0.16, z1 + d1 / 2 + 0.01);
+        group.add(dMesh1);
+
+        const dMesh2 = new THREE.Mesh(doorPlazaGeo, palette.trim);
+        dMesh2.position.set(x2 + 0.18, yBottom + 0.16, z2 + d2 / 2 + 0.01);
+        group.add(dMesh2);
+
+        const benchGroup = new THREE.Group();
+        benchGroup.position.set(0, yBottom, 0.65);
+
+        const plankGeo = this.getGeometry('com_l2_plaza_plank', () => new THREE.BoxGeometry(0.36, 0.02, 0.08));
+        const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
+        plank.position.y = 0.08;
+        plank.castShadow = true;
+        benchGroup.add(plank);
+
+        const legPlazaGeo = this.getGeometry('com_l2_plaza_benchleg', () => new THREE.BoxGeometry(0.03, 0.08, 0.08));
+        const leg1 = new THREE.Mesh(legPlazaGeo, this.materials.whiteMetal);
+        leg1.position.set(-0.14, 0.04, 0);
+        benchGroup.add(leg1);
+
+        const leg2 = leg1.clone();
+        leg2.position.x = 0.14;
+        benchGroup.add(leg2);
+
+        group.add(benchGroup);
+      }
     } else if (level >= 3) {
-      // Level 3: Modern corporate skyscraper
-      const w = 1.5, h = 3.6, d = 1.5;
-      const wallGeo = this.getGeometry('com_level3_wall', () => {
-        const geo = new THREE.BoxGeometry(w, h, d);
-        geo.translate(0, h / 2 + 0.08, 0);
-        return geo;
-      });
-      const wall = new THREE.Mesh(wallGeo, this.materials.wallCom);
-      wall.castShadow = true;
-      group.add(wall);
+      const variant = Math.floor(rand() * 2);
+      const yBottom = 0.1;
 
-      // Huge vertical glass strip in front
-      const stripGeo = this.getGeometry('com_level3_strip', () => new THREE.BoxGeometry(0.4, h - 0.4, 0.1));
-      const strip = new THREE.Mesh(stripGeo, this.materials.glass);
-      strip.position.set(0, h / 2 + 0.08, d / 2 + 0.01);
-      group.add(strip);
+      if (variant === 0) {
+        // Sleek Modern Corporate HQ (3 stories)
+        const w = 1.3, h = 1.9, d = 1.3;
+        const hqGroup = new THREE.Group();
+        hqGroup.position.set(0, 0, -0.1);
 
-      this.addWindows(group, { w, h, d }, 4, 3, 0.08);
+        const towerGeo = this.getGeometry(`com_l3_hq_tower_${w}_${h}_${d}`, () => new THREE.BoxGeometry(w, h, d));
+        const tower = new THREE.Mesh(towerGeo, palette.wall);
+        tower.position.y = yBottom + h / 2;
+        tower.castShadow = true;
+        tower.receiveShadow = true;
+        hqGroup.add(tower);
+
+        const stripGeo = this.getGeometry(`com_l3_hq_strip_${h}`, () => new THREE.BoxGeometry(0.35, h - 0.2, 0.04));
+        const strip = new THREE.Mesh(stripGeo, this.materials.glass);
+        strip.position.set(0, yBottom + h / 2, d / 2 + 0.01);
+        hqGroup.add(strip);
+
+        this.addWindows(hqGroup, { w, h, d }, 3, 3, 0.1, false);
+
+        const roofLedgeGeo = this.getGeometry(`com_l3_hq_ledge_${w}_${d}`, () => new THREE.BoxGeometry(w + 0.06, 0.05, d + 0.06));
+        const roofLedge = new THREE.Mesh(roofLedgeGeo, palette.roof);
+        roofLedge.position.set(0, yBottom + h + 0.025, 0);
+        hqGroup.add(roofLedge);
+
+        const rShubGeo = this.getGeometry('com_l3_hq_rshrub', () => new THREE.BoxGeometry(0.4, 0.08, 0.4));
+        const rShrub = new THREE.Mesh(rShubGeo, this.materials.leaves);
+        rShrub.position.set(-0.25, yBottom + h + 0.09, -0.1);
+        hqGroup.add(rShrub);
+
+        const panelGroup = new THREE.Group();
+        panelGroup.position.set(0.25, yBottom + h + 0.05, -0.1);
+        const panGeo = this.getGeometry('com_l3_hq_pan', () => new THREE.BoxGeometry(0.35, 0.02, 0.25));
+        const pan = new THREE.Mesh(panGeo, this.materials.road);
+        pan.rotation.x = -Math.PI / 6;
+        pan.castShadow = true;
+        panelGroup.add(pan);
+        const supportGeo = this.getGeometry('com_l3_hq_pansupp', () => new THREE.BoxGeometry(0.02, 0.08, 0.02));
+        const support = new THREE.Mesh(supportGeo, this.materials.whiteMetal);
+        support.position.y = -0.04;
+        panelGroup.add(support);
+        hqGroup.add(panelGroup);
+
+        group.add(hqGroup);
+
+        // Front Courtyard fountain
+        const fountainGroup = new THREE.Group();
+        fountainGroup.position.set(0, yBottom, 0.65);
+
+        const fBaseGeo = this.getGeometry('com_l3_hq_fbase', () => new THREE.CylinderGeometry(0.18, 0.18, 0.04, 8));
+        const fBase = new THREE.Mesh(fBaseGeo, this.materials.cement);
+        fBase.position.y = 0.02;
+        fBase.castShadow = true;
+        fountainGroup.add(fBase);
+
+        const fWaterGeo = this.getGeometry('com_l3_hq_fwater', () => new THREE.CylinderGeometry(0.15, 0.15, 0.04, 8));
+        const fWater = new THREE.Mesh(fWaterGeo, this.materials.waterBlue);
+        fWater.position.y = 0.025;
+        fountainGroup.add(fWater);
+
+        const fSprayGeo = this.getGeometry('com_l3_hq_fspray', () => new THREE.CylinderGeometry(0.015, 0.04, 0.12, 6));
+        const fSpray = new THREE.Mesh(fSprayGeo, this.materials.whiteMetal);
+        fSpray.position.y = 0.1;
+        fSpray.castShadow = true;
+        fountainGroup.add(fSpray);
+
+        group.add(fountainGroup);
+
+      } else {
+        // Multi-Store Shopping Galleria / Complex
+        const h1 = 1.3, h2 = 0.8;
+        const mainBlockGroup = new THREE.Group();
+        mainBlockGroup.position.set(-0.35, 0, 0);
+
+        const mainBlockGeo = this.getGeometry('com_l3_gal_b1', () => new THREE.BoxGeometry(0.8, h1, 1.4));
+        const mainBlock = new THREE.Mesh(mainBlockGeo, palette.wall);
+        mainBlock.position.y = yBottom + h1 / 2;
+        mainBlock.castShadow = true;
+        mainBlock.receiveShadow = true;
+        mainBlockGroup.add(mainBlock);
+
+        const r1Geo = this.getGeometry('com_l3_gal_r1', () => new THREE.BoxGeometry(0.84, 0.04, 1.44));
+        const r1 = new THREE.Mesh(r1Geo, palette.roof);
+        r1.position.set(0, yBottom + h1 + 0.02, 0);
+        mainBlockGroup.add(r1);
+
+        this.addWindows(mainBlockGroup, { w: 0.8, h: h1, d: 1.4 }, 2, 2, 0.1, true);
+        group.add(mainBlockGroup);
+
+        const wingBlockGeo = this.getGeometry('com_l3_gal_b2', () => new THREE.BoxGeometry(0.7, h2, 0.8));
+        const wingBlock = new THREE.Mesh(wingBlockGeo, palette.accent);
+        wingBlock.position.set(0.4, yBottom + h2 / 2, 0.3);
+        wingBlock.castShadow = true;
+        wingBlock.receiveShadow = true;
+        group.add(wingBlock);
+
+        const r2Geo = this.getGeometry('com_l3_gal_r2', () => new THREE.BoxGeometry(0.74, 0.04, 0.84));
+        const r2 = new THREE.Mesh(r2Geo, palette.roof);
+        r2.position.set(0.4, yBottom + h2 + 0.02, 0.3);
+        group.add(r2);
+
+        const storeGlassGeo1 = this.getGeometry('com_l3_gal_glass1', () => new THREE.BoxGeometry(0.5, 0.32, 0.02));
+        const sGlass1 = new THREE.Mesh(storeGlassGeo1, this.materials.window);
+        sGlass1.position.set(-0.35, yBottom + 0.2, 0.71);
+        group.add(sGlass1);
+
+        const storeGlassGeo2 = this.getGeometry('com_l3_gal_glass2', () => new THREE.BoxGeometry(0.4, 0.28, 0.02));
+        const sGlass2 = new THREE.Mesh(storeGlassGeo2, this.materials.window);
+        sGlass2.position.set(0.4, yBottom + 0.18, 0.71);
+        group.add(sGlass2);
+
+        const doorPlazaGeo = this.getGeometry('com_l3_gal_door', () => new THREE.BoxGeometry(0.18, 0.32, 0.02));
+        const dMesh = new THREE.Mesh(doorPlazaGeo, palette.trim);
+        dMesh.position.set(-0.02, yBottom + 0.16, 0.71);
+        group.add(dMesh);
+
+        const treePlaza = this.createTreeMesh();
+        treePlaza.position.set(0.45, yBottom, -0.4);
+        treePlaza.scale.set(0.5, 0.5, 0.5);
+        group.add(treePlaza);
+
+        const flowerGeo = this.getGeometry('com_l3_gal_flower', () => new THREE.BoxGeometry(0.4, 0.05, 0.2));
+        const flowerbed = new THREE.Mesh(flowerGeo, this.materials.trunk);
+        flowerbed.position.set(0.4, yBottom + 0.025, -0.05);
+        group.add(flowerbed);
+
+        const flowerSoil = new THREE.Mesh(this.getGeometry('com_l3_gal_soil', () => new THREE.BoxGeometry(0.36, 0.05, 0.16)), this.materials.dirt);
+        flowerSoil.position.set(0.4, yBottom + 0.03, -0.05);
+        group.add(flowerSoil);
+
+        const bulbGeo = this.getGeometry('com_l3_gal_bulb', () => new THREE.SphereGeometry(0.03, 4, 4));
+        for (let i = 0; i < 3; i++) {
+          const fl = new THREE.Mesh(bulbGeo, this.materials.blossom);
+          fl.position.set(0.28 + i * 0.12, yBottom + 0.07, -0.05);
+          group.add(fl);
+        }
+
+        const lampGroup = new THREE.Group();
+        lampGroup.position.set(0.7, yBottom, 0.65);
+
+        const lPoleGeo = this.getGeometry('com_l3_gal_lpole', () => new THREE.CylinderGeometry(0.015, 0.015, 0.35, 5));
+        const lPole = new THREE.Mesh(lPoleGeo, this.materials.whiteMetal);
+        lPole.position.y = 0.175;
+        lPole.castShadow = true;
+        lampGroup.add(lPole);
+
+        const lHeadGeo = this.getGeometry('com_l3_gal_lhead', () => new THREE.BoxGeometry(0.05, 0.05, 0.05));
+        const lHead = new THREE.Mesh(lHeadGeo, this.materials.whiteMetal);
+        lHead.position.y = 0.35;
+        lampGroup.add(lHead);
+
+        const lBulb = new THREE.Mesh(this.getGeometry('com_l3_gal_lbulb', () => new THREE.SphereGeometry(0.025, 4, 4)), this.materials.fairyLight);
+        lBulb.position.y = 0.31;
+        lampGroup.add(lBulb);
+
+        group.add(lampGroup);
+      }
     }
 
     return group;

@@ -447,7 +447,7 @@ export class Renderer {
         newMesh = this.assets.createResidentialMesh(tile.level, tile.x, tile.y);
         break;
       case 'commercial':
-        newMesh = this.assets.createCommercialMesh(tile.level);
+        newMesh = this.assets.createCommercialMesh(tile.level, tile.x, tile.y);
         break;
       case 'industrial':
         newMesh = this.assets.createIndustrialMesh(tile.level);

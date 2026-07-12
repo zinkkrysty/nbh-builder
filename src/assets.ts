@@ -21,9 +21,9 @@ const cells: {
   { id: 2, rowName: 'Residential', colName: 'Level 3', level: 3, type: 'residential', label: 'Alpine Chalet', seedX: 0, seedY: 0, isSeedDependent: true },
 
   // Row 1: Commercial
-  { id: 3, rowName: 'Commercial', colName: 'Level 1', level: 1, type: 'commercial', label: 'Corner Shop', seedX: 0, seedY: 0, isSeedDependent: false },
-  { id: 4, rowName: 'Commercial', colName: 'Level 2', level: 2, type: 'commercial', label: 'Medium Store', seedX: 0, seedY: 0, isSeedDependent: false },
-  { id: 5, rowName: 'Commercial', colName: 'Level 3', level: 3, type: 'commercial', label: 'Office Tower', seedX: 0, seedY: 0, isSeedDependent: false },
+  { id: 3, rowName: 'Commercial', colName: 'Level 1', level: 1, type: 'commercial', label: 'Corner Shop', seedX: 0, seedY: 0, isSeedDependent: true },
+  { id: 4, rowName: 'Commercial', colName: 'Level 2', level: 2, type: 'commercial', label: 'Medium Store', seedX: 0, seedY: 0, isSeedDependent: true },
+  { id: 5, rowName: 'Commercial', colName: 'Level 3', level: 3, type: 'commercial', label: 'Office Tower', seedX: 0, seedY: 0, isSeedDependent: true },
 
   // Row 2: Industrial
   { id: 6, rowName: 'Industrial', colName: 'Level 1', level: 1, type: 'industrial', label: 'Warehouse', seedX: 0, seedY: 0, isSeedDependent: false },
@@ -86,7 +86,7 @@ function createAssetMesh(cell: typeof cells[0]): THREE.Group {
     return assets.createResidentialMesh(cell.level, cell.seedX, cell.seedY);
   }
   if (cell.type === 'commercial') {
-    return assets.createCommercialMesh(cell.level);
+    return assets.createCommercialMesh(cell.level, cell.seedX, cell.seedY);
   }
   if (cell.type === 'industrial') {
     return assets.createIndustrialMesh(cell.level);
