@@ -9,7 +9,7 @@ const cells: {
   rowName: string;
   colName: string;
   level: number;
-  type: 'residential' | 'commercial' | 'industrial' | 'park' | 'tree' | 'turbine' | 'watertower' | 'road' | 'car' | 'empty';
+  type: 'residential' | 'commercial' | 'industrial' | 'park' | 'tree' | 'turbine' | 'watertower' | 'road' | 'car' | 'water_body' | 'boardwalk' | 'bridge' | 'empty';
   label: string;
   seedX: number;
   seedY: number;
@@ -43,7 +43,12 @@ const cells: {
   // Row 5: Infrastructure
   { id: 15, rowName: 'Transport', colName: 'Level 1', level: 1, type: 'road', label: 'Road Crossing', seedX: 0, seedY: 0, isSeedDependent: false },
   { id: 16, rowName: 'Transport', colName: 'Level 2', level: 1, type: 'car', label: 'Passenger Car', seedX: 0, seedY: 0, isSeedDependent: false },
-  { id: 17, rowName: 'Transport', colName: 'Level 3', level: 1, type: 'empty', label: 'N/A', seedX: 0, seedY: 0, isSeedDependent: false }
+  { id: 17, rowName: 'Transport', colName: 'Level 3', level: 1, type: 'empty', label: 'N/A', seedX: 0, seedY: 0, isSeedDependent: false },
+
+  // Row 6: Waterfront & Geography
+  { id: 18, rowName: 'Waterfront', colName: 'Level 1', level: 1, type: 'water_body', label: 'Natural Water', seedX: 0, seedY: 0, isSeedDependent: true },
+  { id: 19, rowName: 'Waterfront', colName: 'Level 2', level: 1, type: 'boardwalk', label: 'Cozy Boardwalk', seedX: 0, seedY: 0, isSeedDependent: true },
+  { id: 20, rowName: 'Waterfront', colName: 'Level 3', level: 1, type: 'bridge', label: 'Road Bridge', seedX: 0, seedY: 0, isSeedDependent: false }
 ];
 
 // Background offscreen WebGL renderer for generating static image previews
@@ -134,6 +139,19 @@ function createAssetMesh(cell: typeof cells[0]): THREE.Group {
     group.add(car);
     return group;
   }
+  if (cell.type === 'water_body') {
+    return assets.createWaterBodyMesh(cell.seedX, cell.seedY, { N: false, S: false, E: false, W: false });
+  }
+  if (cell.type === 'boardwalk') {
+    const boardwalkNeighbors = { N: false, S: false, E: false, W: false };
+    const waterNeighbors = { N: true, S: false, E: false, W: false };
+    return assets.createBoardwalkMesh(cell.seedX, cell.seedY, boardwalkNeighbors, waterNeighbors);
+  }
+  if (cell.type === 'bridge') {
+    const connections = { N: true, S: true, E: false, W: false };
+    const waterNeighbors = { N: true, S: true, E: false, W: false };
+    return assets.createRoadMesh(connections, true, waterNeighbors);
+  }
   return new THREE.Group();
 }
 
@@ -151,6 +169,12 @@ function generateCellImage(cell: typeof cells[0]): string {
   } else if (cell.type === 'car' || cell.type === 'road') {
     bgCamera.position.set(2.2, 1.4, 2.2);
     bgCamera.lookAt(0, 0.1, 0);
+  } else if (cell.type === 'boardwalk') {
+    bgCamera.position.set(2.8, 2.0, 2.8);
+    bgCamera.lookAt(0, 0.1, 0.4);
+  } else if (cell.type === 'water_body' || cell.type === 'bridge') {
+    bgCamera.position.set(2.4, 1.6, 2.4);
+    bgCamera.lookAt(0, -0.1, 0);
   } else {
     bgCamera.position.set(2.4, 1.8, 2.4);
     bgCamera.lookAt(0, 0.35, 0);
@@ -345,7 +369,8 @@ function updateCameraPosition() {
   let targetY = 0.35;
   if (activeCell) {
     if (activeCell.type === 'turbine') targetY = 0.9;
-    if (activeCell.type === 'car' || activeCell.type === 'road') targetY = 0.1;
+    else if (activeCell.type === 'car' || activeCell.type === 'road') targetY = 0.1;
+    else if (activeCell.type === 'water_body' || activeCell.type === 'boardwalk' || activeCell.type === 'bridge') targetY = -0.1;
   }
   modalCamera.position.set(0, targetY + 0.1, cameraZoom);
   modalCamera.lookAt(0, targetY, 0);
@@ -421,6 +446,10 @@ function openInteractiveModal(cell: typeof cells[0]) {
     cameraZoom = 5.2;
   } else if (cell.type === 'car' || cell.type === 'road') {
     cameraZoom = 2.4;
+  } else if (cell.type === 'boardwalk') {
+    cameraZoom = 4.2;
+  } else if (cell.type === 'water_body' || cell.type === 'bridge') {
+    cameraZoom = 3.0;
   } else {
     cameraZoom = 3.6;
   }
@@ -483,6 +512,8 @@ document.getElementById('modal-reset-btn')!.onclick = () => {
   if (activeCell) {
     if (activeCell.type === 'turbine') cameraZoom = 5.2;
     else if (activeCell.type === 'car' || activeCell.type === 'road') cameraZoom = 2.4;
+    else if (activeCell.type === 'boardwalk') cameraZoom = 4.2;
+    else if (activeCell.type === 'water_body' || activeCell.type === 'bridge') cameraZoom = 3.0;
     else cameraZoom = 3.6;
   }
   updateCameraPosition();
