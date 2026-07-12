@@ -482,7 +482,7 @@ export class AssetGenerator {
         shape.holes.push(winRPath);
       }
 
-      const wallFGeo = this.getGeometry(`res_geom_52_extrude_${shape}_${t}`, () => new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }));
+      const wallFGeo = this.getGeometry(`res_level1_wallF_${w}_${h}_${doorX}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }));
       const wallF = new THREE.Mesh(wallFGeo, palette.wall);
       wallF.position.set(0, 0.1, d / 2 - t);
       wallF.castShadow = true;
@@ -517,7 +517,7 @@ export class AssetGenerator {
         backShape.holes.push(winRPath);
       }
 
-      const wallBGeo = this.getGeometry(`res_geom_51_extrude_${backShape}_${t}`, () => new THREE.ExtrudeGeometry(backShape, { depth: t, bevelEnabled: false }));
+      const wallBGeo = this.getGeometry(`res_level1_wallB_${w}_${h}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(backShape, { depth: t, bevelEnabled: false }));
       const wallB = new THREE.Mesh(wallBGeo, palette.wall);
       wallB.position.set(0, 0.1, -d / 2);
       wallB.castShadow = true;
@@ -543,7 +543,7 @@ export class AssetGenerator {
       sideWinPath.closePath();
       sideShape.holes.push(sideWinPath);
 
-      const wallLGeo = this.getGeometry(`res_geom_50_extrude_${sideShape}_${t}`, () => new THREE.ExtrudeGeometry(sideShape, { depth: t, bevelEnabled: false }));
+      const wallLGeo = this.getGeometry(`res_level1_wallL_${d}_${h}_${isGable}_${t}`, () => new THREE.ExtrudeGeometry(sideShape, { depth: t, bevelEnabled: false }));
       
       const wallL = new THREE.Mesh(wallLGeo, palette.wall);
       wallL.rotation.y = Math.PI / 2;
@@ -646,7 +646,7 @@ export class AssetGenerator {
       doorFrameHole.closePath();
       doorFrameShape.holes.push(doorFrameHole);
 
-      const doorFrameGeo = this.getGeometry(`res_geom_43_extrude_${doorFrameShape}_${t}`, () => new THREE.ExtrudeGeometry(doorFrameShape, { depth: t, bevelEnabled: false }));
+      const doorFrameGeo = this.getGeometry(`res_level1_doorFrame_${t}`, () => new THREE.ExtrudeGeometry(doorFrameShape, { depth: t, bevelEnabled: false }));
       const doorFrame = new THREE.Mesh(doorFrameGeo, palette.trim); // door frame matches trim color
       doorFrame.position.set(doorX, 0.1, d / 2 - t);
       doorFrame.castShadow = true;
@@ -678,7 +678,7 @@ export class AssetGenerator {
       frameHole.closePath();
       frameShape.holes.push(frameHole);
 
-      const frameGeo = this.getGeometry(`res_geom_41_extrude_${frameShape}_${t}`, () => new THREE.ExtrudeGeometry(frameShape, { depth: t, bevelEnabled: false }));
+      const frameGeo = this.getGeometry(`res_level1_winFrame_${t}`, () => new THREE.ExtrudeGeometry(frameShape, { depth: t, bevelEnabled: false }));
       const frameMat = palette.trim; // matching trim color for realistic framing
       const glassGeo = this.getGeometry(`res_geom_40_box_${winInnerW}_${winInnerH}`, () => new THREE.BoxGeometry(winInnerW, winInnerH, 0.015));
       const glassMat = this.materials.window;
@@ -853,7 +853,7 @@ export class AssetGenerator {
         shape.holes.push(winPath);
       }
 
-      const wallFGeo = this.getGeometry(`res_geom_36_extrude_${shape}_${t}`, () => new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }));
+      const wallFGeo = this.getGeometry(`res_level2_wallF_${w}_${h}_${doorX}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }));
       const wallF = new THREE.Mesh(wallFGeo, palette.wall);
       wallF.position.set(0, 0.1, d / 2 - t);
       wallF.castShadow = true;
@@ -878,7 +878,7 @@ export class AssetGenerator {
         backShape.holes.push(winPath);
       }
 
-      const wallBGeo = this.getGeometry(`res_geom_35_extrude_${backShape}_${t}`, () => new THREE.ExtrudeGeometry(backShape, { depth: t, bevelEnabled: false }));
+      const wallBGeo = this.getGeometry(`res_level2_wallB_${w}_${h}_${doorX}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(backShape, { depth: t, bevelEnabled: false }));
       const wallB = new THREE.Mesh(wallBGeo, palette.wall);
       wallB.position.set(0, 0.1, -d / 2);
       wallB.castShadow = true;
@@ -906,7 +906,7 @@ export class AssetGenerator {
         sideShape.holes.push(sideWinPath);
       }
 
-      const wallLGeo = this.getGeometry(`res_geom_34_extrude_${sideShape}_${t}`, () => new THREE.ExtrudeGeometry(sideShape, { depth: t, bevelEnabled: false }));
+      const wallLGeo = this.getGeometry(`res_level2_wallL_${d}_${h}_${peakH}_${t}`, () => new THREE.ExtrudeGeometry(sideShape, { depth: t, bevelEnabled: false }));
       const wallL = new THREE.Mesh(wallLGeo, palette.wall);
       wallL.rotation.y = Math.PI / 2;
       wallL.position.set(-w / 2, 0.1, 0);
@@ -993,7 +993,7 @@ export class AssetGenerator {
       doorFrameHole.closePath();
       doorFrameShape.holes.push(doorFrameHole);
 
-      const doorFrameGeo = this.getGeometry(`res_geom_28_extrude_${doorFrameShape}_${t}`, () => new THREE.ExtrudeGeometry(doorFrameShape, { depth: t, bevelEnabled: false }));
+      const doorFrameGeo = this.getGeometry(`res_level2_doorFrame_${t}`, () => new THREE.ExtrudeGeometry(doorFrameShape, { depth: t, bevelEnabled: false }));
       const doorFrame = new THREE.Mesh(doorFrameGeo, palette.trim);
       doorFrame.position.set(doorX, 0.1, d / 2 - t);
       doorFrame.castShadow = true;
@@ -1025,7 +1025,7 @@ export class AssetGenerator {
       frameHole.closePath();
       frameShape.holes.push(frameHole);
 
-      const frameGeo = this.getGeometry(`res_geom_26_extrude_${frameShape}_${t}`, () => new THREE.ExtrudeGeometry(frameShape, { depth: t, bevelEnabled: false }));
+      const frameGeo = this.getGeometry(`res_level2_winFrame_${t}`, () => new THREE.ExtrudeGeometry(frameShape, { depth: t, bevelEnabled: false }));
       const frameMat = palette.trim;
       const glassGeo = this.getGeometry(`res_geom_25_box_${winInnerW}_${winInnerH}`, () => new THREE.BoxGeometry(winInnerW, winInnerH, 0.015));
       const glassMat = this.materials.window;
@@ -1217,14 +1217,14 @@ export class AssetGenerator {
         const wt1 = 0.85, ht1 = 2.4, dt1 = 1.2;
         const tower1 = new THREE.Group();
         
-        const brick1 = new THREE.Mesh(this.getGeometry('res_geom_13_box_wt1_ht1_dt1', () => new THREE.BoxGeometry(wt1, ht1, dt1)), palette.brick);
+        const brick1 = new THREE.Mesh(this.getGeometry(`res_geom_13_box_${wt1}_${ht1}_${dt1}`, () => new THREE.BoxGeometry(wt1, ht1, dt1)), palette.brick);
         brick1.position.y = ht1 / 2 + 0.1;
         brick1.castShadow = true;
         brick1.receiveShadow = true;
         tower1.add(brick1);
 
         // Roof trim
-        const rt1 = new THREE.Mesh(this.getGeometry('res_geom_12_box_wt1_0_06_0_1_dt1_0_06', () => new THREE.BoxGeometry(wt1 + 0.06, 0.1, dt1 + 0.06)), palette.roof);
+        const rt1 = new THREE.Mesh(this.getGeometry(`res_geom_12_box_${wt1}_${dt1}`, () => new THREE.BoxGeometry(wt1 + 0.06, 0.1, dt1 + 0.06)), palette.roof);
         rt1.position.y = ht1 + 0.15;
         tower1.add(rt1);
 
@@ -1236,13 +1236,13 @@ export class AssetGenerator {
         const wt2 = 0.6, ht2 = 1.6, dt2 = 1.1;
         const tower2 = new THREE.Group();
 
-        const wall2 = new THREE.Mesh(this.getGeometry('res_geom_11_box_wt2_ht2_dt2', () => new THREE.BoxGeometry(wt2, ht2, dt2)), palette.wall);
+        const wall2 = new THREE.Mesh(this.getGeometry(`res_geom_11_box_${wt2}_${ht2}_${dt2}`, () => new THREE.BoxGeometry(wt2, ht2, dt2)), palette.wall);
         wall2.position.y = ht2 / 2 + 0.1;
         wall2.castShadow = true;
         wall2.receiveShadow = true;
         tower2.add(wall2);
 
-        const rt2 = new THREE.Mesh(this.getGeometry('res_geom_10_box_wt2_0_06_0_1_dt2_0_06', () => new THREE.BoxGeometry(wt2 + 0.06, 0.1, dt2 + 0.06)), palette.roof);
+        const rt2 = new THREE.Mesh(this.getGeometry(`res_geom_10_box_${wt2}_${dt2}`, () => new THREE.BoxGeometry(wt2 + 0.06, 0.1, dt2 + 0.06)), palette.roof);
         rt2.position.y = ht2 + 0.15;
         tower2.add(rt2);
 
@@ -1254,14 +1254,14 @@ export class AssetGenerator {
         // BALCONY-FOCUS APARTMENT
         addFoundationAndStep(w, d, 0);
 
-        const wall = new THREE.Mesh(this.getGeometry('res_geom_9_box_w_h_d', () => new THREE.BoxGeometry(w, h, d)), palette.wall);
+        const wall = new THREE.Mesh(this.getGeometry(`res_geom_9_box_${w}_${h}_${d}`, () => new THREE.BoxGeometry(w, h, d)), palette.wall);
         wall.position.set(0, h / 2 + 0.1, 0);
         wall.castShadow = true;
         wall.receiveShadow = true;
         group.add(wall);
 
         // Roof cornice
-        const cornice = new THREE.Mesh(this.getGeometry('res_geom_8_box_w_0_08_0_12_d_0_08', () => new THREE.BoxGeometry(w + 0.08, 0.12, d + 0.08)), palette.roof);
+        const cornice = new THREE.Mesh(this.getGeometry(`res_geom_8_box_${w}_${d}`, () => new THREE.BoxGeometry(w + 0.08, 0.12, d + 0.08)), palette.roof);
         cornice.position.set(0, h + 0.16, 0);
         cornice.castShadow = true;
         group.add(cornice);
