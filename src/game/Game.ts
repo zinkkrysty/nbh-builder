@@ -255,11 +255,12 @@ export class Game {
       this.resetGame();
     });
 
-    // Keyboard Shortcuts (1-9, 0)
+    // Keyboard Shortcuts (1-9, 0, b)
     window.addEventListener('keydown', (e) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
       let toolId = '';
-      switch (e.key) {
+      const key = e.key.toLowerCase();
+      switch (key) {
         case '1': toolId = 'tool-select'; break;
         case '2': toolId = 'tool-road'; break;
         case '3': toolId = 'tool-residential'; break;
@@ -268,8 +269,9 @@ export class Game {
         case '6': toolId = 'tool-power'; break;
         case '7': toolId = 'tool-water'; break;
         case '8': toolId = 'tool-park'; break;
-        case '9': toolId = 'tool-bulldoze'; break;
+        case '9': toolId = 'tool-boardwalk'; break;
         case '0': toolId = 'tool-water-body'; break;
+        case 'b': toolId = 'tool-bulldoze'; break;
       }
       if (toolId) {
         const btn = document.getElementById(toolId);
@@ -612,6 +614,21 @@ export class Game {
           <span class="inspect-value inspect-badge info" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8; border-color: rgba(2, 132, 199, 0.2); font-weight: 600;">Natural Water</span>
         </div>
         <p style="color: #8e9aab; margin-top: 0.5rem; line-height: 1.4;">A peaceful body of water. Build roads over it to create bridges, or bulldoze it to restore land.</p>
+      `;
+      return;
+    }
+
+    if (tile.type === 'boardwalk') {
+      detailsContainer.innerHTML = `
+        <div class="inspect-row">
+          <span class="inspect-label">Type:</span>
+          <span class="inspect-value inspect-badge info" style="background: rgba(253, 186, 116, 0.15); color: #ffedd5; border-color: rgba(253, 186, 116, 0.2); font-weight: 600;">Waterfront Boardwalk</span>
+        </div>
+        <div class="inspect-row">
+          <span class="inspect-label">Weekly Upkeep:</span>
+          <span class="inspect-value">$${this.sim.getMaintenanceCost('boardwalk')}</span>
+        </div>
+        <p style="color: #8e9aab; margin-top: 0.5rem; line-height: 1.4;">A cozy wooden deck built along the waterfront. Generates dynamic piers/docks on adjacent water tiles and boosts nearby residential happiness.</p>
       `;
       return;
     }

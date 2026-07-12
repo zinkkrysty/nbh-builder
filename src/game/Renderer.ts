@@ -414,14 +414,14 @@ export class Renderer {
   updateGroundInstance(x: number, y: number) {
     if (!this.sim) return;
     const tile = this.sim.grid[x][y];
-    const isWaterOrBridge = tile.type === 'water_body' || tile.bridge === true;
+    const isWaterOrBridgeOrBoardwalk = tile.type === 'water_body' || tile.bridge === true || tile.type === 'boardwalk';
     
     const size = 50;
     const gridOffset = 25;
     const index = x * size + y;
     
     const dummy = new THREE.Object3D();
-    if (isWaterOrBridge) {
+    if (isWaterOrBridgeOrBoardwalk) {
       dummy.position.set(0, -100, 0); // Hide the grass tile underground
     } else {
       const xPos = (x - gridOffset) * 2;
@@ -510,6 +510,21 @@ export class Renderer {
           W: tile.x > 0 && (this.sim ? (this.sim.grid[tile.x - 1][tile.y].type === 'water_body' || this.sim.grid[tile.x - 1][tile.y].bridge === true) : false)
         };
         newMesh = this.assets.createWaterBodyMesh(tile.x, tile.y, neighbors);
+        break;
+      case 'boardwalk':
+        const boardwalkNeighbors = {
+          N: tile.y > 0 && (this.sim ? this.sim.grid[tile.x][tile.y - 1].type === 'boardwalk' : false),
+          S: tile.y < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? this.sim.grid[tile.x][tile.y + 1].type === 'boardwalk' : false),
+          E: tile.x < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? this.sim.grid[tile.x + 1][tile.y].type === 'boardwalk' : false),
+          W: tile.x > 0 && (this.sim ? this.sim.grid[tile.x - 1][tile.y].type === 'boardwalk' : false)
+        };
+        const waterNeighbors = {
+          N: tile.y > 0 && (this.sim ? (this.sim.grid[tile.x][tile.y - 1].type === 'water_body' || this.sim.grid[tile.x][tile.y - 1].bridge === true) : false),
+          S: tile.y < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[tile.x][tile.y + 1].type === 'water_body' || this.sim.grid[tile.x][tile.y + 1].bridge === true) : false),
+          E: tile.x < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[tile.x + 1][tile.y].type === 'water_body' || this.sim.grid[tile.x + 1][tile.y].bridge === true) : false),
+          W: tile.x > 0 && (this.sim ? (this.sim.grid[tile.x - 1][tile.y].type === 'water_body' || this.sim.grid[tile.x - 1][tile.y].bridge === true) : false)
+        };
+        newMesh = this.assets.createBoardwalkMesh(tile.x, tile.y, boardwalkNeighbors, waterNeighbors);
         break;
     }
 

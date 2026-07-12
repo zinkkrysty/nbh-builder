@@ -494,6 +494,150 @@ export class AssetGenerator {
     return group;
   }
 
+  // 3c. Boardwalk Mesh Generator
+  createBoardwalkMesh(
+    tileX = 0,
+    tileY = 0,
+    neighbors = { N: false, S: false, E: false, W: false },
+    waterNeighbors = { N: false, S: false, E: false, W: false }
+  ): THREE.Group {
+    const group = new THREE.Group();
+    const rand = this.getSeededRandom(tileX, tileY);
+
+    // 1. Base wood frame (covers the grid cell)
+    const baseGeo = this.getGeometry('boardwalk_base_frame', () => new THREE.BoxGeometry(2.0, 0.04, 2.0));
+    const base = new THREE.Mesh(baseGeo, this.materials.trunk);
+    base.position.y = 0.02;
+    base.receiveShadow = true;
+    group.add(base);
+
+    // 2. Parallel wooden deck planks (gives physical gaps and high-fidelity look)
+    const plankGeo = this.getGeometry('boardwalk_plank', () => new THREE.BoxGeometry(0.2, 0.01, 1.94));
+    for (let i = 0; i < 8; i++) {
+      const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
+      plank.position.set(-0.84 + i * 0.24, 0.045, 0);
+      plank.receiveShadow = true;
+      plank.castShadow = true;
+      group.add(plank);
+    }
+
+    // 3. Rope railings (placed only on dry edges that do not connect to water or other boardwalks)
+    const addRopeRailing = (xOffset: number, zOffset: number, rotY = 0) => {
+      // Vertical wood posts
+      const postGeo = this.getGeometry('boardwalk_post', () => new THREE.CylinderGeometry(0.04, 0.04, 0.24, 6));
+      const postMat = this.materials.trunk;
+      
+      const offsets = [-0.95, 0, 0.95];
+      for (const off of offsets) {
+        const post = new THREE.Mesh(postGeo, postMat);
+        if (rotY === 0) {
+          post.position.set(xOffset + off, 0.14, zOffset);
+        } else {
+          post.position.set(xOffset, 0.14, zOffset + off);
+        }
+        post.castShadow = true;
+        group.add(post);
+      }
+
+      // Horizontal rope (using cement gray material for a natural hemp/rope look)
+      const ropeGeo = this.getGeometry('boardwalk_rope', () => new THREE.BoxGeometry(1.9, 0.02, 0.02));
+      const ropeMat = this.materials.cement;
+      const rope = new THREE.Mesh(ropeGeo, ropeMat);
+      rope.position.set(xOffset, 0.18, zOffset);
+      rope.rotation.y = rotY;
+      rope.castShadow = true;
+      group.add(rope);
+    };
+
+    if (!neighbors.N && !waterNeighbors.N) addRopeRailing(0, -0.95, 0);
+    if (!neighbors.S && !waterNeighbors.S) addRopeRailing(0, 0.95, 0);
+    if (!neighbors.E && !waterNeighbors.E) addRopeRailing(0.95, 0, Math.PI / 2);
+    if (!neighbors.W && !waterNeighbors.W) addRopeRailing(-0.95, 0, Math.PI / 2);
+
+    // 4. Dynamic Pier/Dock Extensions (spawns projecting platforms on adjacent water tiles)
+    const addPier = (dir: 'N' | 'S' | 'E' | 'W') => {
+      const pier = new THREE.Group();
+
+      // Plank Platform
+      const pierGeo = this.getGeometry('boardwalk_pier_deck', () => new THREE.BoxGeometry(0.6, 0.04, 1.2));
+      const pierMesh = new THREE.Mesh(pierGeo, this.materials.trunk);
+      pierMesh.position.set(0, 0.02, 1.6);
+      pierMesh.receiveShadow = true;
+      pierMesh.castShadow = true;
+      pier.add(pierMesh);
+
+      // Support Pilings
+      const pilingGeo = this.getGeometry('boardwalk_piling', () => new THREE.CylinderGeometry(0.05, 0.05, 0.44, 6));
+      const pilingL = new THREE.Mesh(pilingGeo, this.materials.trunk);
+      pilingL.position.set(-0.24, -0.18, 2.1);
+      pilingL.castShadow = true;
+      pier.add(pilingL);
+
+      const pilingR = new THREE.Mesh(pilingGeo, this.materials.trunk);
+      pilingR.position.set(0.24, -0.18, 2.1);
+      pilingR.castShadow = true;
+      pier.add(pilingR);
+
+      // Decorative Accessory
+      const roll = rand();
+      if (roll < 0.35) {
+        // Red-and-white lifebuoy hanging on a small post
+        const buoyPostGeo = this.getGeometry('buoy_post', () => new THREE.CylinderGeometry(0.015, 0.015, 0.2, 4));
+        const buoyPost = new THREE.Mesh(buoyPostGeo, this.materials.trunk);
+        buoyPost.position.set(0, 0.14, 2.1);
+        buoyPost.castShadow = true;
+        pier.add(buoyPost);
+
+        const buoyGeo = this.getGeometry('lifebuoy', () => new THREE.TorusGeometry(0.08, 0.025, 6, 12));
+        const buoy = new THREE.Mesh(buoyGeo, this.materials.lotusPink);
+        buoy.position.set(0, 0.18, 2.08);
+        buoy.castShadow = true;
+        pier.add(buoy);
+      } else if (roll < 0.70) {
+        // A cozy wooden bench facing the water
+        const benchSeatGeo = this.getGeometry('pier_bench_seat', () => new THREE.BoxGeometry(0.4, 0.02, 0.16));
+        const benchSeat = new THREE.Mesh(benchSeatGeo, this.materials.trunk);
+        benchSeat.position.set(0, 0.1, 2.0);
+        benchSeat.castShadow = true;
+        pier.add(benchSeat);
+
+        const benchBackGeo = this.getGeometry('pier_bench_back', () => new THREE.BoxGeometry(0.4, 0.12, 0.02));
+        const benchBack = new THREE.Mesh(benchBackGeo, this.materials.trunk);
+        benchBack.position.set(0, 0.16, 2.08);
+        benchBack.castShadow = true;
+        pier.add(benchBack);
+      } else {
+        // A metal mooring bollard
+        const bollardGeo = this.getGeometry('pier_bollard', () => new THREE.CylinderGeometry(0.04, 0.04, 0.1, 5));
+        const bollard = new THREE.Mesh(bollardGeo, this.materials.whiteMetal);
+        bollard.position.set(0, 0.09, 2.1);
+        bollard.castShadow = true;
+        pier.add(bollard);
+      }
+
+      // Rotate pier matching direction
+      if (dir === 'N') {
+        pier.rotation.y = Math.PI;
+      } else if (dir === 'S') {
+        pier.rotation.y = 0;
+      } else if (dir === 'E') {
+        pier.rotation.y = -Math.PI / 2;
+      } else if (dir === 'W') {
+        pier.rotation.y = Math.PI / 2;
+      }
+
+      group.add(pier);
+    };
+
+    if (waterNeighbors.N) addPier('N');
+    if (waterNeighbors.S) addPier('S');
+    if (waterNeighbors.E) addPier('E');
+    if (waterNeighbors.W) addPier('W');
+
+    return group;
+  }
+
+
   createLilypadMesh(rand: () => number): THREE.Group {
     const group = new THREE.Group();
     // Lilypad leaf is a very flat cylinder (cached geometry and shared material)

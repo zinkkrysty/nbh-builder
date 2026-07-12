@@ -105,7 +105,7 @@ export class InputManager {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.y = 0.05;
       group.add(mesh);
-    } else if (this.activeTool === 'water_body') {
+    } else if (this.activeTool === 'water_body' || this.activeTool === 'boardwalk') {
       const geo = new THREE.BoxGeometry(1.9, 0.05, 1.9);
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.y = 0.025;

@@ -7,7 +7,8 @@ export type TileType =
   | 'power'
   | 'water'
   | 'park'
-  | 'water_body';
+  | 'water_body'
+  | 'boardwalk';
 
 export interface TileState {
   x: number;
@@ -99,6 +100,7 @@ export class Simulation {
       case 'water': return 400;   // Water Tower
       case 'park': return 300;
       case 'water_body': return 10;
+      case 'boardwalk': return 10;
       default: return 0;
     }
   }
@@ -115,6 +117,7 @@ export class Simulation {
       case 'power': return 15;
       case 'water': return 12;
       case 'park': return 8;
+      case 'boardwalk': return 1;
       case 'residential': return 0;
       case 'commercial': return 0;
       case 'industrial': return 0;
@@ -153,6 +156,20 @@ export class Simulation {
       return false;
     }
 
+    // Waterfront access check for boardwalks
+    if (type === 'boardwalk') {
+      const hasWaterAccess = [
+        y > 0 && (this.grid[x][y - 1].type === 'water_body' || this.grid[x][y - 1].bridge || this.grid[x][y - 1].type === 'boardwalk'),
+        y < this.gridSize - 1 && (this.grid[x][y + 1].type === 'water_body' || this.grid[x][y + 1].bridge || this.grid[x][y + 1].type === 'boardwalk'),
+        x < this.gridSize - 1 && (this.grid[x + 1][y].type === 'water_body' || this.grid[x + 1][y].bridge || this.grid[x + 1][y].type === 'boardwalk'),
+        x > 0 && (this.grid[x - 1][y].type === 'water_body' || this.grid[x - 1][y].bridge || this.grid[x - 1][y].type === 'boardwalk')
+      ].some(Boolean);
+      if (!hasWaterAccess) {
+        this.onNotification("Boardwalks must be built adjacent to water or other boardwalks!", "danger");
+        return false;
+      }
+    }
+
     const cost = this.getBuildCost(type);
     if (this.money < cost) {
       this.onNotification("Not enough money to build this!", "danger");
@@ -184,9 +201,38 @@ export class Simulation {
       if (type === 'road') {
         return tile.type === 'empty' || tile.type === 'water_body';
       }
+      if (type === 'boardwalk') {
+        const x = cell.x;
+        const y = cell.y;
+        const hasWaterAccess = [
+          y > 0 && (this.grid[x][y - 1].type === 'water_body' || this.grid[x][y - 1].bridge || this.grid[x][y - 1].type === 'boardwalk'),
+          y < this.gridSize - 1 && (this.grid[x][y + 1].type === 'water_body' || this.grid[x][y + 1].bridge || this.grid[x][y + 1].type === 'boardwalk'),
+          x < this.gridSize - 1 && (this.grid[x + 1][y].type === 'water_body' || this.grid[x + 1][y].bridge || this.grid[x + 1][y].type === 'boardwalk'),
+          x > 0 && (this.grid[x - 1][y].type === 'water_body' || this.grid[x - 1][y].bridge || this.grid[x - 1][y].type === 'boardwalk'),
+          cells.some(c => c !== cell && Math.abs(c.x - x) + Math.abs(c.y - y) === 1)
+        ].some(Boolean);
+        return tile.type === 'empty' && hasWaterAccess;
+      }
       return tile.type === 'empty';
     });
     if (validCells.length === 0) return false;
+
+    if (type === 'boardwalk') {
+      const lineHasWater = validCells.some(cell => {
+        const x = cell.x;
+        const y = cell.y;
+        return [
+          y > 0 && (this.grid[x][y - 1].type === 'water_body' || this.grid[x][y - 1].bridge || this.grid[x][y - 1].type === 'boardwalk'),
+          y < this.gridSize - 1 && (this.grid[x][y + 1].type === 'water_body' || this.grid[x][y + 1].bridge || this.grid[x][y + 1].type === 'boardwalk'),
+          x < this.gridSize - 1 && (this.grid[x + 1][y].type === 'water_body' || this.grid[x + 1][y].bridge || this.grid[x + 1][y].type === 'boardwalk'),
+          x > 0 && (this.grid[x - 1][y].type === 'water_body' || this.grid[x - 1][y].bridge || this.grid[x - 1][y].type === 'boardwalk')
+        ].some(Boolean);
+      });
+      if (!lineHasWater) {
+        this.onNotification("Boardwalks must be built adjacent to water or other boardwalks!", "danger");
+        return false;
+      }
+    }
 
     const cost = validCells.length * this.getBuildCost(type);
     if (this.money < cost) {
@@ -462,10 +508,11 @@ export class Simulation {
               tile.occupancy -= Math.min(this.speed, tile.occupancy);
             }
 
-            // Happiness increases with parks nearby
+            // Happiness increases with parks and boardwalks nearby
             const parkBonus = this.hasParkNearby(tile.x, tile.y) ? 15 : 0;
+            const boardwalkBonus = this.hasBoardwalkNearby(tile.x, tile.y) ? 10 : 0;
             const taxPenalty = this.taxRate > 0.15 ? -15 : this.taxRate < 0.08 ? 10 : 0;
-            tile.happiness = Math.max(20, Math.min(100, 80 + parkBonus + taxPenalty));
+            tile.happiness = Math.max(20, Math.min(100, 80 + parkBonus + boardwalkBonus + taxPenalty));
           } else {
             tile.occupancy = 0;
             tile.maxOccupancy = 0;
@@ -519,6 +566,21 @@ export class Simulation {
         const ny = y + dy;
         if (nx >= 0 && nx < this.gridSize && ny >= 0 && ny < this.gridSize) {
           if (this.grid[nx][ny].type === 'park') return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Search adjacent tiles (5-tile radius) for boardwalks
+  hasBoardwalkNearby(x: number, y: number): boolean {
+    const radius = 5;
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= 0 && nx < this.gridSize && ny >= 0 && ny < this.gridSize) {
+          if (this.grid[nx][ny].type === 'boardwalk') return true;
         }
       }
     }
