@@ -6,7 +6,8 @@ export type TileType =
   | 'industrial'
   | 'power'
   | 'water'
-  | 'park';
+  | 'park'
+  | 'water_body';
 
 export interface TileState {
   x: number;
@@ -20,6 +21,7 @@ export interface TileState {
   maxOccupancy: number;
   happiness: number;      // 0 to 100
   abandoned: boolean;
+  bridge?: boolean;       // Indicates road is built over water
 }
 
 export class Simulation {
@@ -96,6 +98,7 @@ export class Simulation {
       case 'power': return 500;   // Wind Turbine
       case 'water': return 400;   // Water Tower
       case 'park': return 300;
+      case 'water_body': return 10;
       default: return 0;
     }
   }
@@ -125,6 +128,28 @@ export class Simulation {
 
     // Cannot build on top of existing non-empty without demolishing first
     if (tile.type !== 'empty') {
+      if (type === 'road' && tile.type === 'water_body') {
+        const cost = this.getBuildCost('road');
+        if (this.money < cost) {
+          this.onNotification("Not enough money to build this!", "danger");
+          return false;
+        }
+        this.money -= cost;
+        tile.type = 'road';
+        tile.bridge = true;
+        tile.level = 0;
+        tile.progress = 0;
+        tile.powered = false;
+        tile.watered = false;
+        tile.occupancy = 0;
+        tile.maxOccupancy = 0;
+        tile.happiness = 100;
+        tile.abandoned = false;
+
+        this.updateUtilities();
+        this.onTileUpdate(tile);
+        return true;
+      }
       return false;
     }
 
@@ -144,6 +169,7 @@ export class Simulation {
     tile.maxOccupancy = 0;
     tile.happiness = 100;
     tile.abandoned = false;
+    tile.bridge = false;
 
     this.updateUtilities();
     this.onTileUpdate(tile);
@@ -152,22 +178,32 @@ export class Simulation {
   }
 
   buildLine(cells: { x: number; y: number }[], type: TileType): boolean {
-    const emptyCells = cells.filter(cell => {
+    const validCells = cells.filter(cell => {
       if (cell.x < 0 || cell.x >= this.gridSize || cell.y < 0 || cell.y >= this.gridSize) return false;
-      return this.grid[cell.x][cell.y].type === 'empty';
+      const tile = this.grid[cell.x][cell.y];
+      if (type === 'road') {
+        return tile.type === 'empty' || tile.type === 'water_body';
+      }
+      return tile.type === 'empty';
     });
-    if (emptyCells.length === 0) return false;
+    if (validCells.length === 0) return false;
 
-    const cost = emptyCells.length * this.getBuildCost(type);
+    const cost = validCells.length * this.getBuildCost(type);
     if (this.money < cost) {
       this.onNotification("Not enough money to build this!", "danger");
       return false;
     }
 
     this.money -= cost;
-    for (const cell of emptyCells) {
+    for (const cell of validCells) {
       const tile = this.grid[cell.x][cell.y];
-      tile.type = type;
+      if (type === 'road' && tile.type === 'water_body') {
+        tile.type = 'road';
+        tile.bridge = true;
+      } else {
+        tile.type = type;
+        tile.bridge = false;
+      }
       tile.level = 0;
       tile.progress = 0;
       tile.powered = false;
@@ -180,7 +216,7 @@ export class Simulation {
 
     this.updateUtilities();
 
-    for (const cell of emptyCells) {
+    for (const cell of validCells) {
       this.onTileUpdate(this.grid[cell.x][cell.y]);
     }
 
@@ -201,7 +237,12 @@ export class Simulation {
     }
 
     this.money -= cost;
-    tile.type = 'empty';
+    if (tile.bridge) {
+      tile.type = 'water_body';
+      tile.bridge = false;
+    } else {
+      tile.type = 'empty';
+    }
     tile.level = 0;
     tile.progress = 0;
     tile.powered = false;
@@ -350,7 +391,7 @@ export class Simulation {
     for (let x = 0; x < this.gridSize; x++) {
       for (let y = 0; y < this.gridSize; y++) {
         const tile = this.grid[x][y];
-        if (tile.type === 'empty' || tile.type === 'road' || tile.type === 'power' || tile.type === 'water') {
+        if (tile.type === 'empty' || tile.type === 'road' || tile.type === 'power' || tile.type === 'water' || tile.type === 'water_body') {
           continue;
         }
 
@@ -492,7 +533,7 @@ export class Simulation {
     for (let x = 0; x < this.gridSize; x++) {
       for (let y = 0; y < this.gridSize; y++) {
         const tile = this.grid[x][y];
-        if (tile.type === 'empty') continue;
+        if (tile.type === 'empty' || tile.type === 'water_body') continue;
 
         // Add maintenance fees
         maintenanceTotal += this.getMaintenanceCost(tile.type, tile.level);
@@ -547,6 +588,7 @@ export class Simulation {
         maxOccupancy: tile.maxOccupancy,
         happiness: tile.happiness,
         abandoned: tile.abandoned,
+        bridge: tile.bridge,
       }))),
     };
     return JSON.stringify(state);
@@ -583,6 +625,7 @@ export class Simulation {
           tile.maxOccupancy = loadedTile.maxOccupancy;
           tile.happiness = loadedTile.happiness;
           tile.abandoned = loadedTile.abandoned || false;
+          tile.bridge = loadedTile.bridge || false;
         }
       }
 

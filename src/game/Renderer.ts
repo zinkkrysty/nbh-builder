@@ -411,6 +411,45 @@ export class Renderer {
     return 0;
   }
 
+  updateGroundInstance(x: number, y: number) {
+    if (!this.sim) return;
+    const tile = this.sim.grid[x][y];
+    const isWaterOrBridge = tile.type === 'water_body' || tile.bridge === true;
+    
+    const size = 50;
+    const gridOffset = 25;
+    const index = x * size + y;
+    
+    const dummy = new THREE.Object3D();
+    if (isWaterOrBridge) {
+      dummy.position.set(0, -100, 0); // Hide the grass tile underground
+    } else {
+      const xPos = (x - gridOffset) * 2;
+      const zPos = (y - gridOffset) * 2;
+      dummy.position.set(xPos, 0, zPos);
+    }
+    dummy.updateMatrix();
+    this.groundMesh.setMatrixAt(index, dummy.matrix);
+    this.groundMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  resetGroundInstances() {
+    const size = 50;
+    const gridOffset = 25;
+    const dummy = new THREE.Object3D();
+    let index = 0;
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        const xPos = (x - gridOffset) * 2;
+        const zPos = (z - gridOffset) * 2;
+        dummy.position.set(xPos, 0, zPos);
+        dummy.updateMatrix();
+        this.groundMesh.setMatrixAt(index++, dummy.matrix);
+      }
+    }
+    this.groundMesh.instanceMatrix.needsUpdate = true;
+  }
+
   // Render individual zoned structures on state changes
   updateTileMesh(tile: TileState) {
     const key = `${tile.x},${tile.y}`;
@@ -431,6 +470,8 @@ export class Renderer {
       this.scene.remove(oldMesh);
       this.buildingMeshes.delete(key);
     }
+
+    this.updateGroundInstance(tile.x, tile.y);
 
     if (tile.type === 'empty') return;
 
@@ -461,6 +502,15 @@ export class Renderer {
       case 'park':
         newMesh = this.assets.createParkMesh();
         break;
+      case 'water_body':
+        const neighbors = {
+          N: tile.y > 0 && (this.sim ? (this.sim.grid[tile.x][tile.y - 1].type === 'water_body' || this.sim.grid[tile.x][tile.y - 1].bridge === true) : false),
+          S: tile.y < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[tile.x][tile.y + 1].type === 'water_body' || this.sim.grid[tile.x][tile.y + 1].bridge === true) : false),
+          E: tile.x < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[tile.x + 1][tile.y].type === 'water_body' || this.sim.grid[tile.x + 1][tile.y].bridge === true) : false),
+          W: tile.x > 0 && (this.sim ? (this.sim.grid[tile.x - 1][tile.y].type === 'water_body' || this.sim.grid[tile.x - 1][tile.y].bridge === true) : false)
+        };
+        newMesh = this.assets.createWaterBodyMesh(tile.x, tile.y, neighbors);
+        break;
     }
 
     if (newMesh) {
@@ -474,7 +524,11 @@ export class Renderer {
       // Shadow casting configurations
       newMesh.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
+          if (child.material === this.assets.materials.waterBlue) {
+            child.castShadow = false;
+          } else {
+            child.castShadow = true;
+          }
           child.receiveShadow = true;
         }
       });
@@ -494,11 +548,20 @@ export class Renderer {
       this.buildingMeshes.delete(key);
     }
 
+    this.updateGroundInstance(x, y);
+
     const gridOffset = 25;
     const xPos = (x - gridOffset) * 2;
     const zPos = (y - gridOffset) * 2;
 
-    const roadMesh = this.assets.createRoadMesh(connections);
+    const isBridge = this.sim ? (this.sim.grid[x][y].bridge || false) : false;
+    const neighbors = {
+      N: y > 0 && (this.sim ? (this.sim.grid[x][y - 1].type === 'water_body' || this.sim.grid[x][y - 1].bridge === true) : false),
+      S: y < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[x][y + 1].type === 'water_body' || this.sim.grid[x][y + 1].bridge === true) : false),
+      E: x < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[x + 1][y].type === 'water_body' || this.sim.grid[x + 1][y].bridge === true) : false),
+      W: x > 0 && (this.sim ? (this.sim.grid[x - 1][y].type === 'water_body' || this.sim.grid[x - 1][y].bridge === true) : false)
+    };
+    const roadMesh = this.assets.createRoadMesh(connections, isBridge, neighbors);
     roadMesh.position.set(xPos, 0, zPos);
     this.scene.add(roadMesh);
     this.buildingMeshes.set(key, roadMesh);
@@ -656,6 +719,12 @@ export class Renderer {
         rotor.rotation.z += 2.0 * timeStep;
       }
     });
+
+    // Animate water waves (uTime uniform update)
+    const waterMat = this.assets.materials.waterBlue as THREE.MeshStandardMaterial;
+    if (waterMat && waterMat.userData && waterMat.userData.shader) {
+      waterMat.userData.shader.uniforms.uTime.value += timeStep;
+    }
 
     // 3. Smooth Camera Pan, Zoom, and Rotation Updates
     this.updateCameraSmoothing(timeStep);

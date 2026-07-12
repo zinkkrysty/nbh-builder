@@ -81,11 +81,7 @@ export class Game {
     
     // When a tile develops or changes, update its visual mesh
     this.sim.onTileUpdate = (tile) => {
-      if (tile.type === 'road') {
-        this.rebuildRoadNetworkAround(tile.x, tile.y);
-      } else {
-        this.renderer.updateTileMesh(tile);
-      }
+      this.rebuildRoadNetworkAround(tile.x, tile.y);
       this.updateInspectorIfNeeded(tile);
     };
 
@@ -259,7 +255,7 @@ export class Game {
       this.resetGame();
     });
 
-    // Keyboard Shortcuts (1-9)
+    // Keyboard Shortcuts (1-9, 0)
     window.addEventListener('keydown', (e) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
       let toolId = '';
@@ -273,6 +269,7 @@ export class Game {
         case '7': toolId = 'tool-water'; break;
         case '8': toolId = 'tool-park'; break;
         case '9': toolId = 'tool-bulldoze'; break;
+        case '0': toolId = 'tool-water-body'; break;
       }
       if (toolId) {
         const btn = document.getElementById(toolId);
@@ -596,10 +593,25 @@ export class Game {
     if (tile.type === 'road') {
       detailsContainer.innerHTML = `
         <div class="inspect-row">
+          <span class="inspect-label">Type:</span>
+          <span class="inspect-value">${tile.bridge ? 'Bridge' : 'Standard Road'}</span>
+        </div>
+        <div class="inspect-row">
           <span class="inspect-label">Weekly Maintenance:</span>
           <span class="inspect-value">$${this.sim.getMaintenanceCost('road')}</span>
         </div>
         ${utilitiesHtml}
+      `;
+      return;
+    }
+
+    if (tile.type === 'water_body') {
+      detailsContainer.innerHTML = `
+        <div class="inspect-row">
+          <span class="inspect-label">Type:</span>
+          <span class="inspect-value inspect-badge info" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8; border-color: rgba(2, 132, 199, 0.2); font-weight: 600;">Natural Water</span>
+        </div>
+        <p style="color: #8e9aab; margin-top: 0.5rem; line-height: 1.4;">A peaceful body of water. Build roads over it to create bridges, or bulldoze it to restore land.</p>
       `;
       return;
     }
@@ -688,6 +700,7 @@ export class Game {
       this.renderer.scene.remove(mesh);
     });
     this.renderer.buildingMeshes.clear();
+    this.renderer.resetGroundInstances();
 
     // 3. Load simulation state
     const success = this.sim.loadState(saveData);
@@ -745,6 +758,7 @@ export class Game {
         this.renderer.scene.remove(mesh);
       });
       this.renderer.buildingMeshes.clear();
+      this.renderer.resetGroundInstances();
 
       this.sim.updateUtilities();
       this.updateHUD();

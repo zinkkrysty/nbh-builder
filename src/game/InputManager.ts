@@ -105,6 +105,11 @@ export class InputManager {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.y = 0.05;
       group.add(mesh);
+    } else if (this.activeTool === 'water_body') {
+      const geo = new THREE.BoxGeometry(1.9, 0.05, 1.9);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = 0.025;
+      group.add(mesh);
     } else if (this.activeTool === 'bulldoze') {
       const geo = new THREE.BoxGeometry(2.0, 0.8, 2.0);
       const mesh = new THREE.Mesh(geo, this.ghostMaterials.invalid);

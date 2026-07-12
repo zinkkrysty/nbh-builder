@@ -126,7 +126,39 @@ export class AssetGenerator {
       color: 0x8e929b, // Cement gray
       roughness: 0.85,
     });
-    this.materials.waterBlue = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.2, metalness: 0.8 });
+    const waterMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7,
+      roughness: 0.15,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.6,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    waterMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = { value: 0 };
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           uniform float uTime;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+           vec4 worldPos = modelMatrix * vec4( transformed, 1.0 );
+           float wave = sin(worldPos.x * 1.5 + uTime * 2.0) * cos(worldPos.z * 1.5 + uTime * 2.0) * 0.06;
+           transformed.z += wave;`
+        );
+      waterMat.userData.shader = shader;
+    };
+    this.materials.waterBlue = waterMat;
+
+    // Vegetation Materials (Seeded water features)
+    this.materials.lotusPink = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.6 });
+    this.materials.lilypadGreen = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.9 });
+    this.materials.cattailBrown = new THREE.MeshStandardMaterial({ color: 0x5c2d17, roughness: 0.9 });
+    this.materials.reedGreen = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.95 });
 
     // Windows (Glowing at night)
     this.materials.window = new THREE.MeshStandardMaterial({
@@ -244,18 +276,32 @@ export class AssetGenerator {
   }
 
   // 3. Road Mesh Generator based on neighbors
-  createRoadMesh(connections: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.Group {
+  createRoadMesh(connections: { N: boolean; S: boolean; E: boolean; W: boolean }, isBridge = false, neighbors = { N: false, S: false, E: false, W: false }): THREE.Group {
     const group = new THREE.Group();
 
-    // Main road base
-    const baseGeo = new THREE.BoxGeometry(2, 0.04, 2);
-    const base = new THREE.Mesh(baseGeo, this.materials.road);
-    base.receiveShadow = true;
-    group.add(base);
+    if (isBridge) {
+      // 1. Water underneath (continuous plane mesh)
+      group.add(this.createWaterMesh(neighbors));
+
+      // 2. Wood deck (top of deck is at y = 0.08)
+      const deckGeo = new THREE.BoxGeometry(2, 0.08, 2);
+      const deck = new THREE.Mesh(deckGeo, this.materials.trunk);
+      deck.position.y = 0.04;
+      deck.castShadow = true;
+      deck.receiveShadow = true;
+      group.add(deck);
+    } else {
+      // Main road base
+      const baseGeo = new THREE.BoxGeometry(2, 0.04, 2);
+      const base = new THREE.Mesh(baseGeo, this.materials.road);
+      base.receiveShadow = true;
+      group.add(base);
+    }
 
     // Add yellow lines based on connectivity
     const { N, S, E, W } = connections;
     const lineMat = this.materials.roadLine;
+    const lineY = isBridge ? 0.081 : 0.021;
 
     // Helper to add line segment
     const addLine = (w: number, h: number, x: number, z: number, rotY = 0) => {
@@ -263,7 +309,7 @@ export class AssetGenerator {
       const line = new THREE.Mesh(lineGeo, lineMat);
       line.rotation.x = -Math.PI / 2;
       line.rotation.z = rotY;
-      line.position.set(x, 0.021, z);
+      line.position.set(x, lineY, z);
       group.add(line);
     };
 
@@ -300,7 +346,7 @@ export class AssetGenerator {
       // Junction/Crossroad (just dot in center or small lines)
       const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
       const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
-      centerDot.position.set(0, 0.021, 0);
+      centerDot.position.set(0, lineY, 0);
       group.add(centerDot);
 
       if (N) addLine(0.06, 0.5, 0, -0.75);
@@ -309,8 +355,222 @@ export class AssetGenerator {
       if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
     }
 
+    // Add bridge railings
+    if (isBridge) {
+      const railColor = this.materials.trunk;
+      const railingHeight = 0.22;
+      const railingY = 0.08 + railingHeight / 2;
+
+      const addSideRailing = (xOffset: number, zOffset: number, rotY = 0) => {
+        // Horizontal bar
+        const barGeo = new THREE.BoxGeometry(2.0, 0.04, 0.04);
+        const bar = new THREE.Mesh(barGeo, railColor);
+        bar.position.set(xOffset, 0.08 + railingHeight - 0.02, zOffset);
+        bar.rotation.y = rotY;
+        bar.castShadow = true;
+        group.add(bar);
+
+        // Vertical posts
+        const postGeo = new THREE.BoxGeometry(0.06, railingHeight, 0.06);
+        const offsets = [-0.9, 0, 0.9];
+        for (const off of offsets) {
+          const post = new THREE.Mesh(postGeo, railColor);
+          if (rotY === 0) {
+            post.position.set(xOffset + off, railingY, zOffset);
+          } else {
+            post.position.set(xOffset, railingY, zOffset + off);
+          }
+          post.castShadow = true;
+          group.add(post);
+        }
+      };
+
+      if (N || S) {
+        addSideRailing(-0.95, 0, Math.PI / 2);
+        addSideRailing(0.95, 0, Math.PI / 2);
+      } else if (E || W) {
+        addSideRailing(0, -0.95, 0);
+        addSideRailing(0, 0.95, 0);
+      } else {
+        const postGeo = new THREE.BoxGeometry(0.08, railingHeight, 0.08);
+        const corners = [
+          { x: -0.9, z: -0.9 },
+          { x: 0.9, z: -0.9 },
+          { x: -0.9, z: 0.9 },
+          { x: 0.9, z: 0.9 }
+        ];
+        for (const c of corners) {
+          const post = new THREE.Mesh(postGeo, railColor);
+          post.position.set(c.x, railingY, c.z);
+          post.castShadow = true;
+          group.add(post);
+        }
+      }
+    }
+
     return group;
   }
+
+  // 3a. Segmented Water Mesh Creator
+  createWaterMesh(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.Group {
+    const group = new THREE.Group();
+
+    // 1. Top Water surface plane (subdivided 8x8 for wave vertex displacement)
+    const waterGeo = this.getGeometry('water_top_plane_8x8', () => new THREE.PlaneGeometry(2, 2, 8, 8));
+    const water = new THREE.Mesh(waterGeo, this.materials.waterBlue);
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = -0.04;
+    water.receiveShadow = true;
+    group.add(water);
+
+    // 2. Bottom Dirt plane (covers the bottom grid hole)
+    const dirtGeo = this.getGeometry('water_bottom_plane', () => new THREE.PlaneGeometry(2, 2));
+    const dirt = new THREE.Mesh(dirtGeo, this.materials.dirt);
+    dirt.rotation.x = -Math.PI / 2;
+    dirt.position.y = -0.4;
+    dirt.receiveShadow = true;
+    group.add(dirt);
+
+    // 3. Side Walls (only draw if no adjacent water/bridge)
+    const wallH = 0.36;
+    const wallY = -0.22;
+    const wallGeo = this.getGeometry('water_side_wall_0.36', () => new THREE.PlaneGeometry(2, wallH));
+    const wallMat = this.materials.dirt;
+
+    // North Wall (Z = -0.99)
+    if (!neighbors.N) {
+      const wallN = new THREE.Mesh(wallGeo, wallMat);
+      wallN.position.set(0, wallY, -0.99);
+      wallN.receiveShadow = true;
+      group.add(wallN);
+    }
+    // South Wall (Z = 0.99)
+    if (!neighbors.S) {
+      const wallS = new THREE.Mesh(wallGeo, wallMat);
+      wallS.position.set(0, wallY, 0.99);
+      wallS.rotation.y = Math.PI;
+      wallS.receiveShadow = true;
+      group.add(wallS);
+    }
+    // East Wall (X = 0.99)
+    if (!neighbors.E) {
+      const wallE = new THREE.Mesh(wallGeo, wallMat);
+      wallE.position.set(0.99, wallY, 0);
+      wallE.rotation.y = -Math.PI / 2;
+      wallE.receiveShadow = true;
+      group.add(wallE);
+    }
+    // West Wall (X = -0.99)
+    if (!neighbors.W) {
+      const wallW = new THREE.Mesh(wallGeo, wallMat);
+      wallW.position.set(-0.99, wallY, 0);
+      wallW.rotation.y = Math.PI / 2;
+      wallW.receiveShadow = true;
+      group.add(wallW);
+    }
+
+    return group;
+  }
+
+  // 3b. Water Body Mesh Generator
+  createWaterBodyMesh(tileX = 0, tileY = 0, neighbors = { N: false, S: false, E: false, W: false }): THREE.Group {
+    const group = new THREE.Group();
+
+    // Add continuous water mesh
+    group.add(this.createWaterMesh(neighbors));
+
+    // Stable Seeded Vegetation Placement
+    const rand = this.getSeededRandom(tileX, tileY);
+    const vegRoll = rand();
+
+    if (vegRoll < 0.15) {
+      // 15% chance for lilypads
+      group.add(this.createLilypadMesh(rand));
+    } else if (vegRoll >= 0.15 && vegRoll < 0.35) {
+      // 20% chance for cattails/reeds
+      group.add(this.createReedsMesh(rand));
+    }
+
+    return group;
+  }
+
+  createLilypadMesh(rand: () => number): THREE.Group {
+    const group = new THREE.Group();
+    // Lilypad leaf is a very flat cylinder (cached geometry and shared material)
+    const leafGeo = this.getGeometry('lilypad_leaf_flat', () => new THREE.CylinderGeometry(0.16, 0.16, 0.01, 8));
+    const leafMat = this.materials.lilypadGreen;
+
+    const count = 1 + Math.floor(rand() * 3);
+    for (let i = 0; i < count; i++) {
+      const leaf = new THREE.Mesh(leafGeo, leafMat);
+      const angle = rand() * Math.PI * 2;
+      const dist = rand() * 0.45;
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      const scale = 0.6 + rand() * 0.6;
+      
+      leaf.position.set(x, -0.035, z); // Sit slightly above the recessed water surface at y = -0.04
+      leaf.scale.set(scale, 1.0, scale);
+      leaf.rotation.y = rand() * Math.PI;
+      leaf.castShadow = false;
+      leaf.receiveShadow = true;
+      group.add(leaf);
+
+      // 35% chance for a tiny pink flower on this lilypad
+      if (rand() > 0.65) {
+        const flowerGroup = new THREE.Group();
+        const petalGeo = this.getGeometry('lilypad_petal_cone', () => new THREE.ConeGeometry(0.03, 0.06, 5));
+        const petalMat = this.materials.lotusPink;
+        for (let p = 0; p < 6; p++) {
+          const petal = new THREE.Mesh(petalGeo, petalMat);
+          petal.rotation.z = Math.PI / 4;
+          petal.rotation.y = (p * Math.PI) / 3;
+          petal.position.y = 0.03;
+          flowerGroup.add(petal);
+        }
+        flowerGroup.position.set(x, -0.03, z);
+        flowerGroup.scale.set(0.7, 0.7, 0.7);
+        group.add(flowerGroup);
+      }
+    }
+    return group;
+  }
+
+  createReedsMesh(rand: () => number): THREE.Group {
+    const group = new THREE.Group();
+    const stemGeo = this.getGeometry('reed_stem_cyl', () => new THREE.CylinderGeometry(0.012, 0.016, 0.45, 4));
+    const stemMat = this.materials.reedGreen;
+    const topGeo = this.getGeometry('reed_top_cyl', () => new THREE.CylinderGeometry(0.024, 0.024, 0.1, 5));
+    const topMat = this.materials.cattailBrown;
+
+    const count = 3 + Math.floor(rand() * 4);
+    for (let i = 0; i < count; i++) {
+      const reed = new THREE.Group();
+      
+      const stem = new THREE.Mesh(stemGeo, stemMat);
+      stem.position.y = 0.225;
+      stem.castShadow = true;
+      reed.add(stem);
+
+      const top = new THREE.Mesh(topGeo, topMat);
+      top.position.y = 0.4;
+      top.castShadow = true;
+      reed.add(top);
+
+      const angle = rand() * Math.PI * 2;
+      const dist = 0.6 + rand() * 0.25; // Scatter Reeds near banks/edges of the 2x2 cell
+      reed.position.set(Math.cos(angle) * dist, -0.05, Math.sin(angle) * dist);
+
+      reed.rotation.z = (rand() - 0.5) * 0.15;
+      reed.rotation.x = (rand() - 0.5) * 0.15;
+      reed.rotation.y = rand() * Math.PI * 2;
+      reed.scale.set(0.85 + rand() * 0.3, 0.85 + rand() * 0.3, 0.85 + rand() * 0.3);
+
+      group.add(reed);
+    }
+    return group;
+  }
+
 
   // Helpers to add glowing window details on walls
   addWindows(group: THREE.Group, size: { w: number; h: number; d: number }, rows: number, cols: number, yOffset: number = 0.1, skipFront: boolean = false) {

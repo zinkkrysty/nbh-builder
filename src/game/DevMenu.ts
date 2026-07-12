@@ -321,6 +321,9 @@ export class DevMenu {
         const w = (document.getElementById('dev-road-w') as HTMLInputElement)?.checked || false;
         newMesh = this.assets.createRoadMesh({ N: n, S: s, E: e, W: w });
         break;
+      case 'water_body':
+        newMesh = this.assets.createWaterBodyMesh();
+        break;
       default:
         newMesh = new THREE.Group();
     }
