@@ -1804,8 +1804,8 @@ export class AssetGenerator {
     // Front Windshield glass
     const windGeo = this.getGeometry('car_windshield', () => {
       const geo = new THREE.BoxGeometry(0.28, 0.1, 0.02);
-      windGeo.rotateX(-Math.PI / 6); // slanted
-      windGeo.translate(0, 0.26, 0.13);
+      geo.rotateX(-Math.PI / 6); // slanted
+      geo.translate(0, 0.26, 0.13);
       return geo;
     });
     const windshield = new THREE.Mesh(windGeo, this.materials.glass);
