@@ -160,11 +160,6 @@ function generateCellImage(cell: typeof cells[0]): string {
   const url = bgRenderer.domElement.toDataURL('image/png');
 
   bgScene.remove(mesh);
-  mesh.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      child.geometry.dispose();
-    }
-  });
 
   return url;
 }
@@ -397,16 +392,19 @@ function openInteractiveModal(cell: typeof cells[0]) {
     const { palette, foundMat } = assets.getVariationSetup(cell.seedX, cell.seedY);
     const wallMat = palette.wall as THREE.MeshStandardMaterial;
     let wallColorName = "Cozy Cream";
-    if (wallMat.color.getHex() === 0xba3c3c) wallColorName = "Nordic Red";
-    if (wallMat.color.getHex() === 0xfde047) wallColorName = "Autumn Farmhouse";
-    if (wallMat.color.getHex() === 0x50855e) wallColorName = "Forest Cabin";
-    if (wallMat.color.getHex() === 0x93c5fd) wallColorName = "Coastal Cottage";
+    const wallHex = wallMat.color.getHex();
+    if (wallHex === 0xa84c3e) wallColorName = "Nordic Red";
+    if (wallHex === 0xf59e0b) wallColorName = "Autumn Farmhouse";
+    if (wallHex === 0xa5f3fc) wallColorName = "Coastal Cottage";
+    if (wallHex === 0xfef3c7) wallColorName = "Cozy Cream";
     document.getElementById('info-wall-mat')!.textContent = wallColorName;
 
     const fMat = foundMat as THREE.MeshStandardMaterial;
     let foundName = "Concrete Gray";
-    if (fMat.color.getHex() === 0x73c088) foundName = "Grassy Green";
-    if (fMat.color.getHex() === 0x78350f) foundName = "Dirt Brown";
+    const foundHex = fMat.color.getHex();
+    if (foundHex === 0x73c088) foundName = "Grassy Green";
+    if (foundHex === 0xa18262) foundName = "Dirt Brown";
+    if (foundHex === 0x8e929b) foundName = "Concrete Gray";
     document.getElementById('info-found-mat')!.textContent = foundName;
   } else {
     rowWall.style.display = 'none';
