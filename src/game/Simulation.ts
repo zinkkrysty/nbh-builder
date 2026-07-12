@@ -252,12 +252,15 @@ export class Simulation {
     // BFS Queue propagation helper
     const propagate = (sources: TileState[], propKey: 'powered' | 'watered') => {
       const queue: TileState[] = [...sources];
-      const visited = new Set<string>();
+      const visited = new Uint8Array(this.gridSize * this.gridSize);
 
-      sources.forEach(s => visited.add(`${s.x},${s.y}`));
+      for (const s of sources) {
+        visited[s.y * this.gridSize + s.x] = 1;
+      }
 
-      while (queue.length > 0) {
-        const curr = queue.shift()!;
+      let head = 0;
+      while (head < queue.length) {
+        const curr = queue[head++];
 
         // Adjacency checking (4-way neighbors)
         const neighbors = [
@@ -269,10 +272,10 @@ export class Simulation {
 
         for (const n of neighbors) {
           if (n.x >= 0 && n.x < this.gridSize && n.y >= 0 && n.y < this.gridSize) {
-            const neighborTile = this.grid[n.x][n.y];
-            const hash = `${n.x},${n.y}`;
+            const index = n.y * this.gridSize + n.x;
 
-            if (!visited.has(hash)) {
+            if (visited[index] === 0) {
+              const neighborTile = this.grid[n.x][n.y];
               // Roads propagate power and water perfectly.
               // Other zoned structures also conduct power/water if they are constructed (level > 0)
               // empty tiles and parks do not conduct utilities.
@@ -283,13 +286,13 @@ export class Simulation {
 
               if (conducts) {
                 neighborTile[propKey] = true;
-                visited.add(hash);
+                visited[index] = 1;
                 queue.push(neighborTile);
               } else if (neighborTile.type !== 'empty') {
                 // If it's a zone that is adjacent but doesn't conduct itself (e.g. level 0),
                 // it still receives power/water from the adjacent conduit.
                 neighborTile[propKey] = true;
-                visited.add(hash);
+                visited[index] = 1;
               }
             }
           }

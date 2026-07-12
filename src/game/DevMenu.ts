@@ -345,11 +345,5 @@ export class DevMenu {
 
   disposeMesh(mesh: THREE.Object3D) {
     this.scene.remove(mesh);
-    mesh.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        // Shared materials (from AssetGenerator) should NOT be disposed
-      }
-    });
   }
 }

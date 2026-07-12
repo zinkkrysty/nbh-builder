@@ -648,14 +648,9 @@ export class Game {
       this.traffic.clearAll();
     }
 
-    // 2. Remove all old building meshes from scene and free memory
+    // 2. Remove all old building meshes from scene
     this.renderer.buildingMeshes.forEach((mesh) => {
       this.renderer.scene.remove(mesh);
-      mesh.traverse((child) => {
-        if ((child as any).isMesh) {
-          (child as any).geometry.dispose();
-        }
-      });
     });
     this.renderer.buildingMeshes.clear();
 
@@ -713,11 +708,6 @@ export class Game {
       // Clear 3D building meshes
       this.renderer.buildingMeshes.forEach((mesh) => {
         this.renderer.scene.remove(mesh);
-        mesh.traverse((child) => {
-          if ((child as any).isMesh) {
-            (child as any).geometry.dispose();
-          }
-        });
       });
       this.renderer.buildingMeshes.clear();
 

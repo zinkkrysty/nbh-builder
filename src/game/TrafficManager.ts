@@ -26,6 +26,13 @@ export class TrafficManager {
   gridSize = 50;
   gridOffset = 25;
 
+  // Reusable vectors to avoid allocations in update loop
+  private tempStart3D = new THREE.Vector3();
+  private tempTarget3D = new THREE.Vector3();
+  private tempDir = new THREE.Vector3();
+  private tempRightOffset = new THREE.Vector3();
+  private tempPos = new THREE.Vector3();
+
   constructor(sim: Simulation, renderer: Renderer) {
     this.sim = sim;
     this.renderer = renderer;
@@ -151,16 +158,24 @@ export class TrafficManager {
       car.progress += car.speed * timeStep;
 
       // 3D positioning
-      const start3D = this.getTile3DPos(car.currentX, car.currentY);
-      const target3D = this.getTile3DPos(car.targetX, car.targetY);
+      const start3D = this.tempStart3D.set(
+        (car.currentX - this.gridOffset) * 2,
+        0,
+        (car.currentY - this.gridOffset) * 2
+      );
+      const target3D = this.tempTarget3D.set(
+        (car.targetX - this.gridOffset) * 2,
+        0,
+        (car.targetY - this.gridOffset) * 2
+      );
 
       // Lerp position
-      const p = new THREE.Vector3().lerpVectors(start3D, target3D, car.progress);
+      const p = this.tempPos.lerpVectors(start3D, target3D, car.progress);
 
       // Lane Offset: offset car to the right lane of direction of travel
-      const dir = new THREE.Vector3().subVectors(target3D, start3D).normalize();
+      const dir = this.tempDir.subVectors(target3D, start3D).normalize();
       // Perpendicular vector pointing to the right
-      const rightOffset = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(0.38); // 0.38m offset
+      const rightOffset = this.tempRightOffset.set(-dir.z, 0, dir.x).multiplyScalar(0.38); // 0.38m offset
       p.add(rightOffset);
 
       car.mesh.position.copy(p);
@@ -199,15 +214,10 @@ export class TrafficManager {
     }
   }
 
-  // Remove single car safely from Three.js scene and free geometry memory
+  // Remove single car safely from Three.js scene
   removeCarAtIndex(idx: number) {
     const car = this.cars[idx];
     this.renderer.scene.remove(car.mesh);
-    car.mesh.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-      }
-    });
     this.cars.splice(idx, 1);
   }
 

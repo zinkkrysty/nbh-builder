@@ -25,17 +25,18 @@ export class Renderer {
   // Particle System (Chimney Smoke)
   particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; maxLife: number }[] = [];
   smokeGeometry = new THREE.DodecahedronGeometry(0.12, 0);
-  smokeMaterial = new THREE.MeshBasicMaterial({
-    color: 0x8a9296,
-    transparent: true,
-    opacity: 0.4,
-  });
+  smokeMaterials: THREE.MeshBasicMaterial[] = [];
 
   // Camera State
   cameraTarget = new THREE.Vector3(0, 0, 0);
   cameraZoom = 25; // Zoom scale factor for Orthographic
   cameraAngleX = Math.PI / 6; // Pitch (30 degrees)
   cameraAngleY = Math.PI / 4; // Yaw (45 degrees)
+
+  // Reusable vectors to avoid allocations in update loop
+  private tempForward = new THREE.Vector3();
+  private tempRight = new THREE.Vector3();
+  private tempMoveDir = new THREE.Vector3();
 
   // Smooth camera destination states
   desiredCameraTarget = new THREE.Vector3(0, 0, 0);
@@ -52,6 +53,7 @@ export class Renderer {
     this.container = document.getElementById(containerId)!;
     this.assets = assets;
 
+    this.initParticles();
     this.initScene();
     this.initCamera();
     this.initRenderer();
@@ -61,6 +63,17 @@ export class Renderer {
 
     // Resize listener
     window.addEventListener('resize', this.onWindowResize.bind(this));
+  }
+
+  initParticles() {
+    this.smokeMaterials = [];
+    for (let i = 0; i <= 15; i++) {
+      this.smokeMaterials.push(new THREE.MeshBasicMaterial({
+        color: 0x8a9296,
+        transparent: true,
+        opacity: 0.4 * (i / 15),
+      }));
+    }
   }
 
   initScene() {
@@ -146,30 +159,120 @@ export class Renderer {
     }
     this.scene.add(this.groundMesh);
 
-    // 2. Scattered Forest Trees (around borders or randomly as environment details)
-    // Create scattered nature detail: ~600 trees on random points of the 100x100 grid
+    // 2. Scattered Forest Trees (around borders or randomly as environment details) using InstancedMesh
     const treeCount = 600;
     
-    // Instantiate actual tree groups
-    const staticTrees = new THREE.Group();
+    interface StaticTreeData {
+      x: number;
+      z: number;
+      scale: number;
+      rotationY: number;
+      isBlossom: boolean;
+      leafBase: number;
+    }
+
+    const treesData: StaticTreeData[] = [];
+    let greenTreeCount = 0;
+    let blossomTreeCount = 0;
+
     for (let i = 0; i < treeCount; i++) {
-      // Pick random cell near margins (calm boundary view)
       let x = Math.floor(Math.random() * size);
       let z = Math.floor(Math.random() * size);
 
       // Prefer placing trees along margins (outer 15 cells)
-      const nearMargin = x < 15 || x > 85 || z < 15 || z > 85;
+      const nearMargin = x < 15 || x > size - 15 || z < 15 || z > size - 15;
       if (!nearMargin && Math.random() > 0.05) continue; // Skip inner cells mostly
 
       const xPos = (x - gridOffset) * 2 + (Math.random() - 0.5) * 1.2;
       const zPos = (z - gridOffset) * 2 + (Math.random() - 0.5) * 1.2;
 
-      const singleTree = this.assets.createTreeMesh();
-      singleTree.position.set(xPos, 0, zPos);
-      staticTrees.add(singleTree);
+      const scale = 0.8 + Math.random() * 0.4;
+      const rotationY = Math.random() * Math.PI;
+      const isBlossom = Math.random() > 0.8;
+      const leafBase = Math.random() > 0.5 ? 0.35 : 0.45;
+
+      treesData.push({ x: xPos, z: zPos, scale, rotationY, isBlossom, leafBase });
+
+      if (isBlossom) {
+        blossomTreeCount++;
+      } else {
+        greenTreeCount++;
+      }
     }
-    
-    this.scene.add(staticTrees);
+
+    const trunkMesh = new THREE.InstancedMesh(
+      this.assets.getGeometry('tree_trunk', () => {
+        const geo = new THREE.CylinderGeometry(0.1, 0.15, 0.6, 5);
+        geo.translate(0, 0.3, 0);
+        return geo;
+      }),
+      this.assets.materials.trunk,
+      treesData.length
+    );
+    trunkMesh.castShadow = true;
+    trunkMesh.receiveShadow = true;
+
+    const leafBaseGeo = this.assets.getGeometry('tree_leaf_base', () => {
+      const geo = new THREE.ConeGeometry(1, 0.6, 5);
+      geo.translate(0, 0.3, 0);
+      return geo;
+    });
+
+    const greenLeavesMesh = new THREE.InstancedMesh(
+      leafBaseGeo,
+      this.assets.materials.leaves,
+      3 * greenTreeCount
+    );
+    greenLeavesMesh.castShadow = true;
+    greenLeavesMesh.receiveShadow = true;
+
+    const blossomLeavesMesh = new THREE.InstancedMesh(
+      leafBaseGeo,
+      this.assets.materials.blossom,
+      3 * blossomTreeCount
+    );
+    blossomLeavesMesh.castShadow = true;
+    blossomLeavesMesh.receiveShadow = true;
+
+    const tempTree = new THREE.Object3D();
+    const tempLeaf = new THREE.Object3D();
+
+    let greenLeafIndex = 0;
+    let blossomLeafIndex = 0;
+
+    for (let i = 0; i < treesData.length; i++) {
+      const tree = treesData[i];
+
+      // Set trunk matrix
+      tempTree.position.set(tree.x, 0, tree.z);
+      tempTree.rotation.set(0, tree.rotationY, 0);
+      tempTree.scale.set(tree.scale, tree.scale, tree.scale);
+      tempTree.updateMatrix();
+      trunkMesh.setMatrixAt(i, tempTree.matrix);
+
+      // Set leaves matrices
+      for (let l = 0; l < 3; l++) {
+        const radius = tree.leafBase - l * 0.08;
+        const localY = 0.7 + l * 0.4;
+
+        tempLeaf.position.set(0, localY, 0);
+        tempLeaf.rotation.set(0, 0, 0);
+        tempLeaf.scale.set(radius, 1.0, radius);
+        tempLeaf.updateMatrix();
+
+        const worldMatrix = new THREE.Matrix4().multiplyMatrices(tempTree.matrix, tempLeaf.matrix);
+
+        if (tree.isBlossom) {
+          blossomLeavesMesh.setMatrixAt(blossomLeafIndex++, worldMatrix);
+        } else {
+          greenLeavesMesh.setMatrixAt(greenLeafIndex++, worldMatrix);
+        }
+      }
+    }
+
+    this.scene.add(trunkMesh);
+    this.scene.add(greenLeavesMesh);
+    this.scene.add(blossomLeavesMesh);
   }
 
   // Camera Pan/Rotate controls
@@ -295,12 +398,6 @@ export class Renderer {
       }
 
       this.scene.remove(oldMesh);
-      // Clean up memory
-      oldMesh.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-        }
-      });
       this.buildingMeshes.delete(key);
     }
 
@@ -359,11 +456,6 @@ export class Renderer {
 
     if (oldMesh) {
       this.scene.remove(oldMesh);
-      oldMesh.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-        }
-      });
       this.buildingMeshes.delete(key);
     }
 
@@ -384,7 +476,7 @@ export class Renderer {
     const zPos = (y - gridOffset) * 2;
 
     for (let i = 0; i < 8; i++) {
-      const p = new THREE.Mesh(this.smokeGeometry, this.smokeMaterial);
+      const p = new THREE.Mesh(this.smokeGeometry, this.smokeMaterials[15]);
       p.position.set(
         xPos + (Math.random() - 0.5) * 1.5,
         0.1 + Math.random() * 0.4,
@@ -407,7 +499,7 @@ export class Renderer {
 
   // Trigger smoke particle for active factory chimneys
   emitChimneySmoke(xPos: number, yPos: number, zPos: number) {
-    const p = new THREE.Mesh(this.smokeGeometry, this.smokeMaterial.clone());
+    const p = new THREE.Mesh(this.smokeGeometry, this.smokeMaterials[15]);
     p.position.set(xPos, yPos, zPos);
     this.scene.add(p);
 
@@ -508,20 +600,16 @@ export class Renderer {
       p.mesh.position.addScaledVector(p.velocity, timeStep);
       p.life++;
 
-      // Fade out opacity
-      const opacity = 0.4 * (1.0 - p.life / p.maxLife);
-      if (p.mesh.material instanceof THREE.Material) {
-        p.mesh.material.opacity = Math.max(0, opacity);
-      }
+      // Fade out opacity by assigning a pre-created material of the closest opacity level
+      const opacityFraction = Math.max(0, Math.min(1, 1.0 - p.life / p.maxLife));
+      const matIdx = Math.floor(opacityFraction * 15);
+      p.mesh.material = this.smokeMaterials[matIdx];
 
       // Grow slightly
       p.mesh.scale.addScalar(timeStep * 0.12);
 
       if (p.life >= p.maxLife) {
         this.scene.remove(p.mesh);
-        if (p.mesh.material instanceof THREE.Material) {
-          p.mesh.material.dispose();
-        }
         this.particles.splice(i, 1);
       }
     }
@@ -549,14 +637,14 @@ export class Renderer {
   // Camera Smoothing update method
   updateCameraSmoothing(timeStep: number) {
     // 1. Process Keyboard Panning
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const forward = this.tempForward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const right = this.tempRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
     forward.y = 0;
     right.y = 0;
     forward.normalize();
     right.normalize();
 
-    const moveDir = new THREE.Vector3();
+    const moveDir = this.tempMoveDir.set(0, 0, 0);
     if (this.keysPressed['w'] || this.keysPressed['arrowup']) moveDir.add(forward);
     if (this.keysPressed['s'] || this.keysPressed['arrowdown']) moveDir.addScaledVector(forward, -1);
     if (this.keysPressed['d'] || this.keysPressed['arrowright']) moveDir.add(right);
