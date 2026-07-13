@@ -61,10 +61,10 @@ export class AssetGenerator {
     });
 
     this.materials.roadCrosswalk = new THREE.MeshStandardMaterial({
-      color: 0xcccccc,      // Soft off-white/light gray
+      color: 0xdddddd,      // Slightly brighter off-white
       roughness: 0.9,
       transparent: true,
-      opacity: 0.6,         // Let some road asphalt show through for a realistic painted texture
+      opacity: 0.75,        // Increased opacity for better visibility
     });
 
     // Curated Cozy Palettes definition
