@@ -28,7 +28,7 @@ export interface TileState {
 export class Simulation {
   gridSize = 50;
   grid: TileState[][];
-  money = 50000;
+  money = 30000;
   taxRate = 0.12;         // 12% default
   population = 0;
   jobs = 0;
@@ -113,11 +113,11 @@ export class Simulation {
   // Monthly/Weekly maintenance costs
   getMaintenanceCost(type: TileType, _level = 1): number {
     switch (type) {
-      case 'road': return 1;
-      case 'power': return 15;
-      case 'water': return 12;
-      case 'park': return 8;
-      case 'boardwalk': return 1;
+      case 'road': return 2;
+      case 'power': return 35;
+      case 'water': return 25;
+      case 'park': return 15;
+      case 'boardwalk': return 2;
       case 'residential': return 0;
       case 'commercial': return 0;
       case 'industrial': return 0;
@@ -463,33 +463,70 @@ export class Simulation {
         } else if (hasUtilities) {
           tile.abandoned = false;
           // Apply zoning growth base rate
-          let growthRate = 0;
+          let baseGrowth = 0;
+          let baseDecay = 0;
           let demand = 0;
 
           if (tile.type === 'residential') {
             demand = this.demandR;
-            growthRate = demand > 0 ? 4 : demand < -20 ? -4 : 0;
+            baseGrowth = demand > 0 ? Math.min(4.0, demand / 25) : 0;
+            baseDecay = demand < -20 ? Math.max(-4.0, (demand + 20) / 20) : 0;
           } else if (tile.type === 'commercial') {
             demand = this.demandC;
-            growthRate = demand > 0 ? 3 : demand < -20 ? -3 : 0;
+            baseGrowth = demand > 0 ? Math.min(3.0, demand / 33) : 0;
+            baseDecay = demand < -20 ? Math.max(-3.0, (demand + 20) / 20) : 0;
           } else if (tile.type === 'industrial') {
             demand = this.demandI;
-            growthRate = demand > 0 ? 3 : demand < -20 ? -3 : 0;
+            baseGrowth = demand > 0 ? Math.min(3.0, demand / 33) : 0;
+            baseDecay = demand < -20 ? Math.max(-3.0, (demand + 20) / 20) : 0;
           } else if (tile.type === 'park') {
-            growthRate = 0;
+            baseGrowth = 0;
             tile.level = 1;
             tile.happiness = 100;
           }
 
-          if (growthRate > 0 && tile.level < 3) {
-            tile.progress += growthRate * this.speed;
+          let effectiveGrowthRate = 0;
+
+          if (baseGrowth > 0 && tile.level < 3) {
+            if (tile.level === 0) {
+              effectiveGrowthRate = baseGrowth;
+            } else if (tile.level === 1) {
+              if (tile.happiness >= 80) {
+                const happinessScale = (tile.happiness - 80) / 20; // 0 to 1
+                const speedModifier = 0.12 + 0.18 * happinessScale; // 0.12 to 0.30
+                effectiveGrowthRate = baseGrowth * speedModifier;
+              } else {
+                effectiveGrowthRate = 0; // stuck at level 1 due to low happiness
+              }
+            } else if (tile.level === 2) {
+              if (tile.happiness >= 90) {
+                const happinessScale = (tile.happiness - 90) / 10; // 0 to 1
+                const speedModifier = 0.03 + 0.05 * happinessScale; // 0.03 to 0.08
+                effectiveGrowthRate = baseGrowth * speedModifier;
+              } else {
+                effectiveGrowthRate = 0; // stuck at level 2 due to low happiness
+              }
+            }
+          }
+
+          let effectiveDecayRate = baseDecay;
+
+          // Check for happiness-related decay
+          if (tile.level === 3 && tile.happiness < 85) {
+            effectiveDecayRate = Math.min(effectiveDecayRate, -2.0);
+          } else if (tile.level === 2 && tile.happiness < 75) {
+            effectiveDecayRate = Math.min(effectiveDecayRate, -1.5);
+          }
+
+          if (effectiveGrowthRate > 0 && tile.level < 3) {
+            tile.progress += effectiveGrowthRate * this.speed;
             if (tile.progress >= 100) {
               tile.progress = 30; // 30% progress buffer on upgrade for hysteresis stability
               tile.level++;
               this.onTileUpdate(tile);
             }
-          } else if (growthRate < 0 && tile.level > 0) {
-            tile.progress += growthRate * this.speed;
+          } else if (effectiveDecayRate < 0 && tile.level > 0) {
+            tile.progress += effectiveDecayRate * this.speed;
             if (tile.progress <= 0) {
               tile.progress = 70; // 70% progress buffer on downgrade for hysteresis stability
               tile.level--;

@@ -668,7 +668,7 @@ export class Game {
       </div>
       <div class="inspect-row">
         <span class="inspect-label">Development:</span>
-        <span class="inspect-value">${tile.progress}%</span>
+        <span class="inspect-value">${Math.round(tile.progress)}%</span>
       </div>
       <div class="inspect-row">
         <span class="inspect-label">${occupancyLabel}:</span>
@@ -750,7 +750,7 @@ export class Game {
     this.sounds.playClickSFX();
     if (confirm('Are you sure you want to start a new neighborhood? All current progress will be lost.')) {
       this.sim.initializeGrid();
-      this.sim.money = 50000;
+      this.sim.money = 30000;
       this.sim.taxRate = 0.12;
       this.sim.population = 0;
       this.sim.jobs = 0;

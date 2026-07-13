@@ -455,6 +455,7 @@ export class Renderer {
     const key = `${tile.x},${tile.y}`;
     const oldMesh = this.buildingMeshes.get(key);
     const targetRotation = this.calculateTileRotation(tile);
+    const neighborsHash = this.computeNeighborsHash(tile);
 
     if (oldMesh) {
       // Visuals are already up to date, avoid rebuilding and flickering!
@@ -462,7 +463,8 @@ export class Renderer {
         oldMesh.userData &&
         oldMesh.userData.type === tile.type &&
         oldMesh.userData.level === tile.level &&
-        oldMesh.userData.rotation === targetRotation
+        oldMesh.userData.rotation === targetRotation &&
+        oldMesh.userData.neighborsHash === neighborsHash
       ) {
         return;
       }
@@ -534,7 +536,12 @@ export class Renderer {
       if (tile.type === 'residential' || tile.type === 'commercial' || tile.type === 'industrial') {
         newMesh.rotation.y = targetRotation;
       }
-      newMesh.userData = { type: tile.type, level: tile.level, rotation: targetRotation };
+      newMesh.userData = { 
+        type: tile.type, 
+        level: tile.level, 
+        rotation: targetRotation,
+        neighborsHash: neighborsHash
+      };
       
       // Shadow casting configurations
       newMesh.traverse((child) => {
@@ -551,6 +558,26 @@ export class Renderer {
       this.scene.add(newMesh);
       this.buildingMeshes.set(key, newMesh);
     }
+  }
+
+  computeNeighborsHash(tile: TileState): string {
+    if (tile.type !== 'water_body' && tile.type !== 'boardwalk') {
+      return '';
+    }
+
+    if (!this.sim) return '';
+
+    const N = tile.y > 0 ? this.sim.grid[tile.x][tile.y - 1].type : 'none';
+    const S = tile.y < this.sim.gridSize - 1 ? this.sim.grid[tile.x][tile.y + 1].type : 'none';
+    const E = tile.x < this.sim.gridSize - 1 ? this.sim.grid[tile.x + 1][tile.y].type : 'none';
+    const W = tile.x > 0 ? this.sim.grid[tile.x - 1][tile.y].type : 'none';
+
+    const Nb = tile.y > 0 ? (this.sim.grid[tile.x][tile.y - 1].bridge ? '1' : '0') : '0';
+    const Sb = tile.y < this.sim.gridSize - 1 ? (this.sim.grid[tile.x][tile.y + 1].bridge ? '1' : '0') : '0';
+    const Eb = tile.x < this.sim.gridSize - 1 ? (this.sim.grid[tile.x + 1][tile.y].bridge ? '1' : '0') : '0';
+    const Wb = tile.x > 0 ? (this.sim.grid[tile.x - 1][tile.y].bridge ? '1' : '0') : '0';
+
+    return `N:${N}-${Nb}|S:${S}-${Sb}|E:${E}-${Eb}|W:${W}-${Wb}`;
   }
 
   // Special separate handler for roads since they connect
