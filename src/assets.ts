@@ -351,7 +351,7 @@ function initModalRenderer() {
 
   canvasContainer.addEventListener('wheel', (e) => {
     e.preventDefault();
-    cameraZoom = Math.max(1.8, Math.min(10.0, cameraZoom + e.deltaY * 0.004));
+    cameraZoom = Math.max(0.8, Math.min(10.0, cameraZoom + e.deltaY * 0.004));
     updateCameraPosition();
   }, { passive: false });
 

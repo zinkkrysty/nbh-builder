@@ -301,7 +301,8 @@ export class Renderer {
   // Camera Pan/Rotate controls
   updateCameraPosition() {
     // Trigonometry to offset camera relative to target
-    const radius = 1000 / this.cameraZoom;
+    // Keep a minimum radius of 30 units to prevent near-plane clipping at close zoom levels
+    const radius = Math.max(30, 1000 / this.cameraZoom);
 
     const xOffset = radius * Math.cos(this.cameraAngleX) * Math.sin(this.cameraAngleY);
     const yOffset = radius * Math.sin(this.cameraAngleX);
@@ -386,7 +387,7 @@ export class Renderer {
       e.preventDefault();
       const zoomFactor = 1.15;
       if (e.deltaY < 0) {
-        this.desiredCameraZoom = Math.min(60, this.desiredCameraZoom * zoomFactor);
+        this.desiredCameraZoom = Math.min(300, this.desiredCameraZoom * zoomFactor);
       } else {
         this.desiredCameraZoom = Math.max(5, this.desiredCameraZoom / zoomFactor);
       }

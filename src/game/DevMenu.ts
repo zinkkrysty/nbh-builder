@@ -208,7 +208,7 @@ export class DevMenu {
       e.preventDefault();
       const zoomSpeed = 0.002;
       this.cameraDistance += e.deltaY * zoomSpeed;
-      this.cameraDistance = Math.max(1.0, Math.min(8.0, this.cameraDistance));
+      this.cameraDistance = Math.max(0.5, Math.min(8.0, this.cameraDistance));
       this.updateCameraPosition();
     }, { passive: false });
   }
