@@ -367,32 +367,64 @@ export class AssetGenerator {
     const activeCrosswalksNS: number[] = []; // Z positions for EW crosswalks
     const activeCrosswalksEW: number[] = []; // X positions for NS crosswalks
 
-    // Only render crosswalks on road tiles exterior to intersections (count < 3)
-    if (count < 3) {
+    // Only render crosswalks on road tiles exterior to intersections (count < 3) and not on bridge tiles
+    if (count < 3 && !isBridge && this.sim && tileX > 0 && tileX < this.sim.gridSize - 1 && tileY > 0 && tileY < this.sim.gridSize - 1) {
       // 1. Check if connected neighbors are road intersections
       if (N && this.isIntersection(tileX, tileY - 1)) activeCrosswalksNS.push(-0.65);
       if (S && this.isIntersection(tileX, tileY + 1)) activeCrosswalksNS.push(0.65);
       if (E && this.isIntersection(tileX + 1, tileY)) activeCrosswalksEW.push(0.65);
       if (W && this.isIntersection(tileX - 1, tileY)) activeCrosswalksEW.push(-0.65);
 
-      // 2. Check if flanked by boardwalks on both sides
-      if (activeCrosswalksNS.length === 0 && activeCrosswalksEW.length === 0) {
-        if (this.sim && tileX > 0 && tileX < this.sim.gridSize - 1 && tileY > 0 && tileY < this.sim.gridSize - 1) {
-          const tileN = this.sim.grid[tileX][tileY - 1];
-          const tileS = this.sim.grid[tileX][tileY + 1];
-          const tileE = this.sim.grid[tileX + 1][tileY];
-          const tileW = this.sim.grid[tileX - 1][tileY];
-
-          if (tileW.type === 'boardwalk' && tileE.type === 'boardwalk') {
-            const wSide = this.getBoardwalkDeckSide(tileX - 1, tileY);
-            if (wSide === 'N') activeCrosswalksNS.push(-0.65);
-            else if (wSide === 'S') activeCrosswalksNS.push(0.65);
-            else activeCrosswalksNS.push(0);
-          } else if (tileN.type === 'boardwalk' && tileS.type === 'boardwalk') {
-            const nSide = this.getBoardwalkDeckSide(tileX, tileY - 1);
-            if (nSide === 'W') activeCrosswalksEW.push(-0.65);
-            else if (nSide === 'E') activeCrosswalksEW.push(0.65);
-            else activeCrosswalksEW.push(0);
+      // 2. Check if adjacent neighbors are bridges flanked by boardwalks
+      // North neighbor:
+      if (tileY > 0) {
+        const tileN = this.sim.grid[tileX][tileY - 1];
+        if (tileN.type === 'road' && tileN.bridge === true) {
+          if (tileX > 0 && tileX < this.sim.gridSize - 1) {
+            const tileNW = this.sim.grid[tileX - 1][tileY - 1];
+            const tileNE = this.sim.grid[tileX + 1][tileY - 1];
+            if (tileNW.type === 'boardwalk' && tileNE.type === 'boardwalk') {
+              activeCrosswalksNS.push(-0.65);
+            }
+          }
+        }
+      }
+      // South neighbor:
+      if (tileY < this.sim.gridSize - 1) {
+        const tileS = this.sim.grid[tileX][tileY + 1];
+        if (tileS.type === 'road' && tileS.bridge === true) {
+          if (tileX > 0 && tileX < this.sim.gridSize - 1) {
+            const tileSW = this.sim.grid[tileX - 1][tileY + 1];
+            const tileSE = this.sim.grid[tileX + 1][tileY + 1];
+            if (tileSW.type === 'boardwalk' && tileSE.type === 'boardwalk') {
+              activeCrosswalksNS.push(0.65);
+            }
+          }
+        }
+      }
+      // East neighbor:
+      if (tileX < this.sim.gridSize - 1) {
+        const tileE = this.sim.grid[tileX + 1][tileY];
+        if (tileE.type === 'road' && tileE.bridge === true) {
+          if (tileY > 0 && tileY < this.sim.gridSize - 1) {
+            const tileEN = this.sim.grid[tileX + 1][tileY - 1];
+            const tileES = this.sim.grid[tileX + 1][tileY + 1];
+            if (tileEN.type === 'boardwalk' && tileES.type === 'boardwalk') {
+              activeCrosswalksEW.push(0.65);
+            }
+          }
+        }
+      }
+      // West neighbor:
+      if (tileX > 0) {
+        const tileW = this.sim.grid[tileX - 1][tileY];
+        if (tileW.type === 'road' && tileW.bridge === true) {
+          if (tileY > 0 && tileY < this.sim.gridSize - 1) {
+            const tileWN = this.sim.grid[tileX - 1][tileY - 1];
+            const tileWS = this.sim.grid[tileX - 1][tileY + 1];
+            if (tileWN.type === 'boardwalk' && tileWS.type === 'boardwalk') {
+              activeCrosswalksEW.push(-0.65);
+            }
           }
         }
       }
@@ -489,7 +521,7 @@ export class AssetGenerator {
       if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
     }
 
-    // Helper to paint pedestrian crosswalk (Zebra stripes)
+    // Helper to paint pedestrian crosswalk (Zebra stripes, extended all the way across the road width 2.0)
     const drawCrosswalk = (cx: number, cz: number, orientation: 'NS' | 'EW') => {
       const stripeMat = this.materials.roadCrosswalk;
       const stripeGeo = this.getGeometry(
@@ -500,7 +532,7 @@ export class AssetGenerator {
         )
       );
 
-      const offsets = [-0.4, -0.2, 0, 0.2, 0.4];
+      const offsets = [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8];
       for (const off of offsets) {
         const stripe = new THREE.Mesh(stripeGeo, stripeMat);
         stripe.rotation.x = -Math.PI / 2;
