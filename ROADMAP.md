@@ -14,6 +14,7 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   [x] **1.5: Water Bodies & Transport Bridges** — Water body placement tool, double-sided transparent water meshes, global world-space wave physics shaders, and automatic road-to-bridge rendering with double driving-lane side railings.
 *   [x] **1.6: Waterfront Boardwalks & Docks** — Narrow-profile boardwalks (1/3 wood deck, 2/3 grass lawn), physical curb wood dividers, dark void under-frame gap shading, waterfront-only rope railings, random grass props (cozy benches, trees, shrubs), coordinate-seeded spread-out piers (lifebuoys, benches, bollards), moored rowboats, and residential happiness boost (+10).
 *   [x] **1.7: Visual Asset Catalog Page** — Interactive 3D modal viewport with mouse drag rotations, camera framing, day/night lights, and random seed re-rolling for all assets.
+*   [x] **1.8: Pedestrian Crossing Paint & Network Rebuilding** — Zebra crosswalks painted on exterior road tiles close to intersection boundaries, extended all the way across the road width, and aligned with boardwalk approaches at bridge entrances/exits. Yellow centerlines automatically split with a 0.25-unit gap to prevent overlap and are hidden on bridge decks. Rebuilding roads triggers a Manhattan-distance-of-2 update to cleanly update all adjacent road crosswalks immediately. Crosswalk material uses a soft, semi-transparent Standard Material for realistic road blending.
 
 ---
 
