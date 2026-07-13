@@ -281,15 +281,16 @@ export class Game {
     });
   }
 
-  // Recalculates road direction meshes for cell and its 4-way neighbors
+  // Recalculates road direction meshes for cell and its neighbors within Manhattan distance 2
   rebuildRoadNetworkAround(x: number, y: number) {
-    const list = [
-      { x, y },
-      { x: x + 1, y },
-      { x: x - 1, y },
-      { x, y: y + 1 },
-      { x, y: y - 1 }
-    ];
+    const list: { x: number; y: number }[] = [];
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (Math.abs(dx) + Math.abs(dy) <= 2) {
+          list.push({ x: x + dx, y: y + dy });
+        }
+      }
+    }
 
     for (const item of list) {
       if (item.x >= 0 && item.x < this.sim.gridSize && item.y >= 0 && item.y < this.sim.gridSize) {
