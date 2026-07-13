@@ -414,14 +414,14 @@ export class Renderer {
   updateGroundInstance(x: number, y: number) {
     if (!this.sim) return;
     const tile = this.sim.grid[x][y];
-    const isWaterOrBridgeOrBoardwalk = tile.type === 'water_body' || tile.bridge === true || tile.type === 'boardwalk';
+    const isWaterOrBridge = tile.type === 'water_body' || tile.bridge === true;
     
     const size = 50;
     const gridOffset = 25;
     const index = x * size + y;
     
     const dummy = new THREE.Object3D();
-    if (isWaterOrBridgeOrBoardwalk) {
+    if (isWaterOrBridge) {
       dummy.position.set(0, -100, 0); // Hide the grass tile underground
     } else {
       const xPos = (x - gridOffset) * 2;

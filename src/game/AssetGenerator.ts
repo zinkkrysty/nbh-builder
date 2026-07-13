@@ -512,28 +512,17 @@ export class AssetGenerator {
     else if (waterNeighbors.E) align = 'E';
     else if (waterNeighbors.W) align = 'W';
 
-    // 2. Render Grass Base covering the remaining 2/3 of the tile
-    // Top surface matches surrounding terrain height (y = 0.08)
-    let grassGeo: THREE.BufferGeometry;
+    // 2. Determine Grass Portion Center (for prop positioning)
     let grassX = 0, grassZ = 0;
-    
     if (align === 'N' || align === 'S') {
-      grassGeo = this.getGeometry('boardwalk_grass_ns_2_3', () => new THREE.BoxGeometry(2.0, 0.08, 1.33));
       grassX = 0;
       grassZ = align === 'N' ? 0.335 : -0.335;
     } else {
-      grassGeo = this.getGeometry('boardwalk_grass_ew_2_3', () => new THREE.BoxGeometry(1.33, 0.08, 2.0));
       grassX = align === 'E' ? -0.335 : 0.335;
       grassZ = 0;
     }
 
-    const grass = new THREE.Mesh(grassGeo, this.materials.grass);
-    grass.position.set(grassX, 0.04, grassZ);
-    grass.receiveShadow = true;
-    group.add(grass);
-
     // 3. Render Boardwalk Deck covering 1/3 of the tile (towards the water)
-    // Colored darkVoid to show as black space through the board gaps!
     let deckGeo: THREE.BufferGeometry;
     let deckX = 0, deckZ = 0;
     
@@ -547,27 +536,26 @@ export class AssetGenerator {
       deckZ = 0;
     }
 
-    const deck = new THREE.Mesh(deckGeo, this.materials.darkVoid);
-    deck.position.set(deckX, 0.06, deckZ);
+    const deck = new THREE.Mesh(deckGeo, this.materials.trunk);
+    deck.position.set(deckX, 0.02, deckZ);
     deck.receiveShadow = true;
     group.add(deck);
 
     // 4. Render Parallel Planks on top of the deck (perpendicular to shore)
-    // Sitting at y = 0.08 (aligned with grass surface) to y = 0.095
     if (align === 'N' || align === 'S') {
-      const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3', () => new THREE.BoxGeometry(0.28, 0.015, 0.67));
+      const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_thick', () => new THREE.BoxGeometry(0.28, 0.04, 0.67));
       for (let i = 0; i < 5; i++) {
         const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-        plank.position.set(-0.8 + i * 0.4, 0.0875, deckZ);
+        plank.position.set(-0.8 + i * 0.4, 0.06, deckZ);
         plank.receiveShadow = true;
         plank.castShadow = true;
         group.add(plank);
       }
     } else {
-      const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3', () => new THREE.BoxGeometry(0.67, 0.015, 0.28));
+      const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_thick', () => new THREE.BoxGeometry(0.67, 0.04, 0.28));
       for (let i = 0; i < 5; i++) {
         const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-        plank.position.set(deckX, 0.0875, -0.8 + i * 0.4);
+        plank.position.set(deckX, 0.06, -0.8 + i * 0.4);
         plank.receiveShadow = true;
         plank.castShadow = true;
         group.add(plank);
@@ -580,22 +568,22 @@ export class AssetGenerator {
 
     if (align === 'N') {
       const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-      curb.position.set(0, 0.08, -0.33);
+      curb.position.set(0, 0.04, -0.33);
       curb.castShadow = true;
       group.add(curb);
     } else if (align === 'S') {
       const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-      curb.position.set(0, 0.08, 0.33);
+      curb.position.set(0, 0.04, 0.33);
       curb.castShadow = true;
       group.add(curb);
     } else if (align === 'E') {
       const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-      curb.position.set(0.33, 0.08, 0);
+      curb.position.set(0.33, 0.04, 0);
       curb.castShadow = true;
       group.add(curb);
     } else if (align === 'W') {
       const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-      curb.position.set(-0.33, 0.08, 0);
+      curb.position.set(-0.33, 0.04, 0);
       curb.castShadow = true;
       group.add(curb);
     }
@@ -633,16 +621,16 @@ export class AssetGenerator {
 
       // Position bench on grass facing boardwalk
       if (align === 'N') {
-        bench.position.set(0, 0.08, 0.33);
+        bench.position.set(0, 0, 0.33);
         bench.rotation.y = Math.PI;
       } else if (align === 'S') {
-        bench.position.set(0, 0.08, -0.33);
+        bench.position.set(0, 0, -0.33);
         bench.rotation.y = 0;
       } else if (align === 'E') {
-        bench.position.set(-0.33, 0.08, 0);
+        bench.position.set(-0.33, 0, 0);
         bench.rotation.y = -Math.PI / 2;
       } else if (align === 'W') {
-        bench.position.set(0.33, 0.08, 0);
+        bench.position.set(0.33, 0, 0);
         bench.rotation.y = Math.PI / 2;
       }
       group.add(bench);
@@ -650,13 +638,13 @@ export class AssetGenerator {
       // Spawn a mini decorative shoreline tree
       const tree = this.createTreeMesh();
       tree.scale.set(0.55, 0.55, 0.55);
-      tree.position.set(grassX, 0.08, grassZ);
+      tree.position.set(grassX, 0, grassZ);
       group.add(tree);
     } else if (elementRoll < 0.75) {
       // Spawn a low-poly green bush/shrub
       const bushGeo = this.getGeometry('grass_bush', () => new THREE.DodecahedronGeometry(0.18));
       const bush = new THREE.Mesh(bushGeo, this.materials.leaves);
-      bush.position.set(grassX, 0.22, grassZ);
+      bush.position.set(grassX, 0.14, grassZ);
       bush.castShadow = true;
       group.add(bush);
     }
@@ -802,13 +790,15 @@ export class AssetGenerator {
 
         boat.position.set(0.45, -0.06, 1.8);
         boat.rotation.y = (rand() * 0.2 - 0.1) + Math.PI / 12;
+        boat.castShadow = true;
+        boat.receiveShadow = true;
         pier.add(boat);
       }
 
       if (pierDir === 'N') pier.rotation.y = Math.PI;
       else if (pierDir === 'S') pier.rotation.y = 0;
-      else if (pierDir === 'E') pier.rotation.y = -Math.PI / 2;
-      else if (pierDir === 'W') pier.rotation.y = Math.PI / 2;
+      else if (pierDir === 'E') pier.rotation.y = Math.PI / 2;
+      else if (pierDir === 'W') pier.rotation.y = -Math.PI / 2;
 
       group.add(pier);
     }
