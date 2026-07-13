@@ -290,10 +290,10 @@ export class AssetGenerator {
     if (tile.type !== 'road') return false;
 
     const conn = {
-      N: ty > 0 && (this.sim.grid[tx][ty - 1].type === 'road' || this.sim.grid[tx][ty - 1].type === 'boardwalk'),
-      S: ty < this.sim.gridSize - 1 && (this.sim.grid[tx][ty + 1].type === 'road' || this.sim.grid[tx][ty + 1].type === 'boardwalk'),
-      E: tx < this.sim.gridSize - 1 && (this.sim.grid[tx + 1][ty].type === 'road' || this.sim.grid[tx + 1][ty].type === 'boardwalk'),
-      W: tx > 0 && (this.sim.grid[tx - 1][ty].type === 'road' || this.sim.grid[tx - 1][ty].type === 'boardwalk')
+      N: ty > 0 && this.sim.grid[tx][ty - 1].type === 'road',
+      S: ty < this.sim.gridSize - 1 && this.sim.grid[tx][ty + 1].type === 'road',
+      E: tx < this.sim.gridSize - 1 && this.sim.grid[tx + 1][ty].type === 'road',
+      W: tx > 0 && this.sim.grid[tx - 1][ty].type === 'road'
     };
     const cnt = [conn.N, conn.S, conn.E, conn.W].filter(Boolean).length;
     return cnt >= 3;
