@@ -25,6 +25,7 @@ export class Game {
   constructor() {
     this.sim = new Simulation();
     this.assets = new AssetGenerator();
+    this.assets.sim = this.sim;
     this.renderer = new Renderer('canvas-container', this.assets);
     this.renderer.sim = this.sim;
     

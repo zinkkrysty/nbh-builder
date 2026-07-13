@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { Simulation } from './Simulation';
 
 export class AssetGenerator {
+  sim: Simulation | null = null;
   // Shared materials for performance
   materials: { [key: string]: THREE.Material } = {};
   // Shared geometries for performance
@@ -495,6 +497,37 @@ export class AssetGenerator {
     return group;
   }
 
+  getPierDirectionForTile(bx: number, by: number): 'N' | 'S' | 'E' | 'W' | null {
+    if (!this.sim) return null;
+    if (bx < 0 || bx >= this.sim.gridSize || by < 0 || by >= this.sim.gridSize) return null;
+    const tile = this.sim.grid[bx][by];
+    if (tile.type !== 'boardwalk') return null;
+
+    // Recreate waterNeighbors for the neighboring tile
+    const waterNeighbors = {
+      N: tile.y > 0 && (this.sim.grid[tile.x][tile.y - 1].type === 'water_body' || this.sim.grid[tile.x][tile.y - 1].bridge === true),
+      S: tile.y < this.sim.gridSize - 1 && (this.sim.grid[tile.x][tile.y + 1].type === 'water_body' || this.sim.grid[tile.x][tile.y + 1].bridge === true),
+      E: tile.x < this.sim.gridSize - 1 && (this.sim.grid[tile.x + 1][tile.y].type === 'water_body' || this.sim.grid[tile.x + 1][tile.y].bridge === true),
+      W: tile.x > 0 && (this.sim.grid[tile.x - 1][tile.y].type === 'water_body' || this.sim.grid[tile.x - 1][tile.y].bridge === true)
+    };
+
+    const waterDirs: ('N' | 'S' | 'E' | 'W')[] = [];
+    if (waterNeighbors.N) waterDirs.push('N');
+    if (waterNeighbors.S) waterDirs.push('S');
+    if (waterNeighbors.E) waterDirs.push('E');
+    if (waterNeighbors.W) waterDirs.push('W');
+
+    if (waterDirs.length === 0) return null;
+
+    const rand = this.getSeededRandom(bx, by);
+    const pierRoll = rand();
+    if (pierRoll < 0.35) {
+      const index = Math.floor(rand() * waterDirs.length);
+      return waterDirs[index];
+    }
+    return null;
+  }
+
   // 3c. Boardwalk Mesh Generator
   createBoardwalkMesh(
     tileX = 0,
@@ -505,167 +538,207 @@ export class AssetGenerator {
     const group = new THREE.Group();
     const rand = this.getSeededRandom(tileX, tileY);
 
-    // 1. Determine alignment based on adjacent water body
-    let align: 'N' | 'S' | 'E' | 'W' = 'N';
-    if (waterNeighbors.N) align = 'N';
-    else if (waterNeighbors.S) align = 'S';
-    else if (waterNeighbors.E) align = 'E';
-    else if (waterNeighbors.W) align = 'W';
+    // 1. Determine active water sides
+    const activeSides: ('N' | 'S' | 'E' | 'W')[] = [];
+    if (waterNeighbors.N) activeSides.push('N');
+    if (waterNeighbors.S) activeSides.push('S');
+    if (waterNeighbors.E) activeSides.push('E');
+    if (waterNeighbors.W) activeSides.push('W');
+    if (activeSides.length === 0) activeSides.push('N');
 
-    // 2. Determine Grass Portion Center (for prop positioning)
+    const primaryAlign = activeSides[0];
+
+    // 2. Determine Grass Portion Center (for prop positioning when not fully surrounded by water)
     let grassX = 0, grassZ = 0;
-    if (align === 'N' || align === 'S') {
+    if (primaryAlign === 'N' || primaryAlign === 'S') {
       grassX = 0;
-      grassZ = align === 'N' ? 0.335 : -0.335;
+      grassZ = primaryAlign === 'N' ? 0.335 : -0.335;
     } else {
-      grassX = align === 'E' ? -0.335 : 0.335;
+      grassX = primaryAlign === 'E' ? -0.335 : 0.335;
       grassZ = 0;
     }
 
-    // 3. Render Boardwalk Deck covering 1/3 of the tile (towards the water)
-    let deckGeo: THREE.BufferGeometry;
-    let deckX = 0, deckZ = 0;
-    
-    if (align === 'N' || align === 'S') {
-      deckGeo = this.getGeometry('boardwalk_deck_ns_1_3', () => new THREE.BoxGeometry(2.0, 0.04, 0.67));
-      deckX = 0;
-      deckZ = align === 'N' ? -0.665 : 0.665;
-    } else {
-      deckGeo = this.getGeometry('boardwalk_deck_ew_1_3', () => new THREE.BoxGeometry(0.67, 0.04, 2.0));
-      deckX = align === 'E' ? 0.665 : -0.665;
-      deckZ = 0;
-    }
-
-    const deck = new THREE.Mesh(deckGeo, this.materials.trunk);
-    deck.position.set(deckX, 0.02, deckZ);
-    deck.receiveShadow = true;
-    group.add(deck);
-
-    // 4. Render Parallel Planks on top of the deck (perpendicular to shore)
-    if (align === 'N' || align === 'S') {
-      const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_thick', () => new THREE.BoxGeometry(0.28, 0.04, 0.67));
-      for (let i = 0; i < 5; i++) {
-        const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-        plank.position.set(-0.8 + i * 0.4, 0.06, deckZ);
-        plank.receiveShadow = true;
-        plank.castShadow = true;
-        group.add(plank);
-      }
-    } else {
-      const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_thick', () => new THREE.BoxGeometry(0.67, 0.04, 0.28));
-      for (let i = 0; i < 5; i++) {
-        const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-        plank.position.set(deckX, 0.06, -0.8 + i * 0.4);
-        plank.receiveShadow = true;
-        plank.castShadow = true;
-        group.add(plank);
-      }
-    }
-
-    // 5. Wooden Curb Retaining Wall separating wood deck and grass
+    // 3. Render Boardwalk Deck, Planks, and Curbs for each active water side
     const curbBeamGeoX = this.getGeometry('boardwalk_curb_x_1_3', () => new THREE.BoxGeometry(2.0, 0.08, 0.06));
     const curbBeamGeoZ = this.getGeometry('boardwalk_curb_z_1_3', () => new THREE.BoxGeometry(0.06, 0.08, 2.0));
 
-    if (align === 'N') {
-      const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-      curb.position.set(0, 0.04, -0.33);
-      curb.castShadow = true;
-      group.add(curb);
-    } else if (align === 'S') {
-      const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-      curb.position.set(0, 0.04, 0.33);
-      curb.castShadow = true;
-      group.add(curb);
-    } else if (align === 'E') {
-      const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-      curb.position.set(0.33, 0.04, 0);
-      curb.castShadow = true;
-      group.add(curb);
-    } else if (align === 'W') {
-      const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-      curb.position.set(-0.33, 0.04, 0);
-      curb.castShadow = true;
-      group.add(curb);
-    }
-
-    // 6. Spawn Random Elements on the Grass portion
-    const elementRoll = rand();
-    if (elementRoll < 0.25) {
-      // Spawn a Cozy Wooden Bench facing the water
-      const bench = new THREE.Group();
-      // Seat
-      const seatGeo = this.getGeometry('grass_bench_seat', () => new THREE.BoxGeometry(0.5, 0.02, 0.18));
-      const seat = new THREE.Mesh(seatGeo, this.materials.trunk);
-      seat.position.set(0, 0.08, 0);
-      seat.castShadow = true;
-      bench.add(seat);
-
-      // Backrest
-      const backGeo = this.getGeometry('grass_bench_back', () => new THREE.BoxGeometry(0.5, 0.16, 0.02));
-      const back = new THREE.Mesh(backGeo, this.materials.trunk);
-      back.position.set(0, 0.16, 0.08);
-      back.castShadow = true;
-      bench.add(back);
-
-      // Legs
-      const legGeo = this.getGeometry('grass_bench_leg', () => new THREE.BoxGeometry(0.04, 0.08, 0.18));
-      const legL = new THREE.Mesh(legGeo, this.materials.trunk);
-      legL.position.set(-0.22, 0.04, 0);
-      legL.castShadow = true;
-      bench.add(legL);
-
-      const legR = new THREE.Mesh(legGeo, this.materials.trunk);
-      legR.position.set(0.22, 0.04, 0);
-      legR.castShadow = true;
-      bench.add(legR);
-
-      // Position bench on grass facing boardwalk
-      if (align === 'N') {
-        bench.position.set(0, 0, 0.33);
-        bench.rotation.y = Math.PI;
-      } else if (align === 'S') {
-        bench.position.set(0, 0, -0.33);
-        bench.rotation.y = 0;
-      } else if (align === 'E') {
-        bench.position.set(-0.33, 0, 0);
-        bench.rotation.y = -Math.PI / 2;
-      } else if (align === 'W') {
-        bench.position.set(0.33, 0, 0);
-        bench.rotation.y = Math.PI / 2;
+    for (const side of activeSides) {
+      let deckGeo: THREE.BufferGeometry;
+      let deckX = 0, deckZ = 0;
+      
+      if (side === 'N' || side === 'S') {
+        deckGeo = this.getGeometry('boardwalk_deck_ns_1_3', () => new THREE.BoxGeometry(2.0, 0.04, 0.67));
+        deckX = 0;
+        deckZ = side === 'N' ? -0.665 : 0.665;
+      } else {
+        deckGeo = this.getGeometry('boardwalk_deck_ew_1_3', () => new THREE.BoxGeometry(0.67, 0.04, 2.0));
+        deckX = side === 'E' ? 0.665 : -0.665;
+        deckZ = 0;
       }
-      group.add(bench);
-    } else if (elementRoll < 0.50) {
-      // Spawn a mini decorative shoreline tree
-      const tree = this.createTreeMesh();
-      tree.scale.set(0.55, 0.55, 0.55);
-      tree.position.set(grassX, 0, grassZ);
-      group.add(tree);
-    } else if (elementRoll < 0.75) {
-      // Spawn a low-poly green bush/shrub
-      const bushGeo = this.getGeometry('grass_bush', () => new THREE.DodecahedronGeometry(0.18));
-      const bush = new THREE.Mesh(bushGeo, this.materials.leaves);
-      bush.position.set(grassX, 0.14, grassZ);
-      bush.castShadow = true;
-      group.add(bush);
+
+      const deck = new THREE.Mesh(deckGeo, this.materials.trunk);
+      deck.position.set(deckX, 0.02, deckZ);
+      deck.receiveShadow = true;
+      group.add(deck);
+
+      // Render 6 parallel planks on the deck (narrower: width 0.20, center spacing 0.32, keeping 0.12 gap)
+      if (side === 'N' || side === 'S') {
+        const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrow_thick', () => new THREE.BoxGeometry(0.20, 0.04, 0.67));
+        for (let i = 0; i < 6; i++) {
+          const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
+          plank.position.set(-0.8 + i * 0.32, 0.06, deckZ);
+          plank.receiveShadow = true;
+          plank.castShadow = true;
+          group.add(plank);
+        }
+      } else {
+        const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrow_thick', () => new THREE.BoxGeometry(0.67, 0.04, 0.20));
+        for (let i = 0; i < 6; i++) {
+          const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
+          plank.position.set(deckX, 0.06, -0.8 + i * 0.32);
+          plank.receiveShadow = true;
+          plank.castShadow = true;
+          group.add(plank);
+        }
+      }
+
+      // Wooden Curb Wall
+      if (side === 'N') {
+        const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
+        curb.position.set(0, 0.04, -0.33);
+        curb.castShadow = true;
+        group.add(curb);
+      } else if (side === 'S') {
+        const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
+        curb.position.set(0, 0.04, 0.33);
+        curb.castShadow = true;
+        group.add(curb);
+      } else if (side === 'E') {
+        const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
+        curb.position.set(0.33, 0.04, 0);
+        curb.castShadow = true;
+        group.add(curb);
+      } else if (side === 'W') {
+        const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
+        curb.position.set(-0.33, 0.04, 0);
+        curb.castShadow = true;
+        group.add(curb);
+      }
     }
 
-    // 7. Spread out Docks/Piers (max 1 pier per tile)
-    const waterDirs: ('N' | 'S' | 'E' | 'W')[] = [];
-    if (waterNeighbors.N) waterDirs.push('N');
-    if (waterNeighbors.S) waterDirs.push('S');
-    if (waterNeighbors.E) waterDirs.push('E');
-    if (waterNeighbors.W) waterDirs.push('W');
+    // 4. Spawn Random Elements on the grass portion (ONLY if not surrounded by 2 or more water tiles)
+    const isMultiWater = activeSides.length >= 2;
+    if (!isMultiWater) {
+      const elementRoll = rand();
+      if (elementRoll < 0.25) {
+        // Spawn a Cozy Wooden Bench facing the water
+        const bench = new THREE.Group();
+        // Seat
+        const seatGeo = this.getGeometry('grass_bench_seat', () => new THREE.BoxGeometry(0.5, 0.02, 0.18));
+        const seat = new THREE.Mesh(seatGeo, this.materials.trunk);
+        seat.position.set(0, 0.08, 0);
+        seat.castShadow = true;
+        bench.add(seat);
+
+        // Backrest
+        const backGeo = this.getGeometry('grass_bench_back', () => new THREE.BoxGeometry(0.5, 0.16, 0.02));
+        const back = new THREE.Mesh(backGeo, this.materials.trunk);
+        back.position.set(0, 0.16, 0.08);
+        back.castShadow = true;
+        bench.add(back);
+
+        // Legs
+        const legGeo = this.getGeometry('grass_bench_leg', () => new THREE.BoxGeometry(0.04, 0.08, 0.18));
+        const legL = new THREE.Mesh(legGeo, this.materials.trunk);
+        legL.position.set(-0.22, 0.04, 0);
+        legL.castShadow = true;
+        bench.add(legL);
+
+        const legR = new THREE.Mesh(legGeo, this.materials.trunk);
+        legR.position.set(0.22, 0.04, 0);
+        legR.castShadow = true;
+        bench.add(legR);
+
+        // Position bench on grass facing boardwalk
+        if (primaryAlign === 'N') {
+          bench.position.set(0, 0, 0.33);
+          bench.rotation.y = Math.PI;
+        } else if (primaryAlign === 'S') {
+          bench.position.set(0, 0, -0.33);
+          bench.rotation.y = 0;
+        } else if (primaryAlign === 'E') {
+          bench.position.set(-0.33, 0, 0);
+          bench.rotation.y = -Math.PI / 2;
+        } else if (primaryAlign === 'W') {
+          bench.position.set(0.33, 0, 0);
+          bench.rotation.y = Math.PI / 2;
+        }
+        group.add(bench);
+      } else if (elementRoll < 0.50) {
+        // Spawn a mini decorative shoreline tree
+        const tree = this.createTreeMesh();
+        tree.scale.set(0.55, 0.55, 0.55);
+        tree.position.set(grassX, 0, grassZ);
+        group.add(tree);
+      } else if (elementRoll < 0.75) {
+        // Spawn a low-poly green bush/shrub
+        const bushGeo = this.getGeometry('grass_bush', () => new THREE.DodecahedronGeometry(0.18));
+        const bush = new THREE.Mesh(bushGeo, this.materials.leaves);
+        bush.position.set(grassX, 0.14, grassZ);
+        bush.castShadow = true;
+        group.add(bush);
+      }
+    }
+
+    // 5. Shared water-pier checking logic
+    const isWaterTileOccupiedByAnotherPier = (wx: number, wy: number, currentBX: number, currentBY: number): boolean => {
+      if (!this.sim) return false;
+      const neighbors = [
+        { x: wx, y: wy - 1 }, // North of water
+        { x: wx, y: wy + 1 }, // South of water
+        { x: wx - 1, y: wy }, // West of water
+        { x: wx + 1, y: wy }  // East of water
+      ];
+      for (const n of neighbors) {
+        if (n.x === currentBX && n.y === currentBY) continue;
+        const otherPierDir = this.getPierDirectionForTile(n.x, n.y);
+        if (otherPierDir) {
+          let targetX = n.x;
+          let targetY = n.y;
+          if (otherPierDir === 'N') targetY -= 1;
+          else if (otherPierDir === 'S') targetY += 1;
+          else if (otherPierDir === 'E') targetX += 1;
+          else if (otherPierDir === 'W') targetX -= 1;
+          
+          if (targetX === wx && targetY === wy) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    // Filter active water directions that don't already contain a pier from another boardwalk
+    const availablePierDirs = activeSides.filter(side => {
+      let wx = tileX;
+      let wy = tileY;
+      if (side === 'N') wy -= 1;
+      else if (side === 'S') wy += 1;
+      else if (side === 'E') wx += 1;
+      else if (side === 'W') wx -= 1;
+      return !isWaterTileOccupiedByAnotherPier(wx, wy, tileX, tileY);
+    });
 
     let pierDir: 'N' | 'S' | 'E' | 'W' | null = null;
-    if (waterDirs.length > 0) {
+    if (availablePierDirs.length > 0) {
       const pierRoll = rand();
       if (pierRoll < 0.35) {
-        const index = Math.floor(rand() * waterDirs.length);
-        pierDir = waterDirs[index];
+        const index = Math.floor(rand() * availablePierDirs.length);
+        pierDir = availablePierDirs[index];
       }
     }
 
-    // 8. Waterfront Rope Railings (only on the water boundary)
+    // 6. Waterfront Rope Railings (only on water boundary sides, skipping sides with a pier)
     const addRopeRailing = (xOffset: number, zOffset: number, rotY = 0) => {
       const postGeo = this.getGeometry('boardwalk_post_1_3', () => new THREE.CylinderGeometry(0.04, 0.04, 0.24, 6));
       const offsets = [-0.95, 0, 0.95];
@@ -688,12 +761,16 @@ export class AssetGenerator {
       group.add(rope);
     };
 
-    if (align === 'N' && pierDir !== 'N') addRopeRailing(0, -0.95, 0);
-    if (align === 'S' && pierDir !== 'S') addRopeRailing(0, 0.95, 0);
-    if (align === 'E' && pierDir !== 'E') addRopeRailing(0.95, 0, Math.PI / 2);
-    if (align === 'W' && pierDir !== 'W') addRopeRailing(-0.95, 0, Math.PI / 2);
+    for (const side of activeSides) {
+      if (side !== pierDir) {
+        if (side === 'N') addRopeRailing(0, -0.95, 0);
+        else if (side === 'S') addRopeRailing(0, 0.95, 0);
+        else if (side === 'E') addRopeRailing(0.95, 0, Math.PI / 2);
+        else if (side === 'W') addRopeRailing(-0.95, 0, Math.PI / 2);
+      }
+    }
 
-    // 9. Spawn Pier platform & Rowboat
+    // 7. Spawn Pier platform & Rowboat
     if (pierDir) {
       const pier = new THREE.Group();
 
@@ -754,28 +831,55 @@ export class AssetGenerator {
         pier.add(bollard);
       }
 
-      // Rowboat (40% chance)
+      // Improved Tapered Low-Poly Rowboat
       const boatRoll = rand();
       if (boatRoll < 0.40) {
         const boat = new THREE.Group();
         
-        const hullGeo = this.getGeometry('rowboat_hull', () => new THREE.BoxGeometry(0.32, 0.14, 0.7));
+        // Curved tapered hull using ExtrudeGeometry
+        const hullGeo = this.getGeometry('rowboat_hull_shape_v2', () => {
+          const shape = new THREE.Shape();
+          shape.moveTo(0, 0.4);
+          shape.quadraticCurveTo(0.18, 0.22, 0.18, 0.0);
+          shape.lineTo(0.12, -0.4);
+          shape.lineTo(-0.12, -0.4);
+          shape.lineTo(-0.18, 0.0);
+          shape.quadraticCurveTo(-0.18, 0.22, 0, 0.4);
+          
+          const extrudeSettings = {
+            depth: 0.10,
+            bevelEnabled: true,
+            bevelSegments: 1,
+            steps: 1,
+            bevelSize: 0.015,
+            bevelThickness: 0.015
+          };
+          
+          const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          geo.center();
+          geo.rotateX(-Math.PI / 2);
+          return geo;
+        });
         const hull = new THREE.Mesh(hullGeo, this.materials.trunk);
         hull.receiveShadow = true;
         hull.castShadow = true;
         boat.add(hull);
 
-        const bowGeo = this.getGeometry('rowboat_bow', () => {
-          const geo = new THREE.CylinderGeometry(0.16, 0.16, 0.14, 3);
-          geo.rotateX(Math.PI / 2);
-          return geo;
-        });
-        const bow = new THREE.Mesh(bowGeo, this.materials.trunk);
-        bow.position.set(0, 0, 0.38);
-        bow.castShadow = true;
-        boat.add(bow);
+        // Cross-plank seats inside boat
+        const seatGeo = this.getGeometry('rowboat_seat_mid_v2', () => new THREE.BoxGeometry(0.30, 0.02, 0.12));
+        const seatMid = new THREE.Mesh(seatGeo, this.materials.trunk);
+        seatMid.position.set(0, 0.025, 0.02);
+        seatMid.castShadow = true;
+        boat.add(seatMid);
 
-        const oarGeo = this.getGeometry('rowboat_oar', () => new THREE.BoxGeometry(0.35, 0.01, 0.02));
+        const seatSternGeo = this.getGeometry('rowboat_seat_stern_v2', () => new THREE.BoxGeometry(0.24, 0.02, 0.10));
+        const seatStern = new THREE.Mesh(seatSternGeo, this.materials.trunk);
+        seatStern.position.set(0, 0.025, -0.22);
+        seatStern.castShadow = true;
+        boat.add(seatStern);
+
+        // Oars resting on side edges
+        const oarGeo = this.getGeometry('rowboat_oar_v2', () => new THREE.BoxGeometry(0.35, 0.01, 0.02));
         const oarL = new THREE.Mesh(oarGeo, this.materials.cement);
         oarL.position.set(-0.25, 0.04, -0.05);
         oarL.rotation.y = -Math.PI / 6;
