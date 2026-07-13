@@ -60,8 +60,11 @@ export class AssetGenerator {
       color: 0xf59e0b, // Yellow lines
     });
 
-    this.materials.roadCrosswalk = new THREE.MeshBasicMaterial({
-      color: 0xf8fafc, // White paint for crosswalks
+    this.materials.roadCrosswalk = new THREE.MeshStandardMaterial({
+      color: 0xcccccc,      // Soft off-white/light gray
+      roughness: 0.9,
+      transparent: true,
+      opacity: 0.6,         // Let some road asphalt show through for a realistic painted texture
     });
 
     // Curated Cozy Palettes definition
