@@ -774,64 +774,82 @@ export class AssetGenerator {
     if (pierDir) {
       const pier = new THREE.Group();
 
-      // Platform
-      const pierGeo = this.getGeometry('boardwalk_pier_deck', () => new THREE.BoxGeometry(0.6, 0.04, 1.2));
-      const pierMesh = new THREE.Mesh(pierGeo, this.materials.trunk);
-      pierMesh.position.set(0, 0.02, 1.6);
-      pierMesh.receiveShadow = true;
-      pierMesh.castShadow = true;
-      pier.add(pierMesh);
+      // 1. Support Beams (Longitudinal)
+      const beamGeo = this.getGeometry('pier_beam', () => new THREE.BoxGeometry(0.05, 0.03, 0.9));
+      
+      const beamL = new THREE.Mesh(beamGeo, this.materials.trunk);
+      beamL.position.set(-0.24, 0.015, 1.45);
+      beamL.receiveShadow = true;
+      beamL.castShadow = true;
+      pier.add(beamL);
 
-      // Support Pilings
+      const beamR = new THREE.Mesh(beamGeo, this.materials.trunk);
+      beamR.position.set(0.24, 0.015, 1.45);
+      beamR.receiveShadow = true;
+      beamR.castShadow = true;
+      pier.add(beamR);
+
+      // 2. Transverse Planks (5 planks with gaps showing water underneath)
+      const plankGeo = this.getGeometry('pier_plank', () => new THREE.BoxGeometry(0.54, 0.02, 0.12));
+      const zCoords = [1.09, 1.27, 1.45, 1.63, 1.81];
+      for (const zVal of zCoords) {
+        const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
+        plank.position.set(0, 0.04, zVal);
+        plank.receiveShadow = true;
+        plank.castShadow = true;
+        pier.add(plank);
+      }
+
+      // Support Pilings (at the end of the shorter pier, Z = 1.8)
       const pilingGeo = this.getGeometry('boardwalk_piling', () => new THREE.CylinderGeometry(0.05, 0.05, 0.44, 6));
       const pilingL = new THREE.Mesh(pilingGeo, this.materials.trunk);
-      pilingL.position.set(-0.24, -0.18, 2.1);
+      pilingL.position.set(-0.24, -0.18, 1.8);
       pilingL.castShadow = true;
       pier.add(pilingL);
 
       const pilingR = new THREE.Mesh(pilingGeo, this.materials.trunk);
-      pilingR.position.set(0.24, -0.18, 2.1);
+      pilingR.position.set(0.24, -0.18, 1.8);
       pilingR.castShadow = true;
       pier.add(pilingR);
 
-      // Accessory
+      // Accessory (sitting on the shorter pier)
       const accRoll = rand();
       if (accRoll < 0.35) {
         // Lifebuoy
         const buoyPostGeo = this.getGeometry('buoy_post', () => new THREE.CylinderGeometry(0.015, 0.015, 0.2, 4));
         const buoyPost = new THREE.Mesh(buoyPostGeo, this.materials.trunk);
-        buoyPost.position.set(0, 0.14, 2.1);
+        buoyPost.position.set(0, 0.14, 1.8);
         buoyPost.castShadow = true;
         pier.add(buoyPost);
 
         const buoyGeo = this.getGeometry('lifebuoy', () => new THREE.TorusGeometry(0.08, 0.025, 6, 12));
         const buoy = new THREE.Mesh(buoyGeo, this.materials.lotusPink);
-        buoy.position.set(0, 0.18, 2.08);
+        buoy.position.set(0, 0.18, 1.78);
         buoy.castShadow = true;
         pier.add(buoy);
       } else if (accRoll < 0.70) {
         // Bench
         const benchSeatGeo = this.getGeometry('pier_bench_seat', () => new THREE.BoxGeometry(0.4, 0.02, 0.16));
         const benchSeat = new THREE.Mesh(benchSeatGeo, this.materials.trunk);
-        benchSeat.position.set(0, 0.1, 2.0);
+        benchSeat.position.set(0, 0.06, 1.55); // lowered slightly to rest on planks
         benchSeat.castShadow = true;
         pier.add(benchSeat);
 
         const benchBackGeo = this.getGeometry('pier_bench_back', () => new THREE.BoxGeometry(0.4, 0.12, 0.02));
         const benchBack = new THREE.Mesh(benchBackGeo, this.materials.trunk);
-        benchBack.position.set(0, 0.16, 2.08);
+        benchBack.position.set(0, 0.12, 1.63);
         benchBack.castShadow = true;
         pier.add(benchBack);
       } else {
         // Bollard
         const bollardGeo = this.getGeometry('pier_bollard', () => new THREE.CylinderGeometry(0.04, 0.04, 0.1, 5));
         const bollard = new THREE.Mesh(bollardGeo, this.materials.whiteMetal);
-        bollard.position.set(0, 0.09, 2.1);
+        bollard.position.set(0, 0.09, 1.8);
         bollard.castShadow = true;
         pier.add(bollard);
       }
 
-      // Improved Tapered Low-Poly Rowboat
+      // Improved Tapered Low-Poly Rowboat (positioned alongside the shorter pier)
       const boatRoll = rand();
       if (boatRoll < 0.40) {
         const boat = new THREE.Group();
@@ -892,7 +910,7 @@ export class AssetGenerator {
         oarR.castShadow = true;
         boat.add(oarR);
 
-        boat.position.set(0.45, -0.06, 1.8);
+        boat.position.set(0.45, -0.06, 1.55);
         boat.rotation.y = (rand() * 0.2 - 0.1) + Math.PI / 12;
         boat.castShadow = true;
         boat.receiveShadow = true;
