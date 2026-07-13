@@ -563,23 +563,15 @@ export class AssetGenerator {
     const curbBeamGeoZ = this.getGeometry('boardwalk_curb_z_1_3', () => new THREE.BoxGeometry(0.06, 0.08, 2.0));
 
     for (const side of activeSides) {
-      let deckGeo: THREE.BufferGeometry;
       let deckX = 0, deckZ = 0;
       
       if (side === 'N' || side === 'S') {
-        deckGeo = this.getGeometry('boardwalk_deck_ns_1_3', () => new THREE.BoxGeometry(2.0, 0.04, 0.67));
         deckX = 0;
         deckZ = side === 'N' ? -0.665 : 0.665;
       } else {
-        deckGeo = this.getGeometry('boardwalk_deck_ew_1_3', () => new THREE.BoxGeometry(0.67, 0.04, 2.0));
         deckX = side === 'E' ? 0.665 : -0.665;
         deckZ = 0;
       }
-
-      const deck = new THREE.Mesh(deckGeo, this.materials.trunk);
-      deck.position.set(deckX, 0.02, deckZ);
-      deck.receiveShadow = true;
-      group.add(deck);
 
       // Render 6 parallel planks on the deck (narrower: width 0.20, center spacing 0.32, keeping 0.12 gap)
       if (side === 'N' || side === 'S') {
