@@ -283,6 +283,41 @@ export class AssetGenerator {
   }
 
   // 3. Road Mesh Generator based on neighbors
+  isIntersection(tx: number, ty: number): boolean {
+    if (!this.sim) return false;
+    if (tx < 0 || tx >= this.sim.gridSize || ty < 0 || ty >= this.sim.gridSize) return false;
+    const tile = this.sim.grid[tx][ty];
+    if (tile.type !== 'road') return false;
+
+    const conn = {
+      N: ty > 0 && (this.sim.grid[tx][ty - 1].type === 'road' || this.sim.grid[tx][ty - 1].type === 'boardwalk'),
+      S: ty < this.sim.gridSize - 1 && (this.sim.grid[tx][ty + 1].type === 'road' || this.sim.grid[tx][ty + 1].type === 'boardwalk'),
+      E: tx < this.sim.gridSize - 1 && (this.sim.grid[tx + 1][ty].type === 'road' || this.sim.grid[tx + 1][ty].type === 'boardwalk'),
+      W: tx > 0 && (this.sim.grid[tx - 1][ty].type === 'road' || this.sim.grid[tx - 1][ty].type === 'boardwalk')
+    };
+    const cnt = [conn.N, conn.S, conn.E, conn.W].filter(Boolean).length;
+    return cnt >= 3;
+  }
+
+  getBoardwalkDeckSide(bx: number, by: number): 'N' | 'S' | 'E' | 'W' | null {
+    if (!this.sim) return null;
+    if (bx < 0 || bx >= this.sim.gridSize || by < 0 || by >= this.sim.gridSize) return null;
+    const tile = this.sim.grid[bx][by];
+    if (tile.type !== 'boardwalk') return null;
+
+    const N = tile.y > 0 && (this.sim.grid[tile.x][tile.y - 1].type === 'water_body' || this.sim.grid[tile.x][tile.y - 1].bridge === true);
+    const S = tile.y < this.sim.gridSize - 1 && (this.sim.grid[tile.x][tile.y + 1].type === 'water_body' || this.sim.grid[tile.x][tile.y + 1].bridge === true);
+    const E = tile.x < this.sim.gridSize - 1 && (this.sim.grid[tile.x + 1][tile.y].type === 'water_body' || this.sim.grid[tile.x + 1][tile.y].bridge === true);
+    const W = tile.x > 0 && (this.sim.grid[tile.x - 1][tile.y].type === 'water_body' || this.sim.grid[tile.x - 1][tile.y].bridge === true);
+
+    if (N) return 'N';
+    if (S) return 'S';
+    if (E) return 'E';
+    if (W) return 'W';
+    return 'N';
+  }
+
+  // 3. Road Mesh Generator based on neighbors
   createRoadMesh(
     connections: { N: boolean; S: boolean; E: boolean; W: boolean },
     isBridge = false,
@@ -328,72 +363,130 @@ export class AssetGenerator {
 
     const count = [N, S, E, W].filter(Boolean).length;
 
-    // Check if we have boardwalks on both sides of a straight road section
-    let hasCenterCrosswalkEW = false;
-    let hasCenterCrosswalkNS = false;
+    // Find crosswalks to be painted on this road tile
+    const activeCrosswalksNS: number[] = []; // Z positions for EW crosswalks
+    const activeCrosswalksEW: number[] = []; // X positions for NS crosswalks
 
-    if (count < 3 && this.sim && tileX > 0 && tileX < this.sim.gridSize - 1 && tileY > 0 && tileY < this.sim.gridSize - 1) {
-      const tileN = this.sim.grid[tileX][tileY - 1];
-      const tileS = this.sim.grid[tileX][tileY + 1];
-      const tileE = this.sim.grid[tileX + 1][tileY];
-      const tileW = this.sim.grid[tileX - 1][tileY];
+    // Only render crosswalks on road tiles exterior to intersections (count < 3)
+    if (count < 3) {
+      // 1. Check if connected neighbors are road intersections
+      if (N && this.isIntersection(tileX, tileY - 1)) activeCrosswalksNS.push(-0.65);
+      if (S && this.isIntersection(tileX, tileY + 1)) activeCrosswalksNS.push(0.65);
+      if (E && this.isIntersection(tileX + 1, tileY)) activeCrosswalksEW.push(0.65);
+      if (W && this.isIntersection(tileX - 1, tileY)) activeCrosswalksEW.push(-0.65);
 
-      if (tileW.type === 'boardwalk' && tileE.type === 'boardwalk') {
-        hasCenterCrosswalkEW = true;
-      } else if (tileN.type === 'boardwalk' && tileS.type === 'boardwalk') {
-        hasCenterCrosswalkNS = true;
+      // 2. Check if flanked by boardwalks on both sides
+      if (activeCrosswalksNS.length === 0 && activeCrosswalksEW.length === 0) {
+        if (this.sim && tileX > 0 && tileX < this.sim.gridSize - 1 && tileY > 0 && tileY < this.sim.gridSize - 1) {
+          const tileN = this.sim.grid[tileX][tileY - 1];
+          const tileS = this.sim.grid[tileX][tileY + 1];
+          const tileE = this.sim.grid[tileX + 1][tileY];
+          const tileW = this.sim.grid[tileX - 1][tileY];
+
+          if (tileW.type === 'boardwalk' && tileE.type === 'boardwalk') {
+            const wSide = this.getBoardwalkDeckSide(tileX - 1, tileY);
+            if (wSide === 'N') activeCrosswalksNS.push(-0.65);
+            else if (wSide === 'S') activeCrosswalksNS.push(0.65);
+            else activeCrosswalksNS.push(0);
+          } else if (tileN.type === 'boardwalk' && tileS.type === 'boardwalk') {
+            const nSide = this.getBoardwalkDeckSide(tileX, tileY - 1);
+            if (nSide === 'W') activeCrosswalksEW.push(-0.65);
+            else if (nSide === 'E') activeCrosswalksEW.push(0.65);
+            else activeCrosswalksEW.push(0);
+          }
+        }
       }
     }
 
-    // Render yellow lines (leaving gaps if a center crosswalk is present)
+    // Helper to draw a centerline with gaps at crosswalks
+    const addCenterlineWithGaps = (dir: 'NS' | 'EW', crosswalks: number[]) => {
+      if (crosswalks.length === 0) {
+        if (dir === 'NS') addLine(0.06, 2, 0, 0);
+        else addLine(0.06, 2, 0, 0, Math.PI / 2);
+        return;
+      }
+
+      const sorted = [...crosswalks].sort((a, b) => a - b);
+      let start = -1.0;
+      for (const cwVal of sorted) {
+        const cwStart = cwVal - 0.175;
+        const cwEnd = cwVal + 0.175;
+        if (cwStart > start) {
+          const len = cwStart - start;
+          const center = start + len / 2;
+          if (dir === 'NS') addLine(0.06, len, 0, center);
+          else addLine(0.06, len, center, 0, Math.PI / 2);
+        }
+        start = cwEnd;
+      }
+      if (start < 1.0) {
+        const len = 1.0 - start;
+        const center = start + len / 2;
+        if (dir === 'NS') addLine(0.06, len, 0, center);
+        else addLine(0.06, len, center, 0, Math.PI / 2);
+      }
+    };
+
+    // Render yellow lines based on connectivity and crosswalk gaps
     if (count === 0 || (N && S && !E && !W)) {
       // Straight North-South
-      if (hasCenterCrosswalkEW) {
-        addLine(0.06, 0.65, 0, -0.675);
-        addLine(0.06, 0.65, 0, 0.675);
-      } else {
-        addLine(0.06, 2, 0, 0);
-      }
+      addCenterlineWithGaps('NS', activeCrosswalksNS);
     } else if (E && W && !N && !S) {
       // Straight East-West
-      if (hasCenterCrosswalkNS) {
-        addLine(0.06, 0.65, 0, -0.675, Math.PI / 2);
-        addLine(0.06, 0.65, 0, 0.675, Math.PI / 2);
-      } else {
-        addLine(0.06, 2, 0, 0, Math.PI / 2);
-      }
+      addCenterlineWithGaps('EW', activeCrosswalksEW);
     } else if (count === 1) {
-      // Dead end
-      if (N) addLine(0.06, 1, 0, -0.5);
-      else if (S) addLine(0.06, 1, 0, 0.5);
-      else if (E) addLine(0.06, 1, 0.5, 0, Math.PI / 2);
-      else if (W) addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+      // Dead end (respecting crosswalk boundary if applicable)
+      if (N) {
+        if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+        else addLine(0.06, 1, 0, -0.5);
+      } else if (S) {
+        if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+        else addLine(0.06, 1, 0, 0.5);
+      } else if (E) {
+        if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+      } else if (W) {
+        if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+      }
     } else if (count === 2) {
       // Corner turns
       if (N && E) {
-        addLine(0.06, 1, 0, -0.5);
-        addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+        if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+        else addLine(0.06, 1, 0, -0.5);
+        
+        if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
       } else if (N && W) {
-        addLine(0.06, 1, 0, -0.5);
-        addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+        if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+        else addLine(0.06, 1, 0, -0.5);
+
+        if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
       } else if (S && E) {
-        addLine(0.06, 1, 0, 0.5);
-        addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+        if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+        else addLine(0.06, 1, 0, 0.5);
+
+        if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
       } else if (S && W) {
-        addLine(0.06, 1, 0, 0.5);
-        addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+        if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+        else addLine(0.06, 1, 0, 0.5);
+
+        if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
       }
     } else if (count >= 3) {
-      // Junction/Crossroad (dot in center, short lines stop before crosswalks)
+      // Junction/Crossroad (dot in center, short lines) - no crosswalks rendered inside the intersection
       const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
       const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
       centerDot.position.set(0, lineY, 0);
       group.add(centerDot);
 
-      if (N) addLine(0.06, 0.175, 0, -0.9125);
-      if (S) addLine(0.06, 0.175, 0, 0.9125);
-      if (E) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
-      if (W) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+      if (N) addLine(0.06, 0.5, 0, -0.75);
+      if (S) addLine(0.06, 0.5, 0, 0.75);
+      if (E) addLine(0.06, 0.5, 0.75, 0, Math.PI / 2);
+      if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
     }
 
     // Helper to paint pedestrian crosswalk (Zebra stripes)
@@ -421,16 +514,12 @@ export class AssetGenerator {
       }
     };
 
-    // Draw Crosswalks based on intersections or boardwalk presence
-    if (count >= 3) {
-      if (N) drawCrosswalk(0, -0.65, 'EW');
-      if (S) drawCrosswalk(0, 0.65, 'EW');
-      if (E) drawCrosswalk(0.65, 0, 'NS');
-      if (W) drawCrosswalk(-0.65, 0, 'NS');
-    } else if (hasCenterCrosswalkEW) {
-      drawCrosswalk(0, 0, 'EW');
-    } else if (hasCenterCrosswalkNS) {
-      drawCrosswalk(0, 0, 'NS');
+    // Draw Crosswalks on this tile
+    for (const zVal of activeCrosswalksNS) {
+      drawCrosswalk(0, zVal, 'EW');
+    }
+    for (const xVal of activeCrosswalksEW) {
+      drawCrosswalk(xVal, 0, 'NS');
     }
 
     // Add bridge railings
