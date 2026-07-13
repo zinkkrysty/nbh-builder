@@ -411,8 +411,8 @@ export class AssetGenerator {
       const sorted = [...crosswalks].sort((a, b) => a - b);
       let start = -1.0;
       for (const cwVal of sorted) {
-        const cwStart = cwVal - 0.175;
-        const cwEnd = cwVal + 0.175;
+        const cwStart = cwVal - 0.25;
+        const cwEnd = cwVal + 0.25;
         if (cwStart > start) {
           const len = cwStart - start;
           const center = start + len / 2;
@@ -440,43 +440,43 @@ export class AssetGenerator {
       } else if (count === 1) {
         // Dead end (respecting crosswalk boundary if applicable)
         if (N) {
-          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.1, 0, -0.95);
           else addLine(0.06, 1, 0, -0.5);
         } else if (S) {
-          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.1, 0, 0.95);
           else addLine(0.06, 1, 0, 0.5);
         } else if (E) {
-          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
           else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
         } else if (W) {
-          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
           else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
         }
       } else if (count === 2) {
         // Corner turns
         if (N && E) {
-          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.1, 0, -0.95);
           else addLine(0.06, 1, 0, -0.5);
           
-          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
           else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
         } else if (N && W) {
-          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.1, 0, -0.95);
           else addLine(0.06, 1, 0, -0.5);
 
-          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
           else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
         } else if (S && E) {
-          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.1, 0, 0.95);
           else addLine(0.06, 1, 0, 0.5);
 
-          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
           else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
         } else if (S && W) {
-          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.1, 0, 0.95);
           else addLine(0.06, 1, 0, 0.5);
 
-          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
           else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
         }
       } else if (count >= 3) {
