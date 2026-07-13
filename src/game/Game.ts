@@ -28,6 +28,7 @@ export class Game {
     this.assets.sim = this.sim;
     this.renderer = new Renderer('canvas-container', this.assets);
     this.renderer.sim = this.sim;
+    this.renderer.rebuildTrees();
     
     const canvas = this.renderer.renderer.domElement;
     this.input = new InputManager(canvas, this.renderer.camera, this.renderer.scene);
@@ -737,6 +738,7 @@ export class Game {
     const success = this.sim.loadState(saveData);
 
     if (success) {
+      this.renderer.rebuildTrees();
       // 4. Rebuild all roads and structures in the 3D scene
       for (let x = 0; x < this.sim.gridSize; x++) {
         for (let y = 0; y < this.sim.gridSize; y++) {
@@ -763,6 +765,7 @@ export class Game {
   resetGame() {
     this.sounds.playClickSFX();
     if (confirm('Are you sure you want to start a new neighborhood? All current progress will be lost.')) {
+      this.sim.seed = Math.floor(Math.random() * 1000000);
       this.sim.initializeGrid();
       this.sim.money = 30000;
       this.sim.taxRate = 0.12;
@@ -790,6 +793,7 @@ export class Game {
       });
       this.renderer.buildingMeshes.clear();
       this.renderer.resetGroundInstances();
+      this.renderer.rebuildTrees();
 
       this.sim.updateUtilities();
       this.updateHUD();

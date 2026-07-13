@@ -7,6 +7,20 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
+interface StaticTreeData {
+  gridX: number;
+  gridZ: number;
+  x: number;
+  z: number;
+  scale: number;
+  rotationY: number;
+  isBlossom: boolean;
+  leafBase: number;
+  trunkIndex: number;
+  leafStartIndex: number;
+  isHidden: boolean;
+}
+
 export class Renderer {
   container: HTMLElement;
   scene!: THREE.Scene;
@@ -22,7 +36,11 @@ export class Renderer {
 
   // Optimizations
   groundMesh!: THREE.InstancedMesh;
-  decorationsMesh!: THREE.InstancedMesh; // For scattered trees
+  // Scattered Forest Trees
+  treesData: StaticTreeData[] = [];
+  trunkMesh?: THREE.InstancedMesh;
+  greenLeavesMesh?: THREE.InstancedMesh;
+  blossomLeavesMesh?: THREE.InstancedMesh;
 
   // Active Building Meshes
   buildingMeshes: Map<string, THREE.Object3D> = new Map();
@@ -183,57 +201,94 @@ export class Renderer {
     this.scene.add(this.groundMesh);
 
     // 2. Scattered Forest Trees (around borders or randomly as environment details) using InstancedMesh
-    const treeCount = 600;
-    
-    interface StaticTreeData {
-      x: number;
-      z: number;
-      scale: number;
-      rotationY: number;
-      isBlossom: boolean;
-      leafBase: number;
+    this.rebuildTrees();
+  }
+
+  getSeededRandomForCoords(seed: number, x: number, y: number) {
+    const initialSeed = Math.abs(Math.sin(x * 12.9898 + y * 78.233 + seed * 137.456) * 43758.5453) % 1;
+    let s = Math.floor(initialSeed * 233280);
+    return () => {
+      s = (s * 9301 + 49297) % 233280;
+      return s / 233280;
+    };
+  }
+
+  rebuildTrees() {
+    if (this.trunkMesh) {
+      this.scene.remove(this.trunkMesh);
+    }
+    if (this.greenLeavesMesh) {
+      this.scene.remove(this.greenLeavesMesh);
+    }
+    if (this.blossomLeavesMesh) {
+      this.scene.remove(this.blossomLeavesMesh);
     }
 
-    const treesData: StaticTreeData[] = [];
+    const size = 50;
+    const gridOffset = size / 2;
+    this.treesData = [];
+
     let greenTreeCount = 0;
     let blossomTreeCount = 0;
 
-    for (let i = 0; i < treeCount; i++) {
-      let x = Math.floor(Math.random() * size);
-      let z = Math.floor(Math.random() * size);
+    const gameSeed = this.sim ? this.sim.seed : 0;
 
-      // Prefer placing trees along margins (outer 15 cells)
-      const nearMargin = x < 15 || x > size - 15 || z < 15 || z > size - 15;
-      if (!nearMargin && Math.random() > 0.05) continue; // Skip inner cells mostly
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        const rand = this.getSeededRandomForCoords(gameSeed, x, z);
 
-      const xPos = (x - gridOffset) * 2 + (Math.random() - 0.5) * 1.2;
-      const zPos = (z - gridOffset) * 2 + (Math.random() - 0.5) * 1.2;
+        const nearMargin = x < 15 || x > size - 15 || z < 15 || z > size - 15;
+        const threshold = nearMargin ? 0.27 : 0.02;
 
-      const scale = 0.8 + Math.random() * 0.4;
-      const rotationY = Math.random() * Math.PI;
-      const isBlossom = Math.random() > 0.8;
-      const leafBase = Math.random() > 0.5 ? 0.35 : 0.45;
+        if (rand() > threshold) continue;
 
-      treesData.push({ x: xPos, z: zPos, scale, rotationY, isBlossom, leafBase });
+        const xPos = (x - gridOffset) * 2 + (rand() - 0.5) * 1.2;
+        const zPos = (z - gridOffset) * 2 + (rand() - 0.5) * 1.2;
 
-      if (isBlossom) {
-        blossomTreeCount++;
-      } else {
-        greenTreeCount++;
+        const scale = 0.8 + rand() * 0.4;
+        const rotationY = rand() * Math.PI;
+        const isBlossom = rand() > 0.8;
+        const leafBase = rand() > 0.5 ? 0.35 : 0.45;
+
+        const tile = this.sim ? this.sim.grid[x][z] : null;
+        const isHidden = tile ? tile.type !== 'empty' : false;
+
+        const trunkIndex = this.treesData.length;
+        const leafStartIndex = isBlossom ? blossomTreeCount * 3 : greenTreeCount * 3;
+
+        this.treesData.push({
+          gridX: x,
+          gridZ: z,
+          x: xPos,
+          z: zPos,
+          scale,
+          rotationY,
+          isBlossom,
+          leafBase,
+          trunkIndex,
+          leafStartIndex,
+          isHidden
+        });
+
+        if (isBlossom) {
+          blossomTreeCount++;
+        } else {
+          greenTreeCount++;
+        }
       }
     }
 
-    const trunkMesh = new THREE.InstancedMesh(
+    this.trunkMesh = new THREE.InstancedMesh(
       this.assets.getGeometry('tree_trunk', () => {
         const geo = new THREE.CylinderGeometry(0.1, 0.15, 0.6, 5);
         geo.translate(0, 0.3, 0);
         return geo;
       }),
       this.assets.materials.trunk,
-      treesData.length
+      this.treesData.length
     );
-    trunkMesh.castShadow = true;
-    trunkMesh.receiveShadow = true;
+    this.trunkMesh.castShadow = true;
+    this.trunkMesh.receiveShadow = true;
 
     const leafBaseGeo = this.assets.getGeometry('tree_leaf_base', () => {
       const geo = new THREE.ConeGeometry(1, 0.6, 5);
@@ -241,21 +296,21 @@ export class Renderer {
       return geo;
     });
 
-    const greenLeavesMesh = new THREE.InstancedMesh(
+    this.greenLeavesMesh = new THREE.InstancedMesh(
       leafBaseGeo,
       this.assets.materials.leaves,
       3 * greenTreeCount
     );
-    greenLeavesMesh.castShadow = true;
-    greenLeavesMesh.receiveShadow = true;
+    this.greenLeavesMesh.castShadow = true;
+    this.greenLeavesMesh.receiveShadow = true;
 
-    const blossomLeavesMesh = new THREE.InstancedMesh(
+    this.blossomLeavesMesh = new THREE.InstancedMesh(
       leafBaseGeo,
       this.assets.materials.blossom,
       3 * blossomTreeCount
     );
-    blossomLeavesMesh.castShadow = true;
-    blossomLeavesMesh.receiveShadow = true;
+    this.blossomLeavesMesh.castShadow = true;
+    this.blossomLeavesMesh.receiveShadow = true;
 
     const tempTree = new THREE.Object3D();
     const tempLeaf = new THREE.Object3D();
@@ -263,39 +318,120 @@ export class Renderer {
     let greenLeafIndex = 0;
     let blossomLeafIndex = 0;
 
-    for (let i = 0; i < treesData.length; i++) {
-      const tree = treesData[i];
+    for (let i = 0; i < this.treesData.length; i++) {
+      const tree = this.treesData[i];
 
-      // Set trunk matrix
-      tempTree.position.set(tree.x, 0, tree.z);
-      tempTree.rotation.set(0, tree.rotationY, 0);
-      tempTree.scale.set(tree.scale, tree.scale, tree.scale);
-      tempTree.updateMatrix();
-      trunkMesh.setMatrixAt(i, tempTree.matrix);
+      if (tree.isHidden) {
+        tempTree.position.set(0, -100, 0);
+        tempTree.scale.set(0, 0, 0);
+        tempTree.updateMatrix();
+        this.trunkMesh.setMatrixAt(i, tempTree.matrix);
 
-      // Set leaves matrices
-      for (let l = 0; l < 3; l++) {
-        const radius = tree.leafBase - l * 0.08;
-        const localY = 0.7 + l * 0.4;
+        const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+        for (let l = 0; l < 3; l++) {
+          if (tree.isBlossom) {
+            this.blossomLeavesMesh.setMatrixAt(blossomLeafIndex++, zeroMatrix);
+          } else {
+            this.greenLeavesMesh.setMatrixAt(greenLeafIndex++, zeroMatrix);
+          }
+        }
+      } else {
+        tempTree.position.set(tree.x, 0, tree.z);
+        tempTree.rotation.set(0, tree.rotationY, 0);
+        tempTree.scale.set(tree.scale, tree.scale, tree.scale);
+        tempTree.updateMatrix();
+        this.trunkMesh.setMatrixAt(i, tempTree.matrix);
 
-        tempLeaf.position.set(0, localY, 0);
-        tempLeaf.rotation.set(0, 0, 0);
-        tempLeaf.scale.set(radius, 1.0, radius);
-        tempLeaf.updateMatrix();
+        for (let l = 0; l < 3; l++) {
+          const radius = tree.leafBase - l * 0.08;
+          const localY = 0.7 + l * 0.4;
 
-        const worldMatrix = new THREE.Matrix4().multiplyMatrices(tempTree.matrix, tempLeaf.matrix);
+          tempLeaf.position.set(0, localY, 0);
+          tempLeaf.rotation.set(0, 0, 0);
+          tempLeaf.scale.set(radius, 1.0, radius);
+          tempLeaf.updateMatrix();
 
-        if (tree.isBlossom) {
-          blossomLeavesMesh.setMatrixAt(blossomLeafIndex++, worldMatrix);
-        } else {
-          greenLeavesMesh.setMatrixAt(greenLeafIndex++, worldMatrix);
+          const worldMatrix = new THREE.Matrix4().multiplyMatrices(tempTree.matrix, tempLeaf.matrix);
+
+          if (tree.isBlossom) {
+            this.blossomLeavesMesh.setMatrixAt(blossomLeafIndex++, worldMatrix);
+          } else {
+            this.greenLeavesMesh.setMatrixAt(greenLeafIndex++, worldMatrix);
+          }
         }
       }
     }
 
-    this.scene.add(trunkMesh);
-    this.scene.add(greenLeavesMesh);
-    this.scene.add(blossomLeavesMesh);
+    this.scene.add(this.trunkMesh);
+    this.scene.add(this.greenLeavesMesh);
+    this.scene.add(this.blossomLeavesMesh);
+  }
+
+  updateTreesOnTile(gridX: number, gridZ: number) {
+    if (!this.sim || !this.trunkMesh || !this.greenLeavesMesh || !this.blossomLeavesMesh) return;
+
+    const tile = this.sim.grid[gridX][gridZ];
+    const isBuilt = tile.type !== 'empty';
+
+    const trees = this.treesData.filter(t => t.gridX === gridX && t.gridZ === gridZ);
+    if (trees.length === 0) return;
+
+    const tempTree = new THREE.Object3D();
+    const tempLeaf = new THREE.Object3D();
+    let updated = false;
+
+    for (const tree of trees) {
+      if (tree.isHidden === isBuilt) continue;
+
+      tree.isHidden = isBuilt;
+      updated = true;
+
+      if (isBuilt) {
+        tempTree.position.set(0, -100, 0);
+        tempTree.scale.set(0, 0, 0);
+        tempTree.updateMatrix();
+        this.trunkMesh.setMatrixAt(tree.trunkIndex, tempTree.matrix);
+
+        const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+        for (let l = 0; l < 3; l++) {
+          if (tree.isBlossom) {
+            this.blossomLeavesMesh.setMatrixAt(tree.leafStartIndex + l, zeroMatrix);
+          } else {
+            this.greenLeavesMesh.setMatrixAt(tree.leafStartIndex + l, zeroMatrix);
+          }
+        }
+      } else {
+        tempTree.position.set(tree.x, 0, tree.z);
+        tempTree.rotation.set(0, tree.rotationY, 0);
+        tempTree.scale.set(tree.scale, tree.scale, tree.scale);
+        tempTree.updateMatrix();
+        this.trunkMesh.setMatrixAt(tree.trunkIndex, tempTree.matrix);
+
+        for (let l = 0; l < 3; l++) {
+          const radius = tree.leafBase - l * 0.08;
+          const localY = 0.7 + l * 0.4;
+
+          tempLeaf.position.set(0, localY, 0);
+          tempLeaf.rotation.set(0, 0, 0);
+          tempLeaf.scale.set(radius, 1.0, radius);
+          tempLeaf.updateMatrix();
+
+          const worldMatrix = new THREE.Matrix4().multiplyMatrices(tempTree.matrix, tempLeaf.matrix);
+
+          if (tree.isBlossom) {
+            this.blossomLeavesMesh.setMatrixAt(tree.leafStartIndex + l, worldMatrix);
+          } else {
+            this.greenLeavesMesh.setMatrixAt(tree.leafStartIndex + l, worldMatrix);
+          }
+        }
+      }
+    }
+
+    if (updated) {
+      this.trunkMesh.instanceMatrix.needsUpdate = true;
+      this.greenLeavesMesh.instanceMatrix.needsUpdate = true;
+      this.blossomLeavesMesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   // Camera Pan/Rotate controls
@@ -382,15 +518,11 @@ export class Renderer {
     // Prevent context menu
     dom.addEventListener('contextmenu', e => e.preventDefault());
 
-    // Mouse Zoom (Smooth)
+    // Mouse Zoom (Smooth & Touchpad-friendly)
     dom.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const zoomFactor = 1.15;
-      if (e.deltaY < 0) {
-        this.desiredCameraZoom = Math.min(300, this.desiredCameraZoom * zoomFactor);
-      } else {
-        this.desiredCameraZoom = Math.max(5, this.desiredCameraZoom / zoomFactor);
-      }
+      const sensitivity = 0.0015;
+      this.desiredCameraZoom = Math.min(300, Math.max(5, this.desiredCameraZoom * Math.exp(-e.deltaY * sensitivity)));
     }, { passive: false });
 
     // Keyboard Pan Listeners
@@ -454,6 +586,8 @@ export class Renderer {
     dummy.updateMatrix();
     this.groundMesh.setMatrixAt(index, dummy.matrix);
     this.groundMesh.instanceMatrix.needsUpdate = true;
+
+    this.updateTreesOnTile(x, y);
   }
 
   resetGroundInstances() {

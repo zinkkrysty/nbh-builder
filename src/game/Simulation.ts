@@ -26,6 +26,7 @@ export interface TileState {
 }
 
 export class Simulation {
+  seed: number;
   gridSize = 50;
   grid: TileState[][];
   money = 30000;
@@ -54,6 +55,7 @@ export class Simulation {
   onTileUpdate: (tile: TileState) => void = () => {};
 
   constructor() {
+    this.seed = Math.floor(Math.random() * 1000000);
     this.grid = [];
     this.initializeGrid();
   }
@@ -675,6 +677,7 @@ export class Simulation {
 
   saveState(): string {
     const state = {
+      seed: this.seed,
       money: this.money,
       taxRate: this.taxRate,
       population: this.population,
@@ -707,6 +710,7 @@ export class Simulation {
       const state = JSON.parse(jsonString);
       if (!state || !state.grid) return false;
 
+      this.seed = state.seed !== undefined ? state.seed : Math.floor(Math.random() * 1000000);
       this.money = state.money;
       this.taxRate = state.taxRate;
       this.population = state.population;
