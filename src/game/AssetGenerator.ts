@@ -573,21 +573,25 @@ export class AssetGenerator {
         deckZ = 0;
       }
 
-      // Render 6 parallel planks on the deck (narrower: width 0.20, center spacing 0.32, keeping 0.12 gap)
+      // Render 11 parallel planks on the deck (narrower: width 0.12, center spacing 2/11, keeping 0.06 gap, matching the pier)
       if (side === 'N' || side === 'S') {
-        const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrow_thick', () => new THREE.BoxGeometry(0.20, 0.04, 0.67));
-        for (let i = 0; i < 6; i++) {
+        const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrower_thick_v3', () => new THREE.BoxGeometry(0.12, 0.04, 0.67));
+        const spacing = 2.0 / 11;
+        const start = -1.0 + spacing / 2;
+        for (let i = 0; i < 11; i++) {
           const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-          plank.position.set(-0.8 + i * 0.32, 0.06, deckZ);
+          plank.position.set(start + i * spacing, 0.06, deckZ);
           plank.receiveShadow = true;
           plank.castShadow = true;
           group.add(plank);
         }
       } else {
-        const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrow_thick', () => new THREE.BoxGeometry(0.67, 0.04, 0.20));
-        for (let i = 0; i < 6; i++) {
+        const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrower_thick_v3', () => new THREE.BoxGeometry(0.67, 0.04, 0.12));
+        const spacing = 2.0 / 11;
+        const start = -1.0 + spacing / 2;
+        for (let i = 0; i < 11; i++) {
           const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-          plank.position.set(deckX, 0.06, -0.8 + i * 0.32);
+          plank.position.set(deckX, 0.06, start + i * spacing);
           plank.receiveShadow = true;
           plank.castShadow = true;
           group.add(plank);
