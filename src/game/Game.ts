@@ -333,8 +333,14 @@ export class Game {
 
     // 2. Simulation Tick (Ticks every 2 seconds)
     const runSimTick = () => {
+      const prevTime = this.sim.timeOfDay;
       this.sim.tick();
       this.updateHUD();
+      
+      // Autosave every day at 6:00 AM
+      if (prevTime < 6.0 && this.sim.timeOfDay >= 6.0) {
+        this.autosaveGame();
+      }
       
       // Reschedule according to speed
       const baseInterval = 2000;
@@ -695,6 +701,12 @@ export class Game {
     const saveData = this.sim.saveState();
     localStorage.setItem('nabocity_save', saveData);
     this.sim.onNotification('Neighborhood saved successfully to Local Storage!', 'success');
+  }
+
+  autosaveGame() {
+    const saveData = this.sim.saveState();
+    localStorage.setItem('nabocity_save', saveData);
+    this.sim.onNotification('Neighborhood autosaved successfully!', 'success');
   }
 
   loadGame() {

@@ -15,12 +15,15 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   [x] **1.6: Waterfront Boardwalks & Docks** — Narrow-profile boardwalks (1/3 wood deck, 2/3 grass lawn), physical curb wood dividers, dark void under-frame gap shading, waterfront-only rope railings, random grass props (cozy benches, trees, shrubs), coordinate-seeded spread-out piers (lifebuoys, benches, bollards), moored rowboats, and residential happiness boost (+10).
 *   [x] **1.7: Visual Asset Catalog Page** — Interactive 3D modal viewport with mouse drag rotations, camera framing, day/night lights, and random seed re-rolling for all assets.
 *   [x] **1.8: Pedestrian Crossing Paint & Network Rebuilding** — Zebra crosswalks painted on exterior road tiles close to intersection boundaries, extended all the way across the road width, and aligned with boardwalk approaches at bridge entrances/exits. Yellow centerlines automatically split with a 0.25-unit gap to prevent overlap and are hidden on bridge decks. Rebuilding roads triggers a Manhattan-distance-of-2 update to cleanly update all adjacent road crosswalks immediately. Crosswalk material uses a soft, semi-transparent Standard Material for realistic road blending.
+*   [x] **1.9: Post-Processing Bloom & Dynamic Shadow Tracking** — Integrated Three.js `EffectComposer` with `RenderPass` and `UnrealBloomPass` to create warm, cozy emissive glows on building windows and vehicle lights at night. Upgraded shadow mapping targeting to dynamically follow the camera target, maintaining sharp, non-clipped shadows across the visible viewport during camera panning. Evaluated ambient occlusion (SAO) and optimized for clean low-poly rendering, securing a stable 120 FPS runtime.
 
 ---
 
 ## 🚀 Future Development Phases
 
 ### Phase 1: Dynamic Life & Pedestrians
+*   **A* Commute Pathfinding**: Upgrade the random traffic system to destination-based pathfinding, allowing cars and pedestrians to travel directly between their homes (Residential) and workplaces (Commercial/Industrial).
+*   **Citizen Profiling (Cims)**: Clicking on homes and businesses displays citizen profile cards detailing names, ages, jobs, and happiness.
 *   **Pedestrian Spawning**: Little low-poly citizen figures (capsules or simple jointed blocks) that walk out of houses, go to work in commercial offices, or relax on park benches/boardwalk decks.
 *   **Waterfront & Park Walkers**: Spawning citizens walking along the wooden boardwalks and relaxing on the grass-side benches or pier ends.
 *   **Intelligent Traffic Behaviors**:
@@ -32,7 +35,8 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   **Forestry Management**: Wild trees gradually mature, grow, and drop leaf particles. Demolishing trees yields minor wood resources instead of land cost.
 *   **Topography & Hills**: Adding simple landscape elevation (flat hills and sloped road ramps) to create cozy alpine towns.
 
-### Phase 3: Public Services & Landmarks
+### Phase 3: Public Services, Utilities & Landmarks
+*   **Municipal Streetlighting**: Place cozy low-poly streetlights along roads that light up with warm point lights during the night cycle.
 *   **Public Services**:
     *   *Fire Station*: Prevents or extinguishes fire hazards in a local radius.
     *   *Clinic/Hospital*: Keeps citizens healthy, boosting neighborhood growth rates.
@@ -44,7 +48,7 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   **Weather Cycle**:
     *   *Rainy Days*: Sky turns cozy overcast gray. Rain particles fall, boosting water towers capacity but slowing citizen walking speeds.
     *   *Cozy Fog*: Misty fog rolls in, reducing rendering view distance and increasing cozy lofi synthesizer wind noise.
-*   **Seasonal Transitions**: Gradually shift ground/tree colors over time. Winter overlays snow on rooftops, while Spring triggers pink cherry blossom petals.
+*   **Seasonal Transitions**: Gradually shift ground/tree colors over time. Winter overlays snow on rooftops and ground using a custom snow accumulation shader, while Spring triggers pink cherry blossom petals.
 *   **Calm Community Events**:
     *   *Confetti Festivals*: Citizens gather at parks and set off colorful floating paper particles.
 
@@ -52,10 +56,10 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   **Neighborhood Synergy & Curb Appeal**:
     *   *Cul-de-sac & Co-housing*: Clustering residential zones grants happiness and decreases utility demand.
     *   *Corner Store Synergy*: Adjacent commercial/residential zones boost sales and resident happiness.
-    *   *Procedural Curb Appeal*: Happy residences sprout flowerbeds, swings, mailboxes, and fences.
+    *   *Procedural Yard Appeal*: Happy residences sprout flowerbeds, swings, mailboxes, chimneys puffing active smoke particles, and fences.
 *   **Cooperative Agriculture**:
     *   *Agricultural Zoning*: Establish community gardens with procedural rows of crops, scarecrows, and compost piles.
-    *   *Farm-to-Table Loop*: Adjacent gardens boost local home happiness and supply nearby stores with locally grown produce.
+*   **Farm-to-Table Loop**: Adjacent gardens boost local home happiness and supply nearby stores with locally grown produce.
 *   **Calm Community Events**:
     *   *Neighborhood Block Parties*: Residential streets temporarily close, spawning barbecues, string lights, and redirecting traffic.
     *   *Saturday Yard Sales*: Happy homes spawn front-lawn sale tables, creating small citizen flows and tax contributions.
@@ -63,4 +67,3 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   **Citizen Projects & Crowdfunding**:
     *   *Neighborhood Request Board*: Notepad listing local requests (e.g. library, parks, power).
     *   *Community Fund*: Happy citizens pool savings to fund zero-maintenance landmarks (Gazebos, Libraries, Cafes).
-

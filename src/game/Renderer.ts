@@ -2,12 +2,17 @@ import * as THREE from 'three';
 import { AssetGenerator } from './AssetGenerator';
 import { Simulation, TileState } from './Simulation';
 import { TrafficManager } from './TrafficManager';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 export class Renderer {
   container: HTMLElement;
   scene!: THREE.Scene;
   camera!: THREE.OrthographicCamera;
   renderer!: THREE.WebGLRenderer;
+  composer!: EffectComposer;
   assets: AssetGenerator;
   sim?: Simulation;
 
@@ -106,6 +111,23 @@ export class Renderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
+
+    // Initialize the post-processing composer
+    this.composer = new EffectComposer(this.renderer);
+
+    // 1. Render Pass (render base scene)
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+
+    // 3. Unreal Bloom Pass for glowing emissive windows & vehicle headlights
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(this.container.clientWidth, this.container.clientHeight),
+      0.25, // strength (cozy and soft)
+      0.3,  // radius
+      0.85  // threshold (only blooms bright glow elements)
+    );
+    this.composer.addPass(bloomPass);
   }
 
   initLights() {
@@ -672,6 +694,9 @@ export class Renderer {
         Math.max(1.0, sunY), // Keep sun above ground level visually
         this.cameraTarget.z + sunZ
       );
+      // Ensure the light's target tracking target updates to keep shadow camera centered on view
+      this.dirLight.target.position.copy(this.cameraTarget);
+      this.dirLight.target.updateMatrixWorld();
     }
 
     // Determine phase for colors
@@ -776,8 +801,8 @@ export class Renderer {
       this.traffic.update(timeStep);
     }
 
-    // 5. Render frame
-    this.renderer.render(this.scene, this.camera);
+    // 5. Render composer passes
+    this.composer.render();
   }
 
   // Camera Smoothing update method
@@ -841,5 +866,8 @@ export class Renderer {
 
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    if (this.composer) {
+      this.composer.setSize(this.container.clientWidth, this.container.clientHeight);
+    }
   }
 }
