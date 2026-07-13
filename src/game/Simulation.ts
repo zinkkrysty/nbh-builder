@@ -409,6 +409,8 @@ export class Simulation {
   tick() {
     if (this.speed === 0) return;
 
+    let needsUtilityUpdate = false;
+
     // 1. Update Time & Days
     // Tick speed factors
     const hoursPerTick = 0.5 * this.speed;
@@ -452,6 +454,7 @@ export class Simulation {
           if (tile.progress <= 0) {
             tile.progress = 70; // 70% progress buffer on downgrade for hysteresis stability
             tile.level = Math.max(0, tile.level - 1);
+            needsUtilityUpdate = true;
             if (tile.level === 0) {
               tile.abandoned = true;
               tile.occupancy = 0;
@@ -523,6 +526,7 @@ export class Simulation {
             if (tile.progress >= 100) {
               tile.progress = 30; // 30% progress buffer on upgrade for hysteresis stability
               tile.level++;
+              needsUtilityUpdate = true;
               this.onTileUpdate(tile);
             }
           } else if (effectiveDecayRate < 0 && tile.level > 0) {
@@ -530,6 +534,7 @@ export class Simulation {
             if (tile.progress <= 0) {
               tile.progress = 70; // 70% progress buffer on downgrade for hysteresis stability
               tile.level--;
+              needsUtilityUpdate = true;
               this.onTileUpdate(tile);
             }
           }
@@ -592,6 +597,10 @@ export class Simulation {
     const laborSupply = this.population - this.jobs;
     const targetI = Math.max(-100, Math.min(100, Math.round(laborSupply * 1.0 + (0.15 - this.taxRate) * 300)));
     this.demandI = Math.round(this.demandI * 0.7 + targetI * 0.3);
+
+    if (needsUtilityUpdate) {
+      this.updateUtilities();
+    }
   }
 
   // Search adjacent tiles (5-tile radius) for parks
