@@ -375,56 +375,26 @@ export class AssetGenerator {
       if (E && this.isIntersection(tileX + 1, tileY)) activeCrosswalksEW.push(0.65);
       if (W && this.isIntersection(tileX - 1, tileY)) activeCrosswalksEW.push(-0.65);
 
-      // 2. Check if adjacent neighbors are bridges flanked by boardwalks
-      // North neighbor:
-      if (tileY > 0) {
+      // 2. Check if flanked by boardwalks on both sides, and adjacent to a bridge
+      if (activeCrosswalksNS.length === 0 && activeCrosswalksEW.length === 0) {
         const tileN = this.sim.grid[tileX][tileY - 1];
-        if (tileN.type === 'road' && tileN.bridge === true) {
-          if (tileX > 0 && tileX < this.sim.gridSize - 1) {
-            const tileNW = this.sim.grid[tileX - 1][tileY - 1];
-            const tileNE = this.sim.grid[tileX + 1][tileY - 1];
-            if (tileNW.type === 'boardwalk' && tileNE.type === 'boardwalk') {
-              activeCrosswalksNS.push(-0.65);
-            }
-          }
-        }
-      }
-      // South neighbor:
-      if (tileY < this.sim.gridSize - 1) {
         const tileS = this.sim.grid[tileX][tileY + 1];
-        if (tileS.type === 'road' && tileS.bridge === true) {
-          if (tileX > 0 && tileX < this.sim.gridSize - 1) {
-            const tileSW = this.sim.grid[tileX - 1][tileY + 1];
-            const tileSE = this.sim.grid[tileX + 1][tileY + 1];
-            if (tileSW.type === 'boardwalk' && tileSE.type === 'boardwalk') {
-              activeCrosswalksNS.push(0.65);
-            }
-          }
-        }
-      }
-      // East neighbor:
-      if (tileX < this.sim.gridSize - 1) {
         const tileE = this.sim.grid[tileX + 1][tileY];
-        if (tileE.type === 'road' && tileE.bridge === true) {
-          if (tileY > 0 && tileY < this.sim.gridSize - 1) {
-            const tileEN = this.sim.grid[tileX + 1][tileY - 1];
-            const tileES = this.sim.grid[tileX + 1][tileY + 1];
-            if (tileEN.type === 'boardwalk' && tileES.type === 'boardwalk') {
-              activeCrosswalksEW.push(0.65);
-            }
-          }
-        }
-      }
-      // West neighbor:
-      if (tileX > 0) {
         const tileW = this.sim.grid[tileX - 1][tileY];
-        if (tileW.type === 'road' && tileW.bridge === true) {
-          if (tileY > 0 && tileY < this.sim.gridSize - 1) {
-            const tileWN = this.sim.grid[tileX - 1][tileY - 1];
-            const tileWS = this.sim.grid[tileX - 1][tileY + 1];
-            if (tileWN.type === 'boardwalk' && tileWS.type === 'boardwalk') {
-              activeCrosswalksEW.push(-0.65);
-            }
+
+        if (tileW.type === 'boardwalk' && tileE.type === 'boardwalk') {
+          // Check if North or South neighbor is a bridge
+          if (tileS.type === 'road' && tileS.bridge === true) {
+            activeCrosswalksNS.push(0.65);
+          } else if (tileN.type === 'road' && tileN.bridge === true) {
+            activeCrosswalksNS.push(-0.65);
+          }
+        } else if (tileN.type === 'boardwalk' && tileS.type === 'boardwalk') {
+          // Check if East or West neighbor is a bridge
+          if (tileE.type === 'road' && tileE.bridge === true) {
+            activeCrosswalksEW.push(0.65);
+          } else if (tileW.type === 'road' && tileW.bridge === true) {
+            activeCrosswalksEW.push(-0.65);
           }
         }
       }
@@ -459,66 +429,68 @@ export class AssetGenerator {
       }
     };
 
-    // Render yellow lines based on connectivity and crosswalk gaps
-    if (count === 0 || (N && S && !E && !W)) {
-      // Straight North-South
-      addCenterlineWithGaps('NS', activeCrosswalksNS);
-    } else if (E && W && !N && !S) {
-      // Straight East-West
-      addCenterlineWithGaps('EW', activeCrosswalksEW);
-    } else if (count === 1) {
-      // Dead end (respecting crosswalk boundary if applicable)
-      if (N) {
-        if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
-        else addLine(0.06, 1, 0, -0.5);
-      } else if (S) {
-        if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
-        else addLine(0.06, 1, 0, 0.5);
-      } else if (E) {
-        if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
-        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
-      } else if (W) {
-        if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
-        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+    // Render yellow lines based on connectivity and crosswalk gaps (skip for bridges)
+    if (!isBridge) {
+      if (count === 0 || (N && S && !E && !W)) {
+        // Straight North-South
+        addCenterlineWithGaps('NS', activeCrosswalksNS);
+      } else if (E && W && !N && !S) {
+        // Straight East-West
+        addCenterlineWithGaps('EW', activeCrosswalksEW);
+      } else if (count === 1) {
+        // Dead end (respecting crosswalk boundary if applicable)
+        if (N) {
+          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+          else addLine(0.06, 1, 0, -0.5);
+        } else if (S) {
+          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+          else addLine(0.06, 1, 0, 0.5);
+        } else if (E) {
+          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+          else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+        } else if (W) {
+          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+          else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+        }
+      } else if (count === 2) {
+        // Corner turns
+        if (N && E) {
+          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+          else addLine(0.06, 1, 0, -0.5);
+          
+          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+          else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+        } else if (N && W) {
+          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
+          else addLine(0.06, 1, 0, -0.5);
+
+          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+          else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+        } else if (S && E) {
+          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+          else addLine(0.06, 1, 0, 0.5);
+
+          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+          else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+        } else if (S && W) {
+          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
+          else addLine(0.06, 1, 0, 0.5);
+
+          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+          else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+        }
+      } else if (count >= 3) {
+        // Junction/Crossroad (dot in center, short lines) - no crosswalks rendered inside the intersection
+        const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
+        const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
+        centerDot.position.set(0, lineY, 0);
+        group.add(centerDot);
+
+        if (N) addLine(0.06, 0.5, 0, -0.75);
+        if (S) addLine(0.06, 0.5, 0, 0.75);
+        if (E) addLine(0.06, 0.5, 0.75, 0, Math.PI / 2);
+        if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
       }
-    } else if (count === 2) {
-      // Corner turns
-      if (N && E) {
-        if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
-        else addLine(0.06, 1, 0, -0.5);
-        
-        if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
-        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
-      } else if (N && W) {
-        if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.175, 0, -0.9125);
-        else addLine(0.06, 1, 0, -0.5);
-
-        if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
-        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
-      } else if (S && E) {
-        if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
-        else addLine(0.06, 1, 0, 0.5);
-
-        if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
-        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
-      } else if (S && W) {
-        if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.175, 0, 0.9125);
-        else addLine(0.06, 1, 0, 0.5);
-
-        if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
-        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
-      }
-    } else if (count >= 3) {
-      // Junction/Crossroad (dot in center, short lines) - no crosswalks rendered inside the intersection
-      const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
-      const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
-      centerDot.position.set(0, lineY, 0);
-      group.add(centerDot);
-
-      if (N) addLine(0.06, 0.5, 0, -0.75);
-      if (S) addLine(0.06, 0.5, 0, 0.75);
-      if (E) addLine(0.06, 0.5, 0.75, 0, Math.PI / 2);
-      if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
     }
 
     // Helper to paint pedestrian crosswalk (Zebra stripes, extended all the way across the road width 2.0)
