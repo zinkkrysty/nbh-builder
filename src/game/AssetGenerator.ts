@@ -567,15 +567,16 @@ export class AssetGenerator {
       
       if (side === 'N' || side === 'S') {
         deckX = 0;
-        deckZ = side === 'N' ? -0.665 : 0.665;
+        deckZ = side === 'N' ? -0.68 : 0.68;
       } else {
-        deckX = side === 'E' ? 0.665 : -0.665;
+        deckX = side === 'E' ? 0.68 : -0.68;
         deckZ = 0;
       }
-
+ 
       // Render 11 parallel planks on the deck (narrower: width 0.12, center spacing 2/11, keeping 0.06 gap, matching the pier)
+      // Plank length increased from 0.67 to 0.70 to extend fully and overhang the water by 0.03 units.
       if (side === 'N' || side === 'S') {
-        const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrower_thick_v3', () => new THREE.BoxGeometry(0.12, 0.04, 0.67));
+        const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.12, 0.04, 0.70));
         const spacing = 2.0 / 11;
         const start = -1.0 + spacing / 2;
         for (let i = 0; i < 11; i++) {
@@ -586,7 +587,7 @@ export class AssetGenerator {
           group.add(plank);
         }
       } else {
-        const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrower_thick_v3', () => new THREE.BoxGeometry(0.67, 0.04, 0.12));
+        const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.70, 0.04, 0.12));
         const spacing = 2.0 / 11;
         const start = -1.0 + spacing / 2;
         for (let i = 0; i < 11; i++) {
@@ -597,28 +598,48 @@ export class AssetGenerator {
           group.add(plank);
         }
       }
-
-      // Wooden Curb Wall
+ 
+      // Wooden Curb Wall (grass-side) and connecting structural beam (water-side)
       if (side === 'N') {
         const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
         curb.position.set(0, 0.04, -0.33);
         curb.castShadow = true;
         group.add(curb);
+ 
+        const waterBeam = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
+        waterBeam.position.set(0, 0.04, -0.97);
+        waterBeam.castShadow = true;
+        group.add(waterBeam);
       } else if (side === 'S') {
         const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
         curb.position.set(0, 0.04, 0.33);
         curb.castShadow = true;
         group.add(curb);
+ 
+        const waterBeam = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
+        waterBeam.position.set(0, 0.04, 0.97);
+        waterBeam.castShadow = true;
+        group.add(waterBeam);
       } else if (side === 'E') {
         const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
         curb.position.set(0.33, 0.04, 0);
         curb.castShadow = true;
         group.add(curb);
+ 
+        const waterBeam = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
+        waterBeam.position.set(0.97, 0.04, 0);
+        waterBeam.castShadow = true;
+        group.add(waterBeam);
       } else if (side === 'W') {
         const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
         curb.position.set(-0.33, 0.04, 0);
         curb.castShadow = true;
         group.add(curb);
+ 
+        const waterBeam = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
+        waterBeam.position.set(-0.97, 0.04, 0);
+        waterBeam.castShadow = true;
+        group.add(waterBeam);
       }
     }
 
