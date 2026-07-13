@@ -11,22 +11,25 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   [x] **1.2: Lofi Soundscape** — Procedural Web Audio synthesizer generating calm chord progressions, vinyl noise, and spatial chimes.
 *   [x] **1.3: Procedural Traffic** — Spawning cars that drive in lanes, rotate dynamically, steer at crossroads, and turn on headlights at night.
 *   [x] **1.4: Polish & Performance** — FOUC prevention, AI splash screen art, smooth camera glide interpolation, remapped number hotkeys, and Local Storage saving/loading.
+*   [x] **1.5: Water Bodies & Transport Bridges** — Water body placement tool, double-sided transparent water meshes, global world-space wave physics shaders, and automatic road-to-bridge rendering with double driving-lane side railings.
+*   [x] **1.6: Waterfront Boardwalks & Docks** — Narrow-profile boardwalks (1/3 wood deck, 2/3 grass lawn), physical curb wood dividers, dark void under-frame gap shading, waterfront-only rope railings, random grass props (cozy benches, trees, shrubs), coordinate-seeded spread-out piers (lifebuoys, benches, bollards), moored rowboats, and residential happiness boost (+10).
+*   [x] **1.7: Visual Asset Catalog Page** — Interactive 3D modal viewport with mouse drag rotations, camera framing, day/night lights, and random seed re-rolling for all assets.
 
 ---
 
 ## 🚀 Future Development Phases
 
 ### Phase 1: Dynamic Life & Pedestrians
-*   **Pedestrian Spawning**: Little low-poly citizen figures (capsules or simple jointed blocks) that walk out of houses, go to work in commercial offices, or relax on park benches.
+*   **Pedestrian Spawning**: Little low-poly citizen figures (capsules or simple jointed blocks) that walk out of houses, go to work in commercial offices, or relax on park benches/boardwalk decks.
+*   **Waterfront & Park Walkers**: Spawning citizens walking along the wooden boardwalks and relaxing on the grass-side benches or pier ends.
 *   **Intelligent Traffic Behaviors**:
     *   Add basic yielding at intersections (first-to-arrive goes first).
     *   Introduce traffic lights that toggle green/red, causing cars to stop.
     *   Traffic density: Spawn count scales directly with commercial and industrial productivity.
 
-### Phase 2: Water Bodies, Geography & Bridges
-*   **Water Placement Tool**: A tool to create lakes, rivers, or coastlines. Zoned structures cannot be placed on water.
-*   **Procedural Bridges**: Laying road tiles over water cells automatically generates a low-poly wooden bridge or a steel arch bridge.
-*   **Forestry Management**: Trees in parks or wild borders will gradually mature and drop leaf particles. Demolishing trees yields minor wood resources.
+### Phase 2: Environment & Geography
+*   **Forestry Management**: Wild trees gradually mature, grow, and drop leaf particles. Demolishing trees yields minor wood resources instead of land cost.
+*   **Topography & Hills**: Adding simple landscape elevation (flat hills and sloped road ramps) to create cozy alpine towns.
 
 ### Phase 3: Public Services & Landmarks
 *   **Public Services**:
