@@ -60,6 +60,10 @@ export class AssetGenerator {
       color: 0xf59e0b, // Yellow lines
     });
 
+    this.materials.roadCrosswalk = new THREE.MeshBasicMaterial({
+      color: 0xf8fafc, // White paint for crosswalks
+    });
+
     // Curated Cozy Palettes definition
     const COZY_PALETTES = [
       { wallColor: 0xa84c3e, roofColor: 0x2d3139, trimColor: 0xf8fafc, brickColor: 0x475569 }, // Nordic Red
@@ -279,7 +283,13 @@ export class AssetGenerator {
   }
 
   // 3. Road Mesh Generator based on neighbors
-  createRoadMesh(connections: { N: boolean; S: boolean; E: boolean; W: boolean }, isBridge = false, neighbors = { N: false, S: false, E: false, W: false }): THREE.Group {
+  createRoadMesh(
+    connections: { N: boolean; S: boolean; E: boolean; W: boolean },
+    isBridge = false,
+    neighbors = { N: false, S: false, E: false, W: false },
+    tileX = 0,
+    tileY = 0
+  ): THREE.Group {
     const group = new THREE.Group();
 
     if (isBridge) {
@@ -318,12 +328,40 @@ export class AssetGenerator {
 
     const count = [N, S, E, W].filter(Boolean).length;
 
+    // Check if we have boardwalks on both sides of a straight road section
+    let hasCenterCrosswalkEW = false;
+    let hasCenterCrosswalkNS = false;
+
+    if (count < 3 && this.sim && tileX > 0 && tileX < this.sim.gridSize - 1 && tileY > 0 && tileY < this.sim.gridSize - 1) {
+      const tileN = this.sim.grid[tileX][tileY - 1];
+      const tileS = this.sim.grid[tileX][tileY + 1];
+      const tileE = this.sim.grid[tileX + 1][tileY];
+      const tileW = this.sim.grid[tileX - 1][tileY];
+
+      if (tileW.type === 'boardwalk' && tileE.type === 'boardwalk') {
+        hasCenterCrosswalkEW = true;
+      } else if (tileN.type === 'boardwalk' && tileS.type === 'boardwalk') {
+        hasCenterCrosswalkNS = true;
+      }
+    }
+
+    // Render yellow lines (leaving gaps if a center crosswalk is present)
     if (count === 0 || (N && S && !E && !W)) {
       // Straight North-South
-      addLine(0.06, 2, 0, 0);
+      if (hasCenterCrosswalkEW) {
+        addLine(0.06, 0.65, 0, -0.675);
+        addLine(0.06, 0.65, 0, 0.675);
+      } else {
+        addLine(0.06, 2, 0, 0);
+      }
     } else if (E && W && !N && !S) {
       // Straight East-West
-      addLine(0.06, 2, 0, 0, Math.PI / 2);
+      if (hasCenterCrosswalkNS) {
+        addLine(0.06, 0.65, 0, -0.675, Math.PI / 2);
+        addLine(0.06, 0.65, 0, 0.675, Math.PI / 2);
+      } else {
+        addLine(0.06, 2, 0, 0, Math.PI / 2);
+      }
     } else if (count === 1) {
       // Dead end
       if (N) addLine(0.06, 1, 0, -0.5);
@@ -346,16 +384,53 @@ export class AssetGenerator {
         addLine(0.06, 1, -0.5, 0, Math.PI / 2);
       }
     } else if (count >= 3) {
-      // Junction/Crossroad (just dot in center or small lines)
+      // Junction/Crossroad (dot in center, short lines stop before crosswalks)
       const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
       const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
       centerDot.position.set(0, lineY, 0);
       group.add(centerDot);
 
-      if (N) addLine(0.06, 0.5, 0, -0.75);
-      if (S) addLine(0.06, 0.5, 0, 0.75);
-      if (E) addLine(0.06, 0.5, 0.75, 0, Math.PI / 2);
-      if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
+      if (N) addLine(0.06, 0.175, 0, -0.9125);
+      if (S) addLine(0.06, 0.175, 0, 0.9125);
+      if (E) addLine(0.06, 0.175, 0.9125, 0, Math.PI / 2);
+      if (W) addLine(0.06, 0.175, -0.9125, 0, Math.PI / 2);
+    }
+
+    // Helper to paint pedestrian crosswalk (Zebra stripes)
+    const drawCrosswalk = (cx: number, cz: number, orientation: 'NS' | 'EW') => {
+      const stripeMat = this.materials.roadCrosswalk;
+      const stripeGeo = this.getGeometry(
+        orientation === 'EW' ? 'crosswalk_stripe_ew' : 'crosswalk_stripe_ns',
+        () => new THREE.PlaneGeometry(
+          orientation === 'EW' ? 0.08 : 0.35,
+          orientation === 'EW' ? 0.35 : 0.08
+        )
+      );
+
+      const offsets = [-0.4, -0.2, 0, 0.2, 0.4];
+      for (const off of offsets) {
+        const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+        stripe.rotation.x = -Math.PI / 2;
+        if (orientation === 'EW') {
+          stripe.position.set(cx + off, lineY + 0.001, cz);
+        } else {
+          stripe.position.set(cx, lineY + 0.001, cz + off);
+        }
+        stripe.receiveShadow = true;
+        group.add(stripe);
+      }
+    };
+
+    // Draw Crosswalks based on intersections or boardwalk presence
+    if (count >= 3) {
+      if (N) drawCrosswalk(0, -0.65, 'EW');
+      if (S) drawCrosswalk(0, 0.65, 'EW');
+      if (E) drawCrosswalk(0.65, 0, 'NS');
+      if (W) drawCrosswalk(-0.65, 0, 'NS');
+    } else if (hasCenterCrosswalkEW) {
+      drawCrosswalk(0, 0, 'EW');
+    } else if (hasCenterCrosswalkNS) {
+      drawCrosswalk(0, 0, 'NS');
     }
 
     // Add bridge railings

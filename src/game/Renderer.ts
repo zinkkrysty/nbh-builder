@@ -603,7 +603,7 @@ export class Renderer {
       E: x < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[x + 1][y].type === 'water_body' || this.sim.grid[x + 1][y].bridge === true) : false),
       W: x > 0 && (this.sim ? (this.sim.grid[x - 1][y].type === 'water_body' || this.sim.grid[x - 1][y].bridge === true) : false)
     };
-    const roadMesh = this.assets.createRoadMesh(connections, isBridge, neighbors);
+    const roadMesh = this.assets.createRoadMesh(connections, isBridge, neighbors, x, y);
     roadMesh.position.set(xPos, 0, zPos);
     this.scene.add(roadMesh);
     this.buildingMeshes.set(key, roadMesh);
