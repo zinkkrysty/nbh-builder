@@ -6,6 +6,12 @@ Built using **Three.js** and **Vite** with **TypeScript**, the game runs complet
 
 ---
 
+## 📸 Screenshot
+
+![NaboCity Gameplay Screenshot](public/screenshot.png)
+
+---
+
 ## 🎮 Key Features
 
 *   **Cozy 3D Visuals**: A beautiful low-poly style featuring dynamic lighting, warm sunsets, glowing home windows at night, and industrial puffing smoke particles.
