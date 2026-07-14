@@ -16,20 +16,20 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   [x] **1.7: Visual Asset Catalog Page** — Interactive 3D modal viewport with mouse drag rotations, camera framing, day/night lights, and random seed re-rolling for all assets.
 *   [x] **1.8: Pedestrian Crossing Paint & Network Rebuilding** — Zebra crosswalks painted on exterior road tiles close to intersection boundaries, extended all the way across the road width, and aligned with boardwalk approaches at bridge entrances/exits. Yellow centerlines automatically split with a 0.25-unit gap to prevent overlap and are hidden on bridge decks. Rebuilding roads triggers a Manhattan-distance-of-2 update to cleanly update all adjacent road crosswalks immediately. Crosswalk material uses a soft, semi-transparent Standard Material for realistic road blending.
 *   [x] **1.9: Post-Processing Bloom & Dynamic Shadow Tracking** — Integrated Three.js `EffectComposer` with `RenderPass` and `UnrealBloomPass` to create warm, cozy emissive glows on building windows and vehicle lights at night. Upgraded shadow mapping targeting to dynamically follow the camera target, maintaining sharp, non-clipped shadows across the visible viewport during camera panning. Evaluated ambient occlusion (SAO) and optimized for clean low-poly rendering, securing a stable 120 FPS runtime.
+*   [x] **1.10: Pedestrian Spawning, Sidewalk Paths & Citizen Profiling (Cims)** — Added Cozy Citizens (Cims) with randomized low-poly meshes, colors, and accessories. Programmed BFS-based pathfinding over walkable roads, boardwalks, and parks, complete with realistic edge-aligned sidewalk offsets, deck-offsets, organic park wiggle paths, smooth turn/transition offset interpolation, and leg-swing walking animations. Added occupant profiles inside the inspector panel and a preview model in the Developer Menu.
+*   [x] **1.11: Local Storage Fault Tolerance & Boot Safeguards** — Wrapped all `localStorage` access calls in try/catch bounds to protect the application from failing when storage access is restricted or disabled. Decoupled the background simulation loop from initial page asset loads, only starting simulation ticks once the user successfully interacts with the enter-splash trigger to enter the neighborhood.
 
 ---
 
 ## 🚀 Future Development Phases
 
-### Phase 1: Dynamic Life & Pedestrians
-*   **A* Commute Pathfinding**: Upgrade the random traffic system to destination-based pathfinding, allowing cars and pedestrians to travel directly between their homes (Residential) and workplaces (Commercial/Industrial).
-*   **Citizen Profiling (Cims)**: Clicking on homes and businesses displays citizen profile cards detailing names, ages, jobs, and happiness.
-*   **Pedestrian Spawning**: Little low-poly citizen figures (capsules or simple jointed blocks) that walk out of houses, go to work in commercial offices, or relax on park benches/boardwalk decks.
-*   **Waterfront & Park Walkers**: Spawning citizens walking along the wooden boardwalks and relaxing on the grass-side benches or pier ends.
+### Phase 1: Dynamic Life & Pedestrians (Next Step Priority)
+*   **A* Commute Pathfinding (High Priority)**: Upgrade the random pathing system for both traffic vehicles and pedestrian Cims to destination-based A* routing, connecting specific Residential homes and Commercial/Industrial workplaces.
 *   **Intelligent Traffic Behaviors**:
     *   Add basic yielding at intersections (first-to-arrive goes first).
     *   Introduce traffic lights that toggle green/red, causing cars to stop.
     *   Traffic density: Spawn count scales directly with commercial and industrial productivity.
+*   **Direct Citizen Raycasting**: Support clicking directly on moving citizens in the 3D canvas viewport using mouse raycasting to open their inspector profile cards.
 
 ### Phase 2: Environment & Geography
 *   **Forestry Management**: Wild trees gradually mature, grow, and drop leaf particles. Demolishing trees yields minor wood resources instead of land cost.
