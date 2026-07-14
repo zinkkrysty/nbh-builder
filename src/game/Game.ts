@@ -108,7 +108,7 @@ export class Game {
         const cost = this.sim.getBuildCost(tool);
         const tile = this.sim.grid[x][y];
 
-        if (tile.type === 'empty' && this.sim.money >= cost) {
+        if ((tile.type === 'empty' || (tool === 'road' && tile.type === 'water_body') || (tool === 'boardwalk' && tile.type === 'water_body')) && this.sim.money >= cost) {
           const success = this.sim.build(x, y, tool);
           if (success) {
             this.sounds.playBuildSFX();
@@ -127,17 +127,18 @@ export class Game {
     };
 
     this.input.onBuildLine = (cells, tool) => {
-      const emptyCells = cells.filter(cell => {
+      const validCells = cells.filter(cell => {
         if (cell.x < 0 || cell.x >= this.sim.gridSize || cell.y < 0 || cell.y >= this.sim.gridSize) return false;
-        return this.sim.grid[cell.x][cell.y].type === 'empty';
+        const tile = this.sim.grid[cell.x][cell.y];
+        return tile.type === 'empty' || (tool === 'road' && tile.type === 'water_body') || (tool === 'boardwalk' && tile.type === 'water_body');
       });
 
-      if (emptyCells.length === 0) return;
+      if (validCells.length === 0) return;
 
       const success = this.sim.buildLine(cells, tool);
       if (success) {
         this.sounds.playBuildSFX();
-        for (const cell of emptyCells) {
+        for (const cell of validCells) {
           this.renderer.triggerPlacementParticles(cell.x, cell.y);
         }
       }
@@ -167,7 +168,7 @@ export class Game {
         } else {
           const cost = this.sim.getBuildCost(tool);
           const tile = this.sim.grid[x][y];
-          isValid = tile.type === 'empty' && this.sim.money >= cost;
+          isValid = (tile.type === 'empty' || (tool === 'road' && tile.type === 'water_body') || (tool === 'boardwalk' && tile.type === 'water_body')) && this.sim.money >= cost;
         }
         this.input.setPlacementValidity(isValid);
       }

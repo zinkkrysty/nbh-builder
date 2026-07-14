@@ -155,6 +155,39 @@ export class Simulation {
         this.onTileUpdate(tile);
         return true;
       }
+      if (type === 'boardwalk' && tile.type === 'water_body') {
+        const hasWaterAccess = [
+          y > 0 && (this.grid[x][y - 1].type === 'water_body' || this.grid[x][y - 1].bridge || this.grid[x][y - 1].type === 'boardwalk'),
+          y < this.gridSize - 1 && (this.grid[x][y + 1].type === 'water_body' || this.grid[x][y + 1].bridge || this.grid[x][y + 1].type === 'boardwalk'),
+          x < this.gridSize - 1 && (this.grid[x + 1][y].type === 'water_body' || this.grid[x + 1][y].bridge || this.grid[x + 1][y].type === 'boardwalk'),
+          x > 0 && (this.grid[x - 1][y].type === 'water_body' || this.grid[x - 1][y].bridge || this.grid[x - 1][y].type === 'boardwalk')
+        ].some(Boolean);
+        if (!hasWaterAccess) {
+          this.onNotification("Boardwalks must be built adjacent to water or other boardwalks!", "danger");
+          return false;
+        }
+
+        const cost = this.getBuildCost('boardwalk');
+        if (this.money < cost) {
+          this.onNotification("Not enough money to build this!", "danger");
+          return false;
+        }
+        this.money -= cost;
+        tile.type = 'boardwalk';
+        tile.level = 0;
+        tile.progress = 0;
+        tile.powered = false;
+        tile.watered = false;
+        tile.occupancy = 0;
+        tile.maxOccupancy = 0;
+        tile.happiness = 100;
+        tile.abandoned = false;
+        tile.bridge = false;
+
+        this.updateUtilities();
+        this.onTileUpdate(tile);
+        return true;
+      }
       return false;
     }
 
@@ -213,7 +246,7 @@ export class Simulation {
           x > 0 && (this.grid[x - 1][y].type === 'water_body' || this.grid[x - 1][y].bridge || this.grid[x - 1][y].type === 'boardwalk'),
           cells.some(c => c !== cell && Math.abs(c.x - x) + Math.abs(c.y - y) === 1)
         ].some(Boolean);
-        return tile.type === 'empty' && hasWaterAccess;
+        return (tile.type === 'empty' || tile.type === 'water_body') && hasWaterAccess;
       }
       return tile.type === 'empty';
     });

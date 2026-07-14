@@ -703,7 +703,7 @@ export class AssetGenerator {
   createBoardwalkMesh(
     tileX = 0,
     tileY = 0,
-    _neighbors = { N: false, S: false, E: false, W: false },
+    boardwalkNeighbors = { N: false, S: false, E: false, W: false },
     waterNeighbors = { N: false, S: false, E: false, W: false }
   ): THREE.Group {
     const group = new THREE.Group();
@@ -715,7 +715,70 @@ export class AssetGenerator {
     if (waterNeighbors.S) activeSides.push('S');
     if (waterNeighbors.E) activeSides.push('E');
     if (waterNeighbors.W) activeSides.push('W');
+
+    const isOutsideCorner = activeSides.length === 2;
+    let isInsideCorner = false;
+
+    // If no direct water neighbors, check diagonal water tiles for corners
+    if (activeSides.length === 0 && this.sim) {
+      const isNWorSEPattern = (boardwalkNeighbors.N && boardwalkNeighbors.W) || (boardwalkNeighbors.S && boardwalkNeighbors.E);
+      const isNEorSWPattern = (boardwalkNeighbors.N && boardwalkNeighbors.E) || (boardwalkNeighbors.S && boardwalkNeighbors.W);
+
+      // NW corner: water is at NW
+      if (isNWorSEPattern) {
+        if (
+          tileX > 0 && tileY > 0 &&
+          (this.sim.grid[tileX - 1][tileY - 1].type === 'water_body' || this.sim.grid[tileX - 1][tileY - 1].bridge)
+        ) {
+          activeSides.push('N', 'W');
+          isInsideCorner = true;
+        }
+      }
+      // NE corner: water is at NE
+      if (activeSides.length === 0 && isNEorSWPattern) {
+        if (
+          tileX < this.sim.gridSize - 1 && tileY > 0 &&
+          (this.sim.grid[tileX + 1][tileY - 1].type === 'water_body' || this.sim.grid[tileX + 1][tileY - 1].bridge)
+        ) {
+          activeSides.push('N', 'E');
+          isInsideCorner = true;
+        }
+      }
+      // SW corner: water is at SW
+      if (activeSides.length === 0 && isNEorSWPattern) {
+        if (
+          tileX > 0 && tileY < this.sim.gridSize - 1 &&
+          (this.sim.grid[tileX - 1][tileY + 1].type === 'water_body' || this.sim.grid[tileX - 1][tileY + 1].bridge)
+        ) {
+          activeSides.push('S', 'W');
+          isInsideCorner = true;
+        }
+      }
+      // SE corner: water is at SE
+      if (activeSides.length === 0 && isNWorSEPattern) {
+        if (
+          tileX < this.sim.gridSize - 1 && tileY < this.sim.gridSize - 1 &&
+          (this.sim.grid[tileX + 1][tileY + 1].type === 'water_body' || this.sim.grid[tileX + 1][tileY + 1].bridge)
+        ) {
+          activeSides.push('S', 'E');
+          isInsideCorner = true;
+        }
+      }
+    }
+
     if (activeSides.length === 0) activeSides.push('N');
+
+    // Check if we are rendering a custom L-shape corner
+    let isCorner = isOutsideCorner || isInsideCorner;
+    let cornerType: 'NW' | 'NE' | 'SW' | 'SE' | null = null;
+    if (activeSides.length === 2) {
+      const s0 = activeSides[0];
+      const s1 = activeSides[1];
+      if ((s0 === 'N' && s1 === 'W') || (s0 === 'W' && s1 === 'N')) { cornerType = 'NW'; }
+      else if ((s0 === 'N' && s1 === 'E') || (s0 === 'E' && s1 === 'N')) { cornerType = 'NE'; }
+      else if ((s0 === 'S' && s1 === 'W') || (s0 === 'W' && s1 === 'S')) { cornerType = 'SW'; }
+      else if ((s0 === 'S' && s1 === 'E') || (s0 === 'E' && s1 === 'S')) { cornerType = 'SE'; }
+    }
 
     const primaryAlign = activeSides[0];
 
@@ -730,9 +793,6 @@ export class AssetGenerator {
     }
 
     // 3. Render Boardwalk Deck, Planks, and Curbs for each active water side
-    const curbBeamGeoX = this.getGeometry('boardwalk_curb_x_1_3', () => new THREE.BoxGeometry(2.0, 0.08, 0.06));
-    const curbBeamGeoZ = this.getGeometry('boardwalk_curb_z_1_3', () => new THREE.BoxGeometry(0.06, 0.08, 2.0));
-
     for (const side of activeSides) {
       let deckX = 0, deckZ = 0;
       
@@ -744,78 +804,165 @@ export class AssetGenerator {
         deckZ = 0;
       }
  
-      // Render 11 parallel planks on the deck (narrower: width 0.12, center spacing 2/11, keeping 0.06 gap, matching the pier)
-      // Plank length increased from 0.67 to 0.70 to extend fully and overhang the water by 0.03 units.
+      // Render 11 parallel planks on the deck
       if (side === 'N' || side === 'S') {
         const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.12, 0.04, 0.70));
         const spacing = 2.0 / 11;
         const start = -1.0 + spacing / 2;
         for (let i = 0; i < 11; i++) {
+          const x = start + i * spacing;
+          if (isInsideCorner) {
+            if (side === 'N') {
+              if (cornerType === 'NW' && x > -0.33) continue;
+              if (cornerType === 'NE' && x < 0.33) continue;
+            } else if (side === 'S') {
+              if (cornerType === 'SW' && x > -0.33) continue;
+              if (cornerType === 'SE' && x < 0.33) continue;
+            }
+          }
           const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-          plank.position.set(start + i * spacing, 0.06, deckZ);
+          plank.position.set(x, 0.06, deckZ);
           plank.receiveShadow = true;
           plank.castShadow = true;
           group.add(plank);
         }
       } else {
-        const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.70, 0.04, 0.12));
-        const spacing = 2.0 / 11;
-        const start = -1.0 + spacing / 2;
-        for (let i = 0; i < 11; i++) {
-          const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-          plank.position.set(deckX, 0.06, start + i * spacing);
-          plank.receiveShadow = true;
-          plank.castShadow = true;
-          group.add(plank);
+        // Skip E/W planks completely on inside corners to avoid rendering wood on land
+        if (!isInsideCorner) {
+          const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.70, 0.04, 0.12));
+          const spacing = 2.0 / 11;
+          const start = -1.0 + spacing / 2;
+          for (let i = 0; i < 11; i++) {
+            const z = start + i * spacing;
+            if (isCorner) {
+              if (side === 'W') {
+                if (cornerType === 'NW' && z < -0.33) continue;
+                if (cornerType === 'SW' && z > 0.33) continue;
+              } else if (side === 'E') {
+                if (cornerType === 'NE' && z < -0.33) continue;
+                if (cornerType === 'SE' && z > 0.33) continue;
+              }
+            }
+            const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
+            plank.position.set(deckX, 0.06, z);
+            plank.receiveShadow = true;
+            plank.castShadow = true;
+            group.add(plank);
+          }
         }
       }
  
       // Wooden Curb Wall (grass-side) and connecting structural beam (water-side)
+      let curbGeo!: THREE.BufferGeometry;
+      let curbPos = new THREE.Vector3(0, 0.04, 0);
+      let waterBeamGeo!: THREE.BufferGeometry;
+      let waterBeamPos = new THREE.Vector3(0, 0.04, 0);
+
       if (side === 'N') {
-        const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-        curb.position.set(0, 0.04, -0.33);
-        curb.castShadow = true;
-        group.add(curb);
- 
-        const waterBeam = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-        waterBeam.position.set(0, 0.04, -0.97);
-        waterBeam.castShadow = true;
-        group.add(waterBeam);
+        let length = 2.0;
+        let centerX = 0;
+        if (isInsideCorner) {
+          length = 0.67;
+          centerX = cornerType === 'NW' ? -0.665 : 0.665;
+        } else if (isOutsideCorner) {
+          if (cornerType === 'NW') { length = 1.30; centerX = 0.35; }
+          else if (cornerType === 'NE') { length = 1.30; centerX = -0.35; }
+        }
+        curbGeo = this.getGeometry(`boardwalk_curb_n_${length}`, () => new THREE.BoxGeometry(length, 0.08, 0.06));
+        curbPos.set(centerX, 0.04, -0.33);
+
+        let wLength = 2.0;
+        let wCenterX = 0;
+        if (isInsideCorner) {
+          if (cornerType === 'NW') { wLength = 0.67; wCenterX = -0.665; }
+          else if (cornerType === 'NE') { wLength = 0.67; wCenterX = 0.665; }
+        } else if (isOutsideCorner) {
+          wLength = 1.94;
+          wCenterX = cornerType === 'NW' ? 0.03 : -0.03;
+        }
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_n_${wLength}`, () => new THREE.BoxGeometry(wLength, 0.08, 0.06));
+        waterBeamPos.set(wCenterX, 0.04, -0.97);
       } else if (side === 'S') {
-        const curb = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-        curb.position.set(0, 0.04, 0.33);
-        curb.castShadow = true;
-        group.add(curb);
- 
-        const waterBeam = new THREE.Mesh(curbBeamGeoX, this.materials.trunk);
-        waterBeam.position.set(0, 0.04, 0.97);
-        waterBeam.castShadow = true;
-        group.add(waterBeam);
+        let length = 2.0;
+        let centerX = 0;
+        if (isInsideCorner) {
+          length = 0.67;
+          centerX = cornerType === 'SW' ? -0.665 : 0.665;
+        } else if (isOutsideCorner) {
+          if (cornerType === 'SW') { length = 1.30; centerX = 0.35; }
+          else if (cornerType === 'SE') { length = 1.30; centerX = -0.35; }
+        }
+        curbGeo = this.getGeometry(`boardwalk_curb_s_${length}`, () => new THREE.BoxGeometry(length, 0.08, 0.06));
+        curbPos.set(centerX, 0.04, 0.33);
+
+        let wLength = 2.0;
+        let wCenterX = 0;
+        if (isInsideCorner) {
+          if (cornerType === 'SW') { wLength = 0.67; wCenterX = -0.665; }
+          else if (cornerType === 'SE') { wLength = 0.67; wCenterX = 0.665; }
+        } else if (isOutsideCorner) {
+          wLength = 1.94;
+          wCenterX = cornerType === 'SW' ? 0.03 : -0.03;
+        }
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_s_${wLength}`, () => new THREE.BoxGeometry(wLength, 0.08, 0.06));
+        waterBeamPos.set(wCenterX, 0.04, 0.97);
       } else if (side === 'E') {
-        const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-        curb.position.set(0.33, 0.04, 0);
-        curb.castShadow = true;
-        group.add(curb);
- 
-        const waterBeam = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-        waterBeam.position.set(0.97, 0.04, 0);
-        waterBeam.castShadow = true;
-        group.add(waterBeam);
+        let length = 2.0;
+        let centerZ = 0;
+        if (isInsideCorner) {
+          length = 0.67;
+          centerZ = cornerType === 'NE' ? -0.665 : 0.665;
+        } else if (isOutsideCorner) {
+          if (cornerType === 'NE') { length = 1.33; centerZ = 0.335; }
+          else if (cornerType === 'SE') { length = 1.33; centerZ = -0.335; }
+        }
+        curbGeo = this.getGeometry(`boardwalk_curb_e_${length}`, () => new THREE.BoxGeometry(0.06, 0.08, length));
+        curbPos.set(0.33, 0.04, centerZ);
+
+        let wLength = 2.0;
+        let wCenterZ = 0;
+        if (isInsideCorner) {
+          if (cornerType === 'NE') { wLength = 0.67; wCenterZ = -0.665; }
+          else if (cornerType === 'SE') { wLength = 0.67; wCenterZ = 0.665; }
+        }
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_e_${wLength}`, () => new THREE.BoxGeometry(0.06, 0.08, wLength));
+        waterBeamPos.set(0.97, 0.04, wCenterZ);
       } else if (side === 'W') {
-        const curb = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-        curb.position.set(-0.33, 0.04, 0);
-        curb.castShadow = true;
-        group.add(curb);
- 
-        const waterBeam = new THREE.Mesh(curbBeamGeoZ, this.materials.trunk);
-        waterBeam.position.set(-0.97, 0.04, 0);
-        waterBeam.castShadow = true;
-        group.add(waterBeam);
+        let length = 2.0;
+        let centerZ = 0;
+        if (isInsideCorner) {
+          length = 0.67;
+          centerZ = cornerType === 'NW' ? -0.665 : 0.665;
+        } else if (isOutsideCorner) {
+          if (cornerType === 'NW') { length = 1.33; centerZ = 0.335; }
+          else if (cornerType === 'SW') { length = 1.33; centerZ = -0.335; }
+        }
+        curbGeo = this.getGeometry(`boardwalk_curb_w_${length}`, () => new THREE.BoxGeometry(0.06, 0.08, length));
+        curbPos.set(-0.33, 0.04, centerZ);
+
+        let wLength = 2.0;
+        let wCenterZ = 0;
+        if (isInsideCorner) {
+          if (cornerType === 'NW') { wLength = 0.67; wCenterZ = -0.665; }
+          else if (cornerType === 'SW') { wLength = 0.67; wCenterZ = 0.665; }
+        }
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_w_${wLength}`, () => new THREE.BoxGeometry(0.06, 0.08, wLength));
+        waterBeamPos.set(-0.97, 0.04, wCenterZ);
       }
+
+      const curb = new THREE.Mesh(curbGeo, this.materials.trunk);
+      curb.position.copy(curbPos);
+      curb.castShadow = true;
+      group.add(curb);
+
+      const waterBeam = new THREE.Mesh(waterBeamGeo, this.materials.trunk);
+      waterBeam.position.copy(waterBeamPos);
+      waterBeam.castShadow = true;
+      group.add(waterBeam);
     }
 
-    // 4. Spawn Random Elements on the grass portion (ONLY if not surrounded by 2 or more water tiles)
-    const isMultiWater = activeSides.length >= 2;
+    // 4. Spawn Random Elements on the grass portion (ONLY if it is an outside corner surrounded by water)
+    const isMultiWater = isOutsideCorner;
     if (!isMultiWater) {
       const elementRoll = rand();
       if (elementRoll < 0.25) {
@@ -907,13 +1054,21 @@ export class AssetGenerator {
     };
 
     // Filter active water directions that don't already contain a pier from another boardwalk
-    const availablePierDirs = activeSides.filter(side => {
+    const availablePierDirs = isInsideCorner ? [] : activeSides.filter(side => {
       let wx = tileX;
       let wy = tileY;
       if (side === 'N') wy -= 1;
       else if (side === 'S') wy += 1;
       else if (side === 'E') wx += 1;
       else if (side === 'W') wx -= 1;
+
+      // Safety check: ensure target tile is water or a bridge
+      if (this.sim) {
+        if (wx < 0 || wx >= this.sim.gridSize || wy < 0 || wy >= this.sim.gridSize) return false;
+        const targetTile = this.sim.grid[wx][wy];
+        if (targetTile.type !== 'water_body' && !targetTile.bridge) return false;
+      }
+
       return !isWaterTileOccupiedByAnotherPier(wx, wy, tileX, tileY);
     });
 
@@ -927,16 +1082,27 @@ export class AssetGenerator {
     }
 
     // 6. Waterfront Rope Railings (only on water boundary sides, skipping sides with a pier)
+    const placedPostPositions: { x: number, z: number }[] = [];
     const addRopeRailing = (xOffset: number, zOffset: number, rotY = 0) => {
       const postGeo = this.getGeometry('boardwalk_post_1_3', () => new THREE.CylinderGeometry(0.04, 0.04, 0.24, 6));
       const offsets = [-0.95, 0, 0.95];
       for (const off of offsets) {
-        const post = new THREE.Mesh(postGeo, this.materials.trunk);
+        let px = 0, pz = 0;
         if (rotY === 0) {
-          post.position.set(xOffset + off, 0.18, zOffset);
+          px = xOffset + off;
+          pz = zOffset;
         } else {
-          post.position.set(xOffset, 0.18, zOffset + off);
+          px = xOffset;
+          pz = zOffset + off;
         }
+
+        // Check if a post is already placed at or very close to (px, pz)
+        const duplicate = placedPostPositions.some(pos => Math.abs(pos.x - px) < 0.01 && Math.abs(pos.z - pz) < 0.01);
+        if (duplicate) continue;
+
+        placedPostPositions.push({ x: px, z: pz });
+        const post = new THREE.Mesh(postGeo, this.materials.trunk);
+        post.position.set(px, 0.18, pz);
         post.castShadow = true;
         group.add(post);
       }
@@ -949,12 +1115,14 @@ export class AssetGenerator {
       group.add(rope);
     };
 
-    for (const side of activeSides) {
-      if (side !== pierDir) {
-        if (side === 'N') addRopeRailing(0, -0.95, 0);
-        else if (side === 'S') addRopeRailing(0, 0.95, 0);
-        else if (side === 'E') addRopeRailing(0.95, 0, Math.PI / 2);
-        else if (side === 'W') addRopeRailing(-0.95, 0, Math.PI / 2);
+    if (!isInsideCorner) {
+      for (const side of activeSides) {
+        if (side !== pierDir) {
+          if (side === 'N') addRopeRailing(0, -0.95, 0);
+          else if (side === 'S') addRopeRailing(0, 0.95, 0);
+          else if (side === 'E') addRopeRailing(0.95, 0, Math.PI / 2);
+          else if (side === 'W') addRopeRailing(-0.95, 0, Math.PI / 2);
+        }
       }
     }
 
