@@ -19,7 +19,47 @@ export class SoundManager {
     [48, 52, 55, 59], // Cmaj7 (C3, E3, G3, B3)
   ];
 
-  constructor() {}
+  constructor() {
+    this.loadSettings();
+  }
+
+  loadSettings() {
+    try {
+      const musicSaved = localStorage.getItem('nabocity_music_enabled');
+      const sfxSaved = localStorage.getItem('nabocity_sfx_enabled');
+      
+      // Default both to true if not set
+      this.isMusicPlaying = musicSaved !== null ? musicSaved === 'true' : true;
+      this.isSfxEnabled = sfxSaved !== null ? sfxSaved === 'true' : true;
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+      this.isMusicPlaying = true;
+      this.isSfxEnabled = true;
+    }
+  }
+
+  saveSettings() {
+    try {
+      localStorage.setItem('nabocity_music_enabled', String(this.isMusicPlaying));
+      localStorage.setItem('nabocity_sfx_enabled', String(this.isSfxEnabled));
+    } catch (e) {
+      console.error('Failed to save settings:', e);
+    }
+  }
+
+  startMusicIfPreferred() {
+    if (this.isMusicPlaying) {
+      this.init();
+      if (this.ctx?.state === 'suspended') {
+        this.ctx.resume();
+      }
+      // Only start the chord sequencer loop if it's not already running
+      if (!this.sequencerTimer) {
+        this.playSequencer();
+      }
+    }
+    return this.isMusicPlaying;
+  }
 
   init() {
     if (this.ctx) return;
@@ -95,11 +135,13 @@ export class SoundManager {
     } else {
       this.stopSequencer();
     }
+    this.saveSettings();
     return this.isMusicPlaying;
   }
 
   toggleSfx() {
     this.isSfxEnabled = !this.isSfxEnabled;
+    this.saveSettings();
     return this.isSfxEnabled;
   }
 

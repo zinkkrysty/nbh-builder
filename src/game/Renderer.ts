@@ -521,6 +521,13 @@ export class Renderer {
     });
 
     window.addEventListener('mouseup', () => {
+      if (this.isDragging) {
+        // Snap desiredAngleY to the nearest Math.PI / 4 + k * Math.PI / 2 to maintain isometric views
+        const angleStep = Math.PI / 2;
+        const offset = Math.PI / 4;
+        const k = Math.round((this.desiredAngleY - offset) / angleStep);
+        this.desiredAngleY = offset + k * angleStep;
+      }
       this.isDragging = false;
     });
 
@@ -534,12 +541,16 @@ export class Renderer {
       this.desiredCameraZoom = Math.min(300, Math.max(5, this.desiredCameraZoom * Math.exp(-e.deltaY * sensitivity)));
     }, { passive: false });
 
-    // Keyboard Pan Listeners
+    // Keyboard Pan & Rotate Listeners
     window.addEventListener('keydown', (e) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
       const key = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright'].includes(key)) {
         this.keysPressed[key] = true;
+      } else if (key === 'q' && !e.repeat) {
+        this.desiredAngleY -= Math.PI / 2;
+      } else if (key === 'e' && !e.repeat) {
+        this.desiredAngleY += Math.PI / 2;
       }
     });
 

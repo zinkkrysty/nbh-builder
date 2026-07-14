@@ -44,6 +44,7 @@ export class Game {
 
     this.setupBindings();
     this.startLoops();
+    this.updateAudioButtonsUI();
 
     // Handle splash enter screen
     const spinner = document.getElementById('loader-spinner');
@@ -59,8 +60,8 @@ export class Game {
       enterBtn.addEventListener('click', () => {
         this.sounds.playClickSFX();
         
-        // Auto-play lofi music on user consent interaction
-        const playing = this.sounds.toggleMusic();
+        // Auto-play lofi music if preferred on user consent interaction
+        const playing = this.sounds.startMusicIfPreferred();
         document.getElementById('btn-music-toggle')?.classList.toggle('active', playing);
 
         if (loader) {
@@ -320,8 +321,7 @@ export class Game {
     const btnSfx = document.getElementById('btn-sfx-toggle');
     btnSfx?.addEventListener('click', () => {
       const enabled = this.sounds.toggleSfx();
-      btnSfx.classList.toggle('active', !enabled); // Active class visual toggle
-      if (enabled) btnSfx.classList.remove('inactive');
+      btnSfx.classList.toggle('active', enabled);
       this.sounds.playClickSFX();
     });
 
@@ -955,6 +955,17 @@ export class Game {
 
       this.sim.onNotification('Neighborhood reset. Start fresh!', 'info');
       this.sounds.playDemolishSFX();
+    }
+  }
+
+  updateAudioButtonsUI() {
+    const btnMusic = document.getElementById('btn-music-toggle');
+    if (btnMusic) {
+      btnMusic.classList.toggle('active', this.sounds.isMusicPlaying);
+    }
+    const btnSfx = document.getElementById('btn-sfx-toggle');
+    if (btnSfx) {
+      btnSfx.classList.toggle('active', this.sounds.isSfxEnabled);
     }
   }
 }
