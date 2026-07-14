@@ -185,6 +185,7 @@ export class Renderer {
     const groundGeo = this.assets.createGroundGeometry();
     const groundMat = this.assets.materials.grass;
     this.groundMesh = new THREE.InstancedMesh(groundGeo, groundMat, size * size);
+    this.groundMesh.castShadow = true;
     this.groundMesh.receiveShadow = true;
 
     const dummy = new THREE.Object3D();
@@ -195,7 +196,11 @@ export class Renderer {
         const xPos = (x - gridOffset) * 2;
         const zPos = (z - gridOffset) * 2;
 
-        dummy.position.set(xPos, 0, zPos);
+        const tile = this.sim ? this.sim.grid[x][z] : null;
+        const elevation = tile ? (tile.elevation || 0) : 0;
+        const yPos = elevation * 0.8;
+
+        dummy.position.set(xPos, yPos, zPos);
         dummy.updateMatrix();
         this.groundMesh.setMatrixAt(index++, dummy.matrix);
       }
@@ -338,7 +343,8 @@ export class Renderer {
           }
         }
       } else {
-        tempTree.position.set(tree.x, 0, tree.z);
+        const tileElevation = this.sim ? (this.sim.grid[tree.gridX][tree.gridZ].elevation || 0) : 0;
+        tempTree.position.set(tree.x, tileElevation * 0.8, tree.z);
         tempTree.rotation.set(0, tree.rotationY, 0);
         tempTree.scale.set(tree.scale, tree.scale, tree.scale);
         tempTree.updateMatrix();
@@ -403,7 +409,8 @@ export class Renderer {
           }
         }
       } else {
-        tempTree.position.set(tree.x, 0, tree.z);
+        const tileElevation = tile.elevation || 0;
+        tempTree.position.set(tree.x, tileElevation * 0.8, tree.z);
         tempTree.rotation.set(0, tree.rotationY, 0);
         tempTree.scale.set(tree.scale, tree.scale, tree.scale);
         tempTree.updateMatrix();
@@ -568,10 +575,41 @@ export class Renderer {
     return 0;
   }
 
+  isSlopedRoad(x: number, y: number): boolean {
+    if (!this.sim) return false;
+    const tile = this.sim.grid[x][y];
+    if (tile.type !== 'road' || tile.bridge) return false;
+
+    const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+    const S = y < this.sim.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
+    const E = x < this.sim.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+
+    const connectionCount = [N, S, E, W].filter(Boolean).length;
+    if (connectionCount === 2) {
+      const H_C = tile.elevation || 0;
+      if (N && S && !E && !W) {
+        const H_N = this.sim.grid[x][y - 1].elevation || 0;
+        const H_S = this.sim.grid[x][y + 1].elevation || 0;
+        const y_N = Math.max(H_C, H_N) * 0.8;
+        const y_S = Math.max(H_C, H_S) * 0.8;
+        if (y_N !== y_S) return true;
+      } else if (E && W && !N && !S) {
+        const H_E = this.sim.grid[x + 1][y].elevation || 0;
+        const H_W = this.sim.grid[x - 1][y].elevation || 0;
+        const y_E = Math.max(H_C, H_E) * 0.8;
+        const y_W = Math.max(H_C, H_W) * 0.8;
+        if (y_E !== y_W) return true;
+      }
+    }
+
+    return false;
+  }
+
   updateGroundInstance(x: number, y: number) {
     if (!this.sim) return;
     const tile = this.sim.grid[x][y];
-    const isWaterOrBridge = tile.type === 'water_body' || tile.bridge === true;
+    const isWaterOrBridge = tile.type === 'water_body' || tile.bridge === true || this.isSlopedRoad(x, y);
     
     const size = 50;
     const gridOffset = 25;
@@ -583,7 +621,8 @@ export class Renderer {
     } else {
       const xPos = (x - gridOffset) * 2;
       const zPos = (y - gridOffset) * 2;
-      dummy.position.set(xPos, 0, zPos);
+      const elevation = tile.elevation || 0;
+      dummy.position.set(xPos, elevation * 0.8, zPos);
     }
     dummy.updateMatrix();
     this.groundMesh.setMatrixAt(index, dummy.matrix);
@@ -599,9 +638,19 @@ export class Renderer {
     let index = 0;
     for (let x = 0; x < size; x++) {
       for (let z = 0; z < size; z++) {
+        const tile = this.sim ? this.sim.grid[x][z] : null;
+        const elevation = tile ? (tile.elevation || 0) : 0;
+        const yPos = elevation * 0.8;
+        const isWaterOrBridge = tile ? (tile.type === 'water_body' || tile.bridge === true || this.isSlopedRoad(x, z)) : false;
+
         const xPos = (x - gridOffset) * 2;
         const zPos = (z - gridOffset) * 2;
-        dummy.position.set(xPos, 0, zPos);
+        
+        if (isWaterOrBridge) {
+          dummy.position.set(0, -100, 0);
+        } else {
+          dummy.position.set(xPos, yPos, zPos);
+        }
         dummy.updateMatrix();
         this.groundMesh.setMatrixAt(index++, dummy.matrix);
       }
@@ -690,8 +739,10 @@ export class Renderer {
     }
 
     if (newMesh) {
+      const tileElevation = tile.elevation || 0;
+      const baseHeight = tileElevation * 0.8;
       const yOffset = tile.type === 'residential' ? -0.06 : 0;
-      newMesh.position.set(xPos, yOffset, zPos);
+      newMesh.position.set(xPos, baseHeight + yOffset, zPos);
       if (tile.type === 'residential' || tile.type === 'commercial' || tile.type === 'industrial') {
         newMesh.rotation.y = targetRotation;
       }
@@ -763,7 +814,37 @@ export class Renderer {
       W: x > 0 && (this.sim ? (this.sim.grid[x - 1][y].type === 'water_body' || this.sim.grid[x - 1][y].bridge === true) : false)
     };
     const roadMesh = this.assets.createRoadMesh(connections, isBridge, neighbors, x, y);
-    roadMesh.position.set(xPos, 0, zPos);
+    
+    let yPos = this.sim ? (this.sim.grid[x][y].elevation || 0) * 0.8 : 0;
+    if (this.sim) {
+      const H_C = this.sim.grid[x][y].elevation || 0;
+      const N_road = y > 0 && this.sim.grid[x][y - 1].type === 'road' && connections.N;
+      const S_road = y < this.sim.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road' && connections.S;
+      const E_road = x < this.sim.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road' && connections.E;
+      const W_road = x > 0 && this.sim.grid[x - 1][y].type === 'road' && connections.W;
+      const connectionCount = [N_road, S_road, E_road, W_road].filter(Boolean).length;
+      if (connectionCount === 2 && !isBridge) {
+        if (N_road && S_road) {
+          const H_N = this.sim.grid[x][y - 1].elevation || 0;
+          const H_S = this.sim.grid[x][y + 1].elevation || 0;
+          const y_N = Math.max(H_C, H_N) * 0.8;
+          const y_S = Math.max(H_C, H_S) * 0.8;
+          if (y_N !== y_S) {
+            yPos = (y_N + y_S) / 2;
+          }
+        } else if (E_road && W_road) {
+          const H_E = this.sim.grid[x + 1][y].elevation || 0;
+          const H_W = this.sim.grid[x - 1][y].elevation || 0;
+          const y_E = Math.max(H_C, H_E) * 0.8;
+          const y_W = Math.max(H_C, H_W) * 0.8;
+          if (y_E !== y_W) {
+            yPos = (y_E + y_W) / 2;
+          }
+        }
+      }
+    }
+
+    roadMesh.position.set(xPos, yPos, zPos);
     this.scene.add(roadMesh);
     this.buildingMeshes.set(key, roadMesh);
   }

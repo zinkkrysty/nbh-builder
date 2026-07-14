@@ -34,6 +34,7 @@ export class Game {
     
     const canvas = this.renderer.renderer.domElement;
     this.input = new InputManager(canvas, this.renderer.camera, this.renderer.scene);
+    this.input.sim = this.sim;
     this.sounds = new SoundManager();
     this.traffic = new TrafficManager(this.sim, this.renderer);
     this.renderer.traffic = this.traffic;
@@ -102,6 +103,66 @@ export class Game {
 
     // 2. Input Manager bindings
     this.input.onBuild = (x, y, tool) => {
+      if (tool === 'raise') {
+        const tile = this.sim.grid[x][y];
+        if (tile.type !== 'empty') {
+          this.sim.onNotification("Cannot raise land under structures! Bulldoze them first.", "warning");
+          this.sounds.playWarningSFX();
+          return;
+        }
+        const cost = 50;
+        if (this.sim.money < cost) {
+          this.sim.onNotification("Not enough money to sculpt land!", "danger");
+          this.sounds.playWarningSFX();
+          return;
+        }
+        const currentElev = tile.elevation || 0;
+        if (currentElev >= 4) {
+          this.sim.onNotification("Maximum terrain height reached!", "warning");
+          this.sounds.playWarningSFX();
+          return;
+        }
+        this.sim.money -= cost;
+        tile.elevation = currentElev + 1;
+        this.sounds.playBuildSFX();
+        this.renderer.updateGroundInstance(x, y);
+        this.renderer.triggerPlacementParticles(x, y);
+        this.rebuildRoadNetworkAround(x, y);
+        this.sim.onNotification(`Raised land at (${x}, ${y})`, 'success');
+        this.sim.onTileUpdate(tile);
+        return;
+      }
+
+      if (tool === 'lower') {
+        const tile = this.sim.grid[x][y];
+        if (tile.type !== 'empty') {
+          this.sim.onNotification("Cannot lower land under structures! Bulldoze them first.", "warning");
+          this.sounds.playWarningSFX();
+          return;
+        }
+        const cost = 50;
+        if (this.sim.money < cost) {
+          this.sim.onNotification("Not enough money to sculpt land!", "danger");
+          this.sounds.playWarningSFX();
+          return;
+        }
+        const currentElev = tile.elevation || 0;
+        if (currentElev <= 0) {
+          this.sim.onNotification("Minimum terrain height reached!", "warning");
+          this.sounds.playWarningSFX();
+          return;
+        }
+        this.sim.money -= cost;
+        tile.elevation = currentElev - 1;
+        this.sounds.playBuildSFX();
+        this.renderer.updateGroundInstance(x, y);
+        this.renderer.triggerPlacementParticles(x, y);
+        this.rebuildRoadNetworkAround(x, y);
+        this.sim.onNotification(`Lowered land at (${x}, ${y})`, 'success');
+        this.sim.onTileUpdate(tile);
+        return;
+      }
+
       if (tool === 'bulldoze') {
         const tile = this.sim.grid[x][y];
         if (tile.type !== 'empty') {
@@ -144,6 +205,9 @@ export class Game {
       const validCells = cells.filter(cell => {
         if (cell.x < 0 || cell.x >= this.sim.gridSize || cell.y < 0 || cell.y >= this.sim.gridSize) return false;
         const tile = this.sim.grid[cell.x][cell.y];
+        if (tool === 'water_body' || tool === 'boardwalk') {
+          if (tile.elevation !== 0) return false;
+        }
         return tile.type === 'empty' || (tool === 'road' && tile.type === 'water_body') || (tool === 'boardwalk' && tile.type === 'water_body');
       });
 
@@ -169,20 +233,38 @@ export class Game {
       const tool = this.input.activeTool;
       if (tool !== 'select' && tool !== 'bulldoze') {
         let isValid = true;
-        if (coordsList && coordsList.length > 0) {
+        if (tool === 'raise' || tool === 'lower') {
+          const tile = this.sim.grid[x][y];
+          const cost = 50;
+          const currentElev = tile.elevation || 0;
+          const heightValid = tool === 'raise' ? currentElev < 4 : currentElev > 0;
+          isValid = tile.type === 'empty' && this.sim.money >= cost && heightValid;
+        } else if (coordsList && coordsList.length > 0) {
           let emptyCount = 0;
           for (const cell of coordsList) {
             const tile = this.sim.grid[cell.x][cell.y];
+            if (tool === 'water_body' || tool === 'boardwalk') {
+              if (tile.elevation !== 0) {
+                isValid = false;
+                break;
+              }
+            }
             if (tile.type === 'empty') {
               emptyCount++;
             }
           }
-          const totalCost = emptyCount * this.sim.getBuildCost(tool);
-          isValid = this.sim.money >= totalCost;
+          if (isValid) {
+            const totalCost = emptyCount * this.sim.getBuildCost(tool);
+            isValid = this.sim.money >= totalCost;
+          }
         } else {
           const cost = this.sim.getBuildCost(tool);
           const tile = this.sim.grid[x][y];
-          isValid = (tile.type === 'empty' || (tool === 'road' && tile.type === 'water_body') || (tool === 'boardwalk' && tile.type === 'water_body')) && this.sim.money >= cost;
+          if (tool === 'water_body' || tool === 'boardwalk') {
+            isValid = tile.elevation === 0 && (tile.type === 'empty' || (tool === 'boardwalk' && tile.type === 'water_body')) && this.sim.money >= cost;
+          } else {
+            isValid = (tile.type === 'empty' || (tool === 'road' && tile.type === 'water_body')) && this.sim.money >= cost;
+          }
         }
         this.input.setPlacementValidity(isValid);
       }
@@ -194,7 +276,7 @@ export class Game {
     toolButtons.forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const target = e.currentTarget as HTMLElement;
-        const tool = target.getAttribute('data-tool') as TileType | 'select' | 'bulldoze';
+        const tool = target.getAttribute('data-tool') as TileType | 'select' | 'bulldoze' | 'raise' | 'lower';
         
         toolButtons.forEach(b => b.classList.remove('active'));
         target.classList.add('active');
@@ -289,6 +371,8 @@ export class Game {
         case '9': toolId = 'tool-boardwalk'; break;
         case '0': toolId = 'tool-water-body'; break;
         case 'b': toolId = 'tool-bulldoze'; break;
+        case '[': toolId = 'tool-raise'; break;
+        case ']': toolId = 'tool-lower'; break;
       }
       if (toolId) {
         const btn = document.getElementById(toolId);
@@ -798,12 +882,12 @@ export class Game {
       this.renderer.scene.remove(mesh);
     });
     this.renderer.buildingMeshes.clear();
-    this.renderer.resetGroundInstances();
 
     // 3. Load simulation state
     const success = this.sim.loadState(saveData);
 
     if (success) {
+      this.renderer.resetGroundInstances();
       this.renderer.rebuildTrees();
       // 4. Rebuild all roads and structures in the 3D scene
       for (let x = 0; x < this.sim.gridSize; x++) {

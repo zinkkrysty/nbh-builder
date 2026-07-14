@@ -1,13 +1,14 @@
 import * as THREE from 'three';
-import { TileType } from './Simulation';
+import { Simulation, TileType } from './Simulation';
 
 export class InputManager {
   rendererElement: HTMLCanvasElement;
   camera: THREE.OrthographicCamera;
   scene: THREE.Scene;
+  sim?: Simulation;
 
   // Selected tool state
-  activeTool: TileType | 'select' | 'bulldoze' = 'select';
+  activeTool: TileType | 'select' | 'bulldoze' | 'raise' | 'lower' = 'select';
 
   // Raycasting
   raycaster = new THREE.Raycaster();
@@ -28,7 +29,7 @@ export class InputManager {
   ghostMaterials: { [key: string]: THREE.Material } = {};
 
   // Event handlers
-  onBuild: (x: number, y: number, tool: TileType | 'bulldoze') => void = () => {};
+  onBuild: (x: number, y: number, tool: TileType | 'bulldoze' | 'raise' | 'lower') => void = () => {};
   onBuildLine: (cells: { x: number; y: number }[], tool: TileType) => void = () => {};
   onSelect: (x: number, y: number) => void = () => {};
   onHover: (x: number, y: number, coordsList?: { x: number; y: number }[]) => void = () => {};
@@ -57,7 +58,7 @@ export class InputManager {
     });
   }
 
-  setTool(tool: TileType | 'select' | 'bulldoze') {
+  setTool(tool: TileType | 'select' | 'bulldoze' | 'raise' | 'lower') {
     this.activeTool = tool;
     this.dragStartCell = null;
     this.updateGhostMesh();
@@ -115,6 +116,16 @@ export class InputManager {
       const mesh = new THREE.Mesh(geo, this.ghostMaterials.invalid);
       mesh.position.y = 0.4;
       group.add(mesh);
+    } else if (this.activeTool === 'raise') {
+      const geo = new THREE.BoxGeometry(2.0, 0.1, 2.0);
+      const mesh = new THREE.Mesh(geo, this.ghostMaterials.valid);
+      mesh.position.y = 0.05;
+      group.add(mesh);
+    } else if (this.activeTool === 'lower') {
+      const geo = new THREE.BoxGeometry(2.0, 0.1, 2.0);
+      const mesh = new THREE.Mesh(geo, this.ghostMaterials.invalid);
+      mesh.position.y = 0.05;
+      group.add(mesh);
     }
 
     this.ghostMesh = group;
@@ -135,20 +146,50 @@ export class InputManager {
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
-    // Raycast against the ground grid plane
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const target = new THREE.Vector3();
+    if (!this.sim) {
+      // Raycast against the ground grid plane if sim not loaded
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const target = new THREE.Vector3();
+      if (this.raycaster.ray.intersectPlane(plane, target)) {
+        const x = Math.floor((target.x + 1) / 2) + this.gridOffset;
+        const y = Math.floor((target.z + 1) / 2) + this.gridOffset;
+        if (x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize) {
+          return { x, y };
+        }
+      }
+      return null;
+    }
 
-    if (this.raycaster.ray.intersectPlane(plane, target)) {
-      // Grid cells are 2x2. Align coordinate division
-      const x = Math.floor((target.x + 1) / 2) + this.gridOffset;
-      const y = Math.floor((target.z + 1) / 2) + this.gridOffset;
+    // Mathematical ray-box intersection check against all tiles at their actual elevation
+    let closestTile = null;
+    let closestDist = Infinity;
+    const ray = this.raycaster.ray;
+    const box = new THREE.Box3();
+    const hitPoint = new THREE.Vector3();
 
-      if (x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize) {
-        return { x, y };
+    for (let x = 0; x < this.gridSize; x++) {
+      for (let y = 0; y < this.gridSize; y++) {
+        const tile = this.sim.grid[x][y];
+        const elev = tile.elevation || 0;
+        const xPos = (x - this.gridOffset) * 2;
+        const zPos = (y - this.gridOffset) * 2;
+        const topY = elev * 0.8;
+
+        // Top surface cap of the diorama column
+        box.min.set(xPos - 1.0, topY - 0.2, zPos - 1.0);
+        box.max.set(xPos + 1.0, topY + 0.2, zPos + 1.0);
+
+        if (ray.intersectBox(box, hitPoint)) {
+          const dist = ray.origin.distanceTo(hitPoint);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestTile = { x, y };
+          }
+        }
       }
     }
-    return null;
+
+    return closestTile;
   }
 
   getPathCoordinates(start: { x: number; y: number }, end: { x: number; y: number }): { x: number; y: number }[] {
@@ -190,7 +231,8 @@ export class InputManager {
       const mesh = new THREE.Mesh(geo, mat);
       const xPos = (cell.x - this.gridOffset) * 2;
       const zPos = (cell.y - this.gridOffset) * 2;
-      mesh.position.set(xPos, 0, zPos);
+      const elev = this.sim ? (this.sim.grid[cell.x][cell.y].elevation || 0) : 0;
+      mesh.position.set(xPos, elev * 0.8, zPos);
       group.add(mesh);
     }
 
@@ -215,7 +257,8 @@ export class InputManager {
           // If we are not dragging, ensure position snaps to single hovered cell
           const xPos = (coords.x - this.gridOffset) * 2;
           const zPos = (coords.y - this.gridOffset) * 2;
-          this.ghostMesh.position.set(xPos, 0, zPos);
+          const elev = this.sim ? (this.sim.grid[coords.x][coords.y].elevation || 0) : 0;
+          this.ghostMesh.position.set(xPos, elev * 0.8, zPos);
         }
 
         if (this.isBuildingDrag && this.activeTool !== 'select') {

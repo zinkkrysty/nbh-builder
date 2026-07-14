@@ -47,6 +47,15 @@ export class CitizenManager {
   gridSize = 50;
   gridOffset = 25;
 
+  // Reusable scratch vectors to avoid frame allocation overhead (GC)
+  tempStart3D = new THREE.Vector3();
+  tempTarget3D = new THREE.Vector3();
+  tempDir = new THREE.Vector3();
+  tempPerp = new THREE.Vector3();
+  tempRawOffset = new THREE.Vector3();
+  tempCurrentOffset = new THREE.Vector3();
+  tempPos = new THREE.Vector3();
+
   private firstNames = [
     'Bob', 'Alice', 'Charlie', 'Daisy', 'Ethan', 'Fiona', 'George', 'Hazel', 'Ian', 'Julia',
     'Kevin', 'Lily', 'Max', 'Nora', 'Oscar', 'Penelope', 'Quincy', 'Rose', 'Sam', 'Tina',
@@ -92,11 +101,54 @@ export class CitizenManager {
     return list;
   }
 
+  getRoadCenterHeight(x: number, y: number): number {
+    const tile = this.sim.grid[x][y];
+    const H_C = tile.elevation || 0;
+    if (tile.type !== 'road' || tile.bridge) return H_C * 0.8;
+
+    const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+    const S = y < this.sim.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
+    const E = x < this.sim.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+
+    const connectionCount = [N, S, E, W].filter(Boolean).length;
+    if (connectionCount === 2) {
+      if (N && S && !E && !W) {
+        const H_N = this.sim.grid[x][y - 1].elevation || 0;
+        const H_S = this.sim.grid[x][y + 1].elevation || 0;
+        const y_N = Math.max(H_C, H_N) * 0.8;
+        const y_S = Math.max(H_C, H_S) * 0.8;
+        if (y_N !== y_S) {
+          return (y_N + y_S) / 2;
+        }
+      } else if (E && W && !N && !S) {
+        const H_E = this.sim.grid[x + 1][y].elevation || 0;
+        const H_W = this.sim.grid[x - 1][y].elevation || 0;
+        const y_E = Math.max(H_C, H_E) * 0.8;
+        const y_W = Math.max(H_C, H_W) * 0.8;
+        if (y_E !== y_W) {
+          return (y_E + y_W) / 2;
+        }
+      }
+    }
+    return H_C * 0.8;
+  }
+
+  getTileBoundaryHeight(x1: number, y1: number, x2: number, y2: number): number {
+    const tile1 = this.sim.grid[x1][y1];
+    const tile2 = this.sim.grid[x2][y2];
+    if (tile1.bridge || tile2.bridge) return 0.08;
+    const H1 = tile1.elevation || 0;
+    const H2 = tile2.elevation || 0;
+    return Math.max(H1, H2) * 0.8;
+  }
+
   // Get 3D coordinate for a grid coordinate
   getTile3DPos(x: number, y: number): THREE.Vector3 {
+    const height = this.getRoadCenterHeight(x, y);
     return new THREE.Vector3(
       (x - this.gridOffset) * 2,
-      0,
+      height,
       (y - this.gridOffset) * 2
     );
   }
@@ -455,14 +507,35 @@ export class CitizenManager {
     // Advance path progress
     cim.progress += cim.speed * timeStep;
 
-    const start3D = this.getTile3DPos(cim.prevX, cim.prevY);
-    const target3D = this.getTile3DPos(cim.targetX, cim.targetY);
+    const startHeight = this.getRoadCenterHeight(cim.prevX, cim.prevY);
+    const targetHeight = this.getRoadCenterHeight(cim.targetX, cim.targetY);
+    const boundaryHeight = this.getTileBoundaryHeight(cim.prevX, cim.prevY, cim.targetX, cim.targetY);
+
+    let height = 0;
+    if (cim.progress < 0.5) {
+      const t = cim.progress * 2;
+      height = startHeight + (boundaryHeight - startHeight) * t;
+    } else {
+      const t = (cim.progress - 0.5) * 2;
+      height = boundaryHeight + (targetHeight - boundaryHeight) * t;
+    }
+
+    const start3D = this.tempStart3D.set(
+      (cim.prevX - this.gridOffset) * 2,
+      startHeight,
+      (cim.prevY - this.gridOffset) * 2
+    );
+    const target3D = this.tempTarget3D.set(
+      (cim.targetX - this.gridOffset) * 2,
+      targetHeight,
+      (cim.targetY - this.gridOffset) * 2
+    );
 
     // Direction vectors
-    const dir = new THREE.Vector3().subVectors(target3D, start3D).normalize();
+    const dir = this.tempDir.subVectors(target3D, start3D).normalize();
     
     // Perpendicular vector for offset
-    const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+    const perp = this.tempPerp.set(-dir.z, 0, dir.x);
 
     // Apply offset based on tile types
     const prevTile = this.sim.grid[cim.prevX][cim.prevY];
@@ -471,7 +544,7 @@ export class CitizenManager {
     let currentTileType = cim.progress < 0.5 ? prevTile.type : targetTile.type;
 
     // Calculate raw target offset
-    const rawOffset = new THREE.Vector3();
+    const rawOffset = this.tempRawOffset.set(0, 0, 0);
     if (currentTileType === 'road') {
       rawOffset.addScaledVector(perp, cim.sidewalkSide * 0.85);
     } else if (currentTileType === 'boardwalk') {
@@ -491,23 +564,26 @@ export class CitizenManager {
     }
 
     // Smoothly blend offsets to prevent sudden position jumps when changing directions
-    const currentOffset = new THREE.Vector3();
+    const currentOffset = this.tempCurrentOffset.copy(rawOffset);
     if (cim.progress < 0.25) {
       const t = cim.progress / 0.25;
       currentOffset.lerpVectors(cim.prevOffset3D, rawOffset, t);
     } else {
-      currentOffset.copy(rawOffset);
       cim.prevOffset3D.copy(rawOffset);
     }
 
     // Calculate final position
-    const pos = new THREE.Vector3().lerpVectors(start3D, target3D, cim.progress);
+    const pos = this.tempPos.set(
+      (cim.prevX - this.gridOffset) * 2 + ((cim.targetX - cim.prevX) * 2) * cim.progress,
+      height,
+      (cim.prevY - this.gridOffset) * 2 + ((cim.targetY - cim.prevY) * 2) * cim.progress
+    );
     pos.add(currentOffset);
 
     // Height offset based on tile type
-    if (currentTileType === 'road') pos.y = 0.04;
-    else if (currentTileType === 'boardwalk') pos.y = 0.08;
-    else if (currentTileType === 'park') pos.y = 0.03;
+    if (currentTileType === 'road') pos.y += 0.04;
+    else if (currentTileType === 'boardwalk') pos.y += 0.08;
+    else if (currentTileType === 'park') pos.y += 0.03;
 
     mesh.position.copy(pos);
 

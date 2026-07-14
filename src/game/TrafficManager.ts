@@ -61,11 +61,83 @@ export class TrafficManager {
     return list;
   }
 
+  getRoadCenterHeight(x: number, y: number): number {
+    const tile = this.sim.grid[x][y];
+    const H_C = tile.elevation || 0;
+    if (tile.type !== 'road' || tile.bridge) return H_C * 0.8;
+
+    const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+    const S = y < this.sim.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
+    const E = x < this.sim.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+
+    const connectionCount = [N, S, E, W].filter(Boolean).length;
+    if (connectionCount === 2) {
+      if (N && S && !E && !W) {
+        const H_N = this.sim.grid[x][y - 1].elevation || 0;
+        const H_S = this.sim.grid[x][y + 1].elevation || 0;
+        const y_N = Math.max(H_C, H_N) * 0.8;
+        const y_S = Math.max(H_C, H_S) * 0.8;
+        if (y_N !== y_S) {
+          return (y_N + y_S) / 2;
+        }
+      } else if (E && W && !N && !S) {
+        const H_E = this.sim.grid[x + 1][y].elevation || 0;
+        const H_W = this.sim.grid[x - 1][y].elevation || 0;
+        const y_E = Math.max(H_C, H_E) * 0.8;
+        const y_W = Math.max(H_C, H_W) * 0.8;
+        if (y_E !== y_W) {
+          return (y_E + y_W) / 2;
+        }
+      }
+    }
+    return H_C * 0.8;
+  }
+
+  getTileBoundaryHeight(x1: number, y1: number, x2: number, y2: number): number {
+    const tile1 = this.sim.grid[x1][y1];
+    const tile2 = this.sim.grid[x2][y2];
+    if (tile1.bridge || tile2.bridge) return 0.08;
+    const H1 = tile1.elevation || 0;
+    const H2 = tile2.elevation || 0;
+    return Math.max(H1, H2) * 0.8;
+  }
+
+  getRoadSlope(x: number, y: number): { x: number; z: number } {
+    const tile = this.sim.grid[x][y];
+    if (tile.type !== 'road' || tile.bridge) return { x: 0, z: 0 };
+    
+    const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+    const S = y < this.sim.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
+    const E = x < this.sim.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+    
+    const connectionCount = [N, S, E, W].filter(Boolean).length;
+    if (connectionCount === 2) {
+      const H_C = tile.elevation || 0;
+      if (N && S && !E && !W) {
+        const H_N = this.sim.grid[x][y - 1].elevation || 0;
+        const H_S = this.sim.grid[x][y + 1].elevation || 0;
+        const y_N = Math.max(H_C, H_N) * 0.8;
+        const y_S = Math.max(H_C, H_S) * 0.8;
+        return { x: 0, z: (y_S - y_N) / 2.0 };
+      } else if (E && W && !N && !S) {
+        const H_E = this.sim.grid[x + 1][y].elevation || 0;
+        const H_W = this.sim.grid[x - 1][y].elevation || 0;
+        const y_E = Math.max(H_C, H_E) * 0.8;
+        const y_W = Math.max(H_C, H_W) * 0.8;
+        return { x: (y_E - y_W) / 2.0, z: 0 };
+      }
+    }
+    return { x: 0, z: 0 };
+  }
+
   // Get 3D coordinate for a grid coordinate
   getTile3DPos(x: number, y: number): THREE.Vector3 {
+    const height = this.getRoadCenterHeight(x, y);
     return new THREE.Vector3(
       (x - this.gridOffset) * 2,
-      0,
+      height,
       (y - this.gridOffset) * 2
     );
   }
@@ -158,31 +230,56 @@ export class TrafficManager {
       car.progress += car.speed * timeStep;
 
       // 3D positioning
+      const startHeight = this.getRoadCenterHeight(car.currentX, car.currentY);
+      const targetHeight = this.getRoadCenterHeight(car.targetX, car.targetY);
+      const boundaryHeight = this.getTileBoundaryHeight(car.currentX, car.currentY, car.targetX, car.targetY);
+
+      let height = 0;
+      let currentSlope = { x: 0, z: 0 };
+      if (car.progress < 0.5) {
+        const t = car.progress * 2;
+        height = startHeight + (boundaryHeight - startHeight) * t;
+        currentSlope = this.getRoadSlope(car.currentX, car.currentY);
+      } else {
+        const t = (car.progress - 0.5) * 2;
+        height = boundaryHeight + (targetHeight - boundaryHeight) * t;
+        currentSlope = this.getRoadSlope(car.targetX, car.targetY);
+      }
+
+      const p = this.tempPos.set(
+        (car.currentX - this.gridOffset) * 2 + ((car.targetX - car.currentX) * 2) * car.progress,
+        height,
+        (car.currentY - this.gridOffset) * 2 + ((car.targetY - car.currentY) * 2) * car.progress
+      );
+
+      // Lane Offset: offset car to the right lane of direction of travel
       const start3D = this.tempStart3D.set(
         (car.currentX - this.gridOffset) * 2,
-        0,
+        startHeight,
         (car.currentY - this.gridOffset) * 2
       );
       const target3D = this.tempTarget3D.set(
         (car.targetX - this.gridOffset) * 2,
-        0,
+        targetHeight,
         (car.targetY - this.gridOffset) * 2
       );
-
-      // Lerp position
-      const p = this.tempPos.lerpVectors(start3D, target3D, car.progress);
-
-      // Lane Offset: offset car to the right lane of direction of travel
       const dir = this.tempDir.subVectors(target3D, start3D).normalize();
-      // Perpendicular vector pointing to the right
       const rightOffset = this.tempRightOffset.set(-dir.z, 0, dir.x).multiplyScalar(0.38); // 0.38m offset
       p.add(rightOffset);
 
       car.mesh.position.copy(p);
 
-      // Smooth Yaw Rotation to face target direction
-      const angle = Math.atan2(dir.x, dir.z);
-      car.mesh.rotation.y = angle;
+      // Smooth Yaw and Pitch Rotation based on direction and current tile slope
+      const dx = target3D.x - start3D.x;
+      const dz = target3D.z - start3D.z;
+      const lenXZ = Math.sqrt(dx * dx + dz * dz);
+      const dirXZ_x = lenXZ > 0.0001 ? dx / lenXZ : 0;
+      const dirXZ_z = lenXZ > 0.0001 ? dz / lenXZ : 0;
+
+      const angle = Math.atan2(dirXZ_x, dirXZ_z);
+      const pitch = Math.atan2(currentSlope.x * dirXZ_x + currentSlope.z * dirXZ_z, 1.0);
+      car.mesh.rotation.order = 'YXZ';
+      car.mesh.rotation.set(-pitch, angle, 0);
 
       // Transition to next road cell
       if (car.progress >= 1.0) {

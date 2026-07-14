@@ -18,6 +18,7 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 *   [x] **1.9: Post-Processing Bloom & Dynamic Shadow Tracking** — Integrated Three.js `EffectComposer` with `RenderPass` and `UnrealBloomPass` to create warm, cozy emissive glows on building windows and vehicle lights at night. Upgraded shadow mapping targeting to dynamically follow the camera target, maintaining sharp, non-clipped shadows across the visible viewport during camera panning. Evaluated ambient occlusion (SAO) and optimized for clean low-poly rendering, securing a stable 120 FPS runtime.
 *   [x] **1.10: Pedestrian Spawning, Sidewalk Paths & Citizen Profiling (Cims)** — Added Cozy Citizens (Cims) with randomized low-poly meshes, colors, and accessories. Programmed BFS-based pathfinding over walkable roads, boardwalks, and parks, complete with realistic edge-aligned sidewalk offsets, deck-offsets, organic park wiggle paths, smooth turn/transition offset interpolation, and leg-swing walking animations. Added occupant profiles inside the inspector panel and a preview model in the Developer Menu.
 *   [x] **1.11: Local Storage Fault Tolerance & Boot Safeguards** — Wrapped all `localStorage` access calls in try/catch bounds to protect the application from failing when storage access is restricted or disabled. Decoupled the background simulation loop from initial page asset loads, only starting simulation ticks once the user successfully interacts with the enter-splash trigger to enter the neighborhood.
+*   [x] **1.12: Topography & Hills (Cozy Alpine Landscape)** — Elevation engine supporting multi-level terrain sculpting (0 to 4 elevation levels), procedural multi-octave sine-cosine noise-seeded hills, and custom GPU vertex shader displacement forming crack-free low-poly faceted cliff sides. Added sloped road ramps with concrete abutment skirts, snapping selection to a custom ray-box intersection cap collider, and a universal max-boundary-height slope connection rule. Upgraded locomotion paths to support piecewise linear boundary-height tracking and exact 2D XZ-normalized pitch vector matching so vehicles and citizens tilt and glide along slopes with zero clipping or side-rolling. Optimized instanced box geometries to 84 triangles per column (69% reduction).
 
 ---
 
@@ -33,7 +34,6 @@ This roadmap outlines proposed future phases to expand NaboCity into a richer, m
 
 ### Phase 2: Environment & Geography
 *   **Forestry Management**: Wild trees gradually mature, grow, and drop leaf particles. Demolishing trees yields minor wood resources instead of land cost.
-*   **Topography & Hills**: Adding simple landscape elevation (flat hills and sloped road ramps) to create cozy alpine towns.
 
 ### Phase 3: Public Services, Utilities & Landmarks
 *   **Municipal Streetlighting**: Place cozy low-poly streetlights along roads that light up with warm point lights during the night cycle.

@@ -39,11 +39,50 @@ export class AssetGenerator {
 
   initMaterials() {
     // Ground / Grass
-    this.materials.grass = new THREE.MeshStandardMaterial({
-      color: 0x73c088,
+    const grassMat = new THREE.MeshStandardMaterial({
       roughness: 0.8,
       metalness: 0.1,
+      flatShading: true,
     });
+    grassMat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec3 vMyLocalNormal;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+           vMyLocalNormal = normal;
+           #ifdef USE_INSTANCING
+             vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
+           #else
+             vec4 worldPos = modelMatrix * vec4(position, 1.0);
+           #endif
+           float factor = smoothstep(-0.05, -0.2, position.y);
+           vec3 displace = vec3(
+             sin(worldPos.y * 3.0 + worldPos.z * 2.0) * cos(worldPos.x * 1.0) * 0.25,
+             0.0,
+             cos(worldPos.x * 3.0 + worldPos.y * 2.0) * sin(worldPos.z * 1.0) * 0.25
+           );
+           transformed.xyz += displace * factor;`
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec3 vMyLocalNormal;`
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+           vec3 customColor = (vMyLocalNormal.y > 0.5) ? vec3(0.45, 0.75, 0.53) : vec3(0.63, 0.51, 0.38);
+           diffuseColor = vec4(customColor, opacity);`
+        );
+    };
+    this.materials.grass = grassMat;
 
     this.materials.dirt = new THREE.MeshStandardMaterial({
       color: 0xa18262,
@@ -248,11 +287,12 @@ export class AssetGenerator {
 
   // 1. Terrain Grass Tile
   createGroundGeometry(): THREE.BufferGeometry {
-    // 2x2 tile size, slightly thick to show depth (low poly look)
+    // 2x2 tile size, tall box columns to act as cliffs without gaps
     return this.getGeometry('ground_geo', () => {
-      const geo = new THREE.BoxGeometry(2, 0.4, 2);
+      const boxHeight = 12.0;
+      const geo = new THREE.BoxGeometry(2, boxHeight, 2, 1, 10, 1);
       // Align top of box to y=0
-      geo.translate(0, -0.2, 0);
+      geo.translate(0, -boxHeight / 2, 0);
       return geo;
     });
   }
@@ -338,6 +378,87 @@ export class AssetGenerator {
   ): THREE.Group {
     const group = new THREE.Group();
 
+    // 1. Detect if this is a sloped straight road ramp
+    let isRamp = false;
+    let tiltX = 0;
+    let tiltZ = 0;
+    let scaleLen = 1.0;
+    let deltaY = 0;
+
+    const { N, S, E, W } = connections;
+    const count = [N, S, E, W].filter(Boolean).length;
+
+    if (!isBridge && this.sim && count === 2) {
+      const H_C = this.sim.grid[tileX][tileY].elevation || 0;
+      if (N && S && !E && !W) {
+        const H_N = this.sim.grid[tileX][tileY - 1].elevation || 0;
+        const H_S = this.sim.grid[tileX][tileY + 1].elevation || 0;
+        const y_N = Math.max(H_C, H_N) * 0.8;
+        const y_S = Math.max(H_C, H_S) * 0.8;
+        if (y_N !== y_S) {
+          isRamp = true;
+          deltaY = y_N - y_S;
+          tiltX = Math.atan2(deltaY, 2.0);
+          scaleLen = Math.sqrt(4.0 + deltaY * deltaY) / 2.0;
+        }
+      } else if (E && W && !N && !S) {
+        const H_E = this.sim.grid[tileX + 1][tileY].elevation || 0;
+        const H_W = this.sim.grid[tileX - 1][tileY].elevation || 0;
+        const y_E = Math.max(H_C, H_E) * 0.8;
+        const y_W = Math.max(H_C, H_W) * 0.8;
+        if (y_E !== y_W) {
+          isRamp = true;
+          deltaY = y_E - y_W;
+          tiltZ = Math.atan2(deltaY, 2.0);
+          scaleLen = Math.sqrt(4.0 + deltaY * deltaY) / 2.0;
+        }
+      }
+    }
+
+    if (isRamp) {
+      const deckLen = scaleLen * 2.0;
+      // Sloped road base
+      const baseGeo = new THREE.BoxGeometry(
+        tiltX !== 0 ? 2 : deckLen, 
+        0.04, 
+        tiltX !== 0 ? deckLen : 2
+      );
+      const base = new THREE.Mesh(baseGeo, this.materials.road);
+      base.receiveShadow = true;
+      group.add(base);
+
+      // Solid concrete abutment retaining wall
+      const skirtHeight = 1.6;
+      const skirtGeo = new THREE.BoxGeometry(
+        tiltX !== 0 ? 1.95 : deckLen, 
+        skirtHeight, 
+        tiltX !== 0 ? deckLen : 1.95
+      );
+      const skirt = new THREE.Mesh(skirtGeo, this.materials.cement);
+      skirt.position.y = -skirtHeight / 2;
+      skirt.receiveShadow = true;
+      skirt.castShadow = true;
+      group.add(skirt);
+
+      // Yellow centerline on top of ramp
+      const lineMat = this.materials.roadLine;
+      const lineY = 0.021;
+      const lineGeo = new THREE.PlaneGeometry(0.06, deckLen);
+      const line = new THREE.Mesh(lineGeo, lineMat);
+      line.rotation.x = -Math.PI / 2;
+      if (tiltZ !== 0) {
+        line.rotation.z = Math.PI / 2;
+      }
+      line.position.set(0, lineY, 0);
+      group.add(line);
+
+      // Apply tilt rotations
+      if (tiltX !== 0) group.rotation.x = tiltX;
+      if (tiltZ !== 0) group.rotation.z = tiltZ;
+
+      return group;
+    }
+
     if (isBridge) {
       // 1. Water underneath (continuous plane mesh)
       group.add(this.createWaterMesh(neighbors));
@@ -357,8 +478,7 @@ export class AssetGenerator {
       group.add(base);
     }
 
-    // Add yellow lines based on connectivity
-    const { N, S, E, W } = connections;
+
     const lineMat = this.materials.roadLine;
     const lineY = isBridge ? 0.081 : 0.021;
 
@@ -372,7 +492,7 @@ export class AssetGenerator {
       group.add(line);
     };
 
-    const count = [N, S, E, W].filter(Boolean).length;
+
 
     // Find crosswalks to be painted on this road tile
     const activeCrosswalksNS: number[] = []; // Z positions for EW crosswalks

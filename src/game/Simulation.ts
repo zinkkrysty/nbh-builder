@@ -23,6 +23,7 @@ export interface TileState {
   happiness: number;      // 0 to 100
   abandoned: boolean;
   bridge?: boolean;       // Indicates road is built over water
+  elevation: number;      // Height level (0 to 4)
 }
 
 export class Simulation {
@@ -65,6 +66,21 @@ export class Simulation {
     for (let x = 0; x < this.gridSize; x++) {
       this.grid[x] = [];
       for (let y = 0; y < this.gridSize; y++) {
+        // Seeded procedural rolling hills generator (multi-octave sine waves)
+        const nx = x / this.gridSize;
+        const ny = y / this.gridSize;
+        
+        // Sum 3 octaves of sine waves with seed offset
+        const s1 = Math.sin(nx * 2.5 * Math.PI + this.seed * 0.001) * Math.cos(ny * 2.5 * Math.PI - this.seed * 0.002);
+        const s2 = Math.sin(nx * 6.0 * Math.PI + this.seed * 0.003) * Math.cos(ny * 6.0 * Math.PI + this.seed * 0.001) * 0.45;
+        const s3 = Math.sin(nx * 12.0 * Math.PI) * Math.cos(ny * 12.0 * Math.PI) * 0.15;
+        
+        const total = s1 + s2 + s3;
+        
+        // Map total to elevation levels (0 to 3)
+        let elevation = Math.floor((total + 1.25) * 1.4);
+        elevation = Math.max(0, Math.min(3, elevation));
+
         this.grid[x][y] = {
           x,
           y,
@@ -77,6 +93,7 @@ export class Simulation {
           maxOccupancy: 0,
           happiness: 100,
           abandoned: false,
+          elevation,
         };
       }
     }
@@ -130,6 +147,12 @@ export class Simulation {
   build(x: number, y: number, type: TileType): boolean {
     if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
     const tile = this.grid[x][y];
+
+    // Water bodies and boardwalks can only be placed at sea level (elevation 0)
+    if ((type === 'water_body' || type === 'boardwalk') && tile.elevation !== 0) {
+      this.onNotification("Water and boardwalks can only be placed at sea level (elevation 0)!", "danger");
+      return false;
+    }
 
     // Cannot build on top of existing non-empty without demolishing first
     if (tile.type !== 'empty') {
@@ -236,9 +259,13 @@ export class Simulation {
       if (type === 'road') {
         return tile.type === 'empty' || tile.type === 'water_body';
       }
+      if (type === 'water_body') {
+        return tile.type === 'empty' && tile.elevation === 0;
+      }
       if (type === 'boardwalk') {
         const x = cell.x;
         const y = cell.y;
+        if (tile.elevation !== 0) return false;
         const hasWaterAccess = [
           y > 0 && (this.grid[x][y - 1].type === 'water_body' || this.grid[x][y - 1].bridge || this.grid[x][y - 1].type === 'boardwalk'),
           y < this.gridSize - 1 && (this.grid[x][y + 1].type === 'water_body' || this.grid[x][y + 1].bridge || this.grid[x][y + 1].type === 'boardwalk'),
@@ -733,6 +760,7 @@ export class Simulation {
         happiness: tile.happiness,
         abandoned: tile.abandoned,
         bridge: tile.bridge,
+        elevation: tile.elevation || 0,
       }))),
     };
     return JSON.stringify(state);
@@ -780,6 +808,7 @@ export class Simulation {
           tile.happiness = loadedTile.happiness;
           tile.abandoned = loadedTile.abandoned || false;
           tile.bridge = loadedTile.bridge || false;
+          tile.elevation = loadedTile.elevation !== undefined ? loadedTile.elevation : 0;
         }
       }
 
