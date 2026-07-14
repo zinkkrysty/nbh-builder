@@ -310,6 +310,33 @@ export class Game {
       });
     });
 
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Ignore shortcuts when typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        const isPaused = this.sim.speed === 0;
+        const newSpeed = isPaused ? 1 : 0;
+        this.sim.setSpeed(newSpeed);
+        speedButtons.forEach(c => document.getElementById(c.id)?.classList.remove('active'));
+        const activeId = newSpeed === 0 ? 'btn-speed-pause' : 'btn-speed-normal';
+        document.getElementById(activeId)?.classList.add('active');
+      }
+
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        // Cycle: 1 → 2 → 0 → 1 (skip 0 from 2, wrap through pause)
+        const cycle: { [key: number]: number } = { 0: 1, 1: 2, 2: 0 };
+        const newSpeed = cycle[this.sim.speed] ?? 1;
+        this.sim.setSpeed(newSpeed);
+        speedButtons.forEach(c => document.getElementById(c.id)?.classList.remove('active'));
+        const btnId = speedButtons.find(c => c.val === newSpeed)?.id;
+        if (btnId) document.getElementById(btnId)?.classList.add('active');
+      }
+    });
+
     // Sound toggle buttons
     const btnMusic = document.getElementById('btn-music-toggle');
     btnMusic?.addEventListener('click', () => {
