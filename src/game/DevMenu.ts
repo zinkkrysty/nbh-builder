@@ -314,6 +314,9 @@ export class DevMenu {
       case 'car':
         newMesh = this.assets.createCarMesh();
         break;
+      case 'citizen':
+        newMesh = this.assets.createCitizenMesh();
+        break;
       case 'road':
         const n = (document.getElementById('dev-road-n') as HTMLInputElement)?.checked || false;
         const s = (document.getElementById('dev-road-s') as HTMLInputElement)?.checked || false;

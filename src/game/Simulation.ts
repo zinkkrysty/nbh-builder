@@ -527,7 +527,7 @@ export class Simulation {
 
           if (baseGrowth > 0 && tile.level < 3) {
             if (tile.level === 0) {
-              effectiveGrowthRate = baseGrowth;
+              effectiveGrowthRate = baseGrowth * 2.5; // Make the initial building (lvl0 -> lvl1) faster
             } else if (tile.level === 1) {
               if (tile.happiness >= 80) {
                 const happinessScale = (tile.happiness - 80) / 20; // 0 to 1

@@ -5,6 +5,7 @@ import { AssetGenerator } from './AssetGenerator';
 import { SoundManager } from './SoundManager';
 import { TrafficManager } from './TrafficManager';
 import { DevMenu } from './DevMenu';
+import { CitizenManager } from './CitizenManager';
 
 export class Game {
   sim: Simulation;
@@ -13,6 +14,7 @@ export class Game {
   input: InputManager;
   sounds: SoundManager;
   traffic: TrafficManager;
+  citizens: CitizenManager;
   devMenu: DevMenu;
 
   // Loop references
@@ -35,6 +37,8 @@ export class Game {
     this.sounds = new SoundManager();
     this.traffic = new TrafficManager(this.sim, this.renderer);
     this.renderer.traffic = this.traffic;
+    this.citizens = new CitizenManager(this.sim, this.renderer);
+    this.renderer.citizens = this.citizens;
     this.devMenu = new DevMenu(this.assets);
 
     this.setupBindings();
@@ -99,6 +103,7 @@ export class Game {
             this.renderer.triggerPlacementParticles(x, y);
             if (wasRoad) {
               this.traffic.handleRoadDemolish(x, y);
+              this.citizens.handleRoadDemolish(x, y);
             }
             this.rebuildRoadNetworkAround(x, y);
           }
@@ -671,6 +676,29 @@ export class Game {
         ? `<span class="inspect-badge info">Zoned / Developing</span>`
         : `<span class="inspect-badge success">Grown (Lvl ${tile.level})</span>`;
 
+    let citizensHtml = '';
+    const occupants = this.citizens ? this.citizens.getCitizensAtTile(tile.x, tile.y) : [];
+    if (occupants.length > 0) {
+      citizensHtml = `
+        <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
+        <h3 style="font-size: 0.95rem; font-weight: 600; color: #94a3b8; margin: 0 0 0.5rem 0;">Occupants Profile</h3>
+        <div class="occupants-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding-right: 4px;">
+          ${occupants.map(c => `
+            <div class="occupant-card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; justify-content: space-between; font-weight: 500; font-size: 0.95rem; color: #f1f3f5;">
+                <span>${c.profile.firstName} ${c.profile.lastName}</span>
+                <span style="color: #60a5fa; font-size: 0.8rem;">Age ${c.profile.age}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #94a3b8;">
+                <span>Job: ${c.profile.job}</span>
+                <span style="color: ${c.profile.happiness >= 75 ? '#4ade80' : c.profile.happiness >= 50 ? '#f59e0b' : '#ef4444'};">😊 ${c.profile.happiness}%</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
     detailsContainer.innerHTML = `
       <div class="inspect-row">
         <span class="inspect-label">Status:</span>
@@ -689,6 +717,7 @@ export class Game {
         <span class="inspect-value">${tile.happiness}%</span>
       </div>
       ${utilitiesHtml}
+      ${citizensHtml}
     `;
   }
 
@@ -723,9 +752,12 @@ export class Game {
       return;
     }
 
-    // 1. Clear active traffic
+    // 1. Clear active traffic & citizens
     if (this.traffic) {
       this.traffic.clearAll();
+    }
+    if (this.citizens) {
+      this.citizens.clearAll();
     }
 
     // 2. Remove all old building meshes from scene
@@ -783,9 +815,12 @@ export class Game {
       this.sim.weeklyMaintenance = 0;
       this.sim.weeklyNetIncome = 0;
 
-      // Clear traffic
+      // Clear traffic & citizens
       if (this.traffic) {
         this.traffic.clearAll();
+      }
+      if (this.citizens) {
+        this.citizens.clearAll();
       }
 
       // Clear 3D building meshes

@@ -208,6 +208,14 @@ export class AssetGenerator {
     this.materials.carGreen = new THREE.MeshStandardMaterial({ color: 0x059669, roughness: 0.5 });
     this.materials.carOrange = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.5 });
     this.materials.carWhite = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 });
+
+    // Citizen Materials
+    this.materials.citizenSkinLight = new THREE.MeshStandardMaterial({ color: 0xfddcb4, roughness: 0.8 });
+    this.materials.citizenSkinDark = new THREE.MeshStandardMaterial({ color: 0x8d5b4c, roughness: 0.8 });
+    this.materials.citizenHairBrown = new THREE.MeshStandardMaterial({ color: 0x452a1e, roughness: 0.8 });
+    this.materials.citizenHairBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+    this.materials.citizenHairBlonde = new THREE.MeshStandardMaterial({ color: 0xf5dd90, roughness: 0.8 });
+    this.materials.citizenJeans = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 });
   }
 
   // Set emissive intensity of windows & headlights (0.0 for day, 1.2+ for night)
@@ -3488,6 +3496,80 @@ export class AssetGenerator {
     group.add(tailR);
 
     // Scale down to fit nicely in lanes
+    group.scale.set(0.9, 0.9, 0.9);
+
+    return group;
+  }
+
+  // 11. Procedural Low-Poly Citizen Mesh
+  createCitizenMesh(): THREE.Group {
+    const group = new THREE.Group();
+
+    // Randomize colors/styles
+    const skinMats = [this.materials.citizenSkinLight, this.materials.citizenSkinDark];
+    const skinMat = skinMats[Math.floor(Math.random() * skinMats.length)];
+
+    const hairMats = [this.materials.citizenHairBrown, this.materials.citizenHairBlack, this.materials.citizenHairBlonde];
+    const hairMat = hairMats[Math.floor(Math.random() * hairMats.length)];
+
+    const shirtMats = [
+      this.materials.carRed,
+      this.materials.carBlue,
+      this.materials.carYellow,
+      this.materials.carGreen,
+      this.materials.carOrange,
+      this.materials.carWhite
+    ];
+    const shirtMat = shirtMats[Math.floor(Math.random() * shirtMats.length)];
+    const pantsMat = this.materials.citizenJeans;
+
+    // Torso (sweater)
+    const torsoGeo = this.getGeometry('citizen_torso', () => new THREE.BoxGeometry(0.12, 0.18, 0.08));
+    const torso = new THREE.Mesh(torsoGeo, shirtMat);
+    torso.position.set(0, 0.18, 0);
+    torso.castShadow = true;
+    torso.receiveShadow = true;
+    group.add(torso);
+
+    // Left Leg
+    const legGeo = this.getGeometry('citizen_leg', () => new THREE.BoxGeometry(0.04, 0.12, 0.04));
+    const legL = new THREE.Mesh(legGeo, pantsMat);
+    legL.name = 'leg_left';
+    legL.position.set(-0.03, 0.06, 0);
+    legL.castShadow = true;
+    group.add(legL);
+
+    // Right Leg
+    const legR = new THREE.Mesh(legGeo, pantsMat);
+    legR.name = 'leg_right';
+    legR.position.set(0.03, 0.06, 0);
+    legR.castShadow = true;
+    group.add(legR);
+
+    // Head
+    const headGeo = this.getGeometry('citizen_head', () => new THREE.BoxGeometry(0.09, 0.09, 0.09));
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.position.set(0, 0.315, 0);
+    head.castShadow = true;
+    group.add(head);
+
+    // Hair / Hat
+    const hairGeo = this.getGeometry('citizen_hair', () => new THREE.BoxGeometry(0.1, 0.04, 0.1));
+    const hair = new THREE.Mesh(hairGeo, hairMat);
+    hair.position.set(0, 0.37, 0.01);
+    hair.castShadow = true;
+    group.add(hair);
+
+    // Backpack (randomly)
+    if (Math.random() > 0.6) {
+      const packGeo = this.getGeometry('citizen_backpack', () => new THREE.BoxGeometry(0.08, 0.12, 0.04));
+      const pack = new THREE.Mesh(packGeo, this.materials.trunk); // reuse wood trunk brown for leather backpack
+      pack.position.set(0, 0.18, -0.06);
+      pack.castShadow = true;
+      group.add(pack);
+    }
+
+    // Scale to fit scale of city nicely
     group.scale.set(0.9, 0.9, 0.9);
 
     return group;

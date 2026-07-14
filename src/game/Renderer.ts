@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { AssetGenerator } from './AssetGenerator';
 import { Simulation, TileState } from './Simulation';
 import { TrafficManager } from './TrafficManager';
+import { CitizenManager } from './CitizenManager';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 
@@ -45,6 +46,7 @@ export class Renderer {
   // Active Building Meshes
   buildingMeshes: Map<string, THREE.Object3D> = new Map();
   traffic!: TrafficManager;
+  citizens!: CitizenManager;
 
   // Particle System (Chimney Smoke)
   particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; maxLife: number }[] = [];
@@ -934,6 +936,11 @@ export class Renderer {
     // 4. Update procedural traffic
     if (this.traffic) {
       this.traffic.update(timeStep);
+    }
+
+    // 5. Update procedural citizens
+    if (this.citizens) {
+      this.citizens.update(timeStep);
     }
 
     // 5. Render composer passes
