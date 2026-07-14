@@ -741,7 +741,16 @@ export class Simulation {
   loadState(jsonString: string): boolean {
     try {
       const state = JSON.parse(jsonString);
-      if (!state || !state.grid) return false;
+      if (!state || !state.grid || !Array.isArray(state.grid)) return false;
+
+      // Validate grid dimensions and cell presence before mutating any simulation state
+      if (state.grid.length < this.gridSize) return false;
+      for (let x = 0; x < this.gridSize; x++) {
+        if (!state.grid[x] || !Array.isArray(state.grid[x]) || state.grid[x].length < this.gridSize) return false;
+        for (let y = 0; y < this.gridSize; y++) {
+          if (!state.grid[x][y]) return false;
+        }
+      }
 
       this.seed = state.seed !== undefined ? state.seed : Math.floor(Math.random() * 1000000);
       this.money = state.money;

@@ -67,12 +67,21 @@ export class Game {
         }
 
         // Try to auto-load saved game if exists
-        if (localStorage.getItem('nabocity_save') || localStorage.getItem('serene_valley_save')) {
+        let hasSave = false;
+        try {
+          hasSave = !!(localStorage.getItem('nabocity_save') || localStorage.getItem('serene_valley_save'));
+        } catch (e) {
+          console.error('Failed to access localStorage during boot:', e);
+        }
+
+        if (hasSave) {
           setTimeout(() => {
             this.loadGame();
+            this.startSimulationLoop();
           }, 400);
         } else {
           this.sim.onNotification('Welcome to NaboCity! Start by laying some roads and zoning Residential zones.', 'success');
+          this.startSimulationLoop();
         }
       });
     } else {
@@ -337,6 +346,10 @@ export class Game {
       this.processResidentialSmoke();
     };
     requestAnimationFrame(animateLoop);
+  }
+
+  startSimulationLoop() {
+    if (this.simTimer) return; // Prevent duplicate loops
 
     // 2. Simulation Tick (Ticks every 2 seconds)
     const runSimTick = () => {
@@ -730,22 +743,42 @@ export class Game {
   saveGame() {
     this.sounds.playClickSFX();
     const saveData = this.sim.saveState();
-    localStorage.setItem('nabocity_save', saveData);
-    this.sim.onNotification('Neighborhood saved successfully to Local Storage!', 'success');
+    try {
+      localStorage.setItem('nabocity_save', saveData);
+      this.sim.onNotification('Neighborhood saved successfully to Local Storage!', 'success');
+    } catch (e) {
+      console.error('Failed to save game to localStorage:', e);
+      this.sim.onNotification('Failed to save neighborhood: storage quota exceeded or disabled.', 'danger');
+      this.sounds.playWarningSFX();
+    }
   }
 
   autosaveGame() {
     const saveData = this.sim.saveState();
-    localStorage.setItem('nabocity_save', saveData);
-    this.sim.onNotification('Neighborhood autosaved successfully!', 'success');
+    try {
+      localStorage.setItem('nabocity_save', saveData);
+      this.sim.onNotification('Neighborhood autosaved successfully!', 'success');
+    } catch (e) {
+      console.error('Failed to autosave game to localStorage:', e);
+      this.sim.onNotification('Autosave failed: storage quota exceeded or disabled.', 'warning');
+    }
   }
 
   loadGame() {
     this.sounds.playClickSFX();
-    let saveData = localStorage.getItem('nabocity_save');
-    if (!saveData) {
-      saveData = localStorage.getItem('serene_valley_save');
+    let saveData: string | null = null;
+    try {
+      saveData = localStorage.getItem('nabocity_save');
+      if (!saveData) {
+        saveData = localStorage.getItem('serene_valley_save');
+      }
+    } catch (e) {
+      console.error('Failed to load game from localStorage:', e);
+      this.sim.onNotification('Failed to load neighborhood: storage access disabled.', 'danger');
+      this.sounds.playWarningSFX();
+      return;
     }
+
     if (!saveData) {
       this.sim.onNotification('No saved neighborhood data found in this browser!', 'warning');
       this.sounds.playWarningSFX();
