@@ -90,15 +90,7 @@ export class CitizenManager {
 
   // Get all tiles of a certain type
   getZonedTiles(type: TileType): TileState[] {
-    const list: TileState[] = [];
-    for (let x = 0; x < this.gridSize; x++) {
-      for (let y = 0; y < this.gridSize; y++) {
-        if (this.sim.grid[x][y].type === type && this.sim.grid[x][y].level > 0) {
-          list.push(this.sim.grid[x][y]);
-        }
-      }
-    }
-    return list;
+    return (this.sim.tileCaches[type] || []).filter(tile => tile.level > 0);
   }
 
   getRoadCenterHeight(x: number, y: number): number {

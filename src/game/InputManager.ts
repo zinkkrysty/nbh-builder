@@ -160,15 +160,40 @@ export class InputManager {
       return null;
     }
 
-    // Mathematical ray-box intersection check against all tiles at their actual elevation
+    // Mathematical ray-box intersection check against only the tiles within the ray's height span projection
     let closestTile = null;
     let closestDist = Infinity;
     const ray = this.raycaster.ray;
     const box = new THREE.Box3();
     const hitPoint = new THREE.Vector3();
 
-    for (let x = 0; x < this.gridSize; x++) {
-      for (let y = 0; y < this.gridSize; y++) {
+    // Narrow down search range using ray intersection with the min and max height planes of the diorama tiles
+    let startX = 0;
+    let endX = this.gridSize - 1;
+    let startY = 0;
+    let endY = this.gridSize - 1;
+
+    const planeMin = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.2); // Represents plane Y = -0.2
+    const planeMax = new THREE.Plane(new THREE.Vector3(0, 1, 0), -3.4); // Represents plane Y = 3.4
+    const pMin = new THREE.Vector3();
+    const pMax = new THREE.Vector3();
+
+    if (ray.intersectPlane(planeMin, pMin) && ray.intersectPlane(planeMax, pMax)) {
+      const minX = Math.min(pMin.x, pMax.x);
+      const maxX = Math.max(pMin.x, pMax.x);
+      const minZ = Math.min(pMin.z, pMax.z);
+      const maxZ = Math.max(pMin.z, pMax.z);
+
+      // Add a margin of 1.2 to account for the box radius (1.0) and float inaccuracies
+      const margin = 1.2;
+      startX = Math.max(0, Math.floor((minX - margin) / 2) + this.gridOffset);
+      endX = Math.min(this.gridSize - 1, Math.floor((maxX + margin) / 2) + this.gridOffset);
+      startY = Math.max(0, Math.floor((minZ - margin) / 2) + this.gridOffset);
+      endY = Math.min(this.gridSize - 1, Math.floor((maxZ + margin) / 2) + this.gridOffset);
+    }
+
+    for (let x = startX; x <= endX; x++) {
+      for (let y = startY; y <= endY; y++) {
         const tile = this.sim.grid[x][y];
         const elev = tile.elevation || 0;
         const xPos = (x - this.gridOffset) * 2;

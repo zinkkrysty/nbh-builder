@@ -458,27 +458,25 @@ export class Game {
   processIndustrialSmoke() {
     if (this.sim.speed === 0) return;
 
-    for (let x = 0; x < this.sim.gridSize; x++) {
-      for (let y = 0; y < this.sim.gridSize; y++) {
-        const tile = this.sim.grid[x][y];
-        if (tile.type === 'industrial' && tile.level > 0 && !tile.abandoned && tile.powered && tile.watered) {
-          // Random probability per frame to puff smoke
-          if (Math.random() > 0.98) {
-            const gridOffset = 25;
-            const xPos = (tile.x - gridOffset) * 2;
-            const zPos = (tile.y - gridOffset) * 2;
+    const industrialTiles = this.sim.tileCaches['industrial'] || [];
+    for (const tile of industrialTiles) {
+      if (tile.level > 0 && !tile.abandoned && tile.powered && tile.watered) {
+        // Random probability per frame to puff smoke
+        if (Math.random() > 0.98) {
+          const gridOffset = 25;
+          const xPos = (tile.x - gridOffset) * 2;
+          const zPos = (tile.y - gridOffset) * 2;
 
-            if (tile.level === 1) {
-              // Single exhaust pipe
-              this.renderer.emitChimneySmoke(xPos + 0.4, 1.1, zPos + 0.3);
-            } else if (tile.level === 2) {
-              // Chimney
-              this.renderer.emitChimneySmoke(xPos - 0.4, 1.7, zPos - 0.4);
-            } else {
-              // Level 3 double chimney
-              this.renderer.emitChimneySmoke(xPos - 0.4, 2.2, zPos - 0.4);
-              this.renderer.emitChimneySmoke(xPos - 0.1, 2.2, zPos - 0.4);
-            }
+          if (tile.level === 1) {
+            // Single exhaust pipe
+            this.renderer.emitChimneySmoke(xPos + 0.4, 1.1, zPos + 0.3);
+          } else if (tile.level === 2) {
+            // Chimney
+            this.renderer.emitChimneySmoke(xPos - 0.4, 1.7, zPos - 0.4);
+          } else {
+            // Level 3 double chimney
+            this.renderer.emitChimneySmoke(xPos - 0.4, 2.2, zPos - 0.4);
+            this.renderer.emitChimneySmoke(xPos - 0.1, 2.2, zPos - 0.4);
           }
         }
       }
@@ -489,27 +487,25 @@ export class Game {
   processResidentialSmoke() {
     if (this.sim.speed === 0) return;
 
-    for (let x = 0; x < this.sim.gridSize; x++) {
-      for (let y = 0; y < this.sim.gridSize; y++) {
-        const tile = this.sim.grid[x][y];
-        if (tile.type === 'residential' && tile.level > 0 && !tile.abandoned && tile.powered && tile.watered) {
-          // Residential chimney smoke (less frequent than factories to look calmer)
-          if (Math.random() > 0.992) {
-            const gridOffset = 25;
-            const xPos = (tile.x - gridOffset) * 2;
-            const zPos = (tile.y - gridOffset) * 2;
+    const residentialTiles = this.sim.tileCaches['residential'] || [];
+    for (const tile of residentialTiles) {
+      if (tile.level > 0 && !tile.abandoned && tile.powered && tile.watered) {
+        // Residential chimney smoke (less frequent than factories to look calmer)
+        if (Math.random() > 0.992) {
+          const gridOffset = 25;
+          const xPos = (tile.x - gridOffset) * 2;
+          const zPos = (tile.y - gridOffset) * 2;
 
-            const chimneyOffsets = this.renderer.assets.getResidentialChimneyPos(tile.level, tile.x, tile.y);
-            const targetRotation = this.renderer.calculateTileRotation(tile);
-            const cos = Math.cos(targetRotation);
-            const sin = Math.sin(targetRotation);
+          const chimneyOffsets = this.renderer.assets.getResidentialChimneyPos(tile.level, tile.x, tile.y);
+          const targetRotation = this.renderer.calculateTileRotation(tile);
+          const cos = Math.cos(targetRotation);
+          const sin = Math.sin(targetRotation);
 
-            for (const offset of chimneyOffsets) {
-              const rx = offset.x * cos - offset.z * sin;
-              const rz = offset.x * sin + offset.z * cos;
-              const ry = offset.y - 0.06;
-              this.renderer.emitChimneySmoke(xPos + rx, ry, zPos + rz);
-            }
+          for (const offset of chimneyOffsets) {
+            const rx = offset.x * cos - offset.z * sin;
+            const rz = offset.x * sin + offset.z * cos;
+            const ry = offset.y - 0.06;
+            this.renderer.emitChimneySmoke(xPos + rx, ry, zPos + rz);
           }
         }
       }
@@ -878,10 +874,7 @@ export class Game {
     }
 
     // 2. Remove all old building meshes from scene
-    this.renderer.buildingMeshes.forEach((mesh) => {
-      this.renderer.scene.remove(mesh);
-    });
-    this.renderer.buildingMeshes.clear();
+    this.renderer.clearAllBuildings();
 
     // 3. Load simulation state
     const success = this.sim.loadState(saveData);
@@ -941,10 +934,7 @@ export class Game {
       }
 
       // Clear 3D building meshes
-      this.renderer.buildingMeshes.forEach((mesh) => {
-        this.renderer.scene.remove(mesh);
-      });
-      this.renderer.buildingMeshes.clear();
+      this.renderer.clearAllBuildings();
       this.renderer.resetGroundInstances();
       this.renderer.rebuildTrees();
 

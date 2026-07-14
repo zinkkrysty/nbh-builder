@@ -45,8 +45,17 @@ export class Renderer {
 
   // Active Building Meshes
   buildingMeshes: Map<string, THREE.Object3D> = new Map();
+  turbineRotors: Map<string, THREE.Object3D> = new Map();
   traffic!: TrafficManager;
   citizens!: CitizenManager;
+
+  clearAllBuildings() {
+    this.buildingMeshes.forEach((mesh) => {
+      this.scene.remove(mesh);
+    });
+    this.buildingMeshes.clear();
+    this.turbineRotors.clear();
+  }
 
   // Particle System (Chimney Smoke)
   particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; maxLife: number }[] = [];
@@ -690,6 +699,7 @@ export class Renderer {
 
       this.scene.remove(oldMesh);
       this.buildingMeshes.delete(key);
+      this.turbineRotors.delete(key);
     }
 
     this.updateGroundInstance(tile.x, tile.y);
@@ -778,6 +788,10 @@ export class Renderer {
 
       this.scene.add(newMesh);
       this.buildingMeshes.set(key, newMesh);
+      const rotor = newMesh.getObjectByName('turbine_rotor');
+      if (rotor) {
+        this.turbineRotors.set(key, rotor);
+      }
     }
   }
 
@@ -809,6 +823,7 @@ export class Renderer {
     if (oldMesh) {
       this.scene.remove(oldMesh);
       this.buildingMeshes.delete(key);
+      this.turbineRotors.delete(key);
     }
 
     this.updateGroundInstance(x, y);
@@ -1009,11 +1024,8 @@ export class Renderer {
     }
 
     // 2. Animate rotating elements (wind turbine blades)
-    this.buildingMeshes.forEach((mesh) => {
-      const rotor = mesh.getObjectByName('turbine_rotor');
-      if (rotor) {
-        rotor.rotation.z += 2.0 * timeStep;
-      }
+    this.turbineRotors.forEach((rotor) => {
+      rotor.rotation.z += 2.0 * timeStep;
     });
 
     // Animate water waves (uTime uniform update)

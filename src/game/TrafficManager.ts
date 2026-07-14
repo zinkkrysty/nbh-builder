@@ -50,15 +50,7 @@ export class TrafficManager {
   }
 
   getRoadTiles(): TileState[] {
-    const list: TileState[] = [];
-    for (let x = 0; x < this.gridSize; x++) {
-      for (let y = 0; y < this.gridSize; y++) {
-        if (this.sim.grid[x][y].type === 'road') {
-          list.push(this.sim.grid[x][y]);
-        }
-      }
-    }
-    return list;
+    return this.sim.tileCaches['road'] || [];
   }
 
   getRoadCenterHeight(x: number, y: number): number {

@@ -55,6 +55,32 @@ export class Simulation {
   onNotification: (msg: string, type: 'success' | 'info' | 'warning' | 'danger') => void = () => {};
   onTileUpdate: (tile: TileState) => void = () => {};
 
+  tileCaches: { [key in TileType]?: TileState[] } = {};
+
+  rebuildTileTypeCaches() {
+    const newCaches: { [key in TileType]?: TileState[] } = {
+      empty: [],
+      road: [],
+      residential: [],
+      commercial: [],
+      industrial: [],
+      power: [],
+      water: [],
+      park: [],
+      water_body: [],
+      boardwalk: []
+    };
+    for (let x = 0; x < this.gridSize; x++) {
+      for (let y = 0; y < this.gridSize; y++) {
+        const tile = this.grid[x][y];
+        if (newCaches[tile.type]) {
+          newCaches[tile.type]!.push(tile);
+        }
+      }
+    }
+    this.tileCaches = newCaches;
+  }
+
   constructor() {
     this.seed = Math.floor(Math.random() * 1000000);
     this.grid = [];
@@ -97,6 +123,7 @@ export class Simulation {
         };
       }
     }
+    this.rebuildTileTypeCaches();
   }
 
   setSpeed(s: number) {
@@ -367,6 +394,7 @@ export class Simulation {
 
   // Update utilities propagation along the 100x100 grid
   updateUtilities() {
+    this.rebuildTileTypeCaches();
     // Store previous utility states before resetting
     const prevStates = this.grid.map(row => row.map(tile => ({
       powered: tile.powered,
