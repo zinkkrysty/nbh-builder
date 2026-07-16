@@ -1142,6 +1142,26 @@ export class Renderer {
     this.updateCameraPosition();
   }
 
+  refreshSceneMaterials() {
+    const map = this.assets.getMaterialTransitionMap();
+    this.scene.traverse((node) => {
+      if (node instanceof THREE.Mesh || node instanceof THREE.InstancedMesh) {
+        if (node.material) {
+          if (Array.isArray(node.material)) {
+            node.material = node.material.map(m => map.get(m) || m);
+          } else {
+            node.material = map.get(node.material) || node.material;
+          }
+        }
+      }
+    });
+
+    if (this.groundMesh) this.groundMesh.instanceMatrix.needsUpdate = true;
+    if (this.trunkMesh) this.trunkMesh.instanceMatrix.needsUpdate = true;
+    if (this.greenLeavesMesh) this.greenLeavesMesh.instanceMatrix.needsUpdate = true;
+    if (this.blossomLeavesMesh) this.blossomLeavesMesh.instanceMatrix.needsUpdate = true;
+  }
+
   onWindowResize() {
     const aspect = this.container.clientWidth / this.container.clientHeight;
     const frustumSize = 1000 / this.cameraZoom;

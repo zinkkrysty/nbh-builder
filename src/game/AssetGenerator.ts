@@ -9,21 +9,54 @@ export class AssetGenerator {
   geometries: { [key: string]: THREE.BufferGeometry } = {};
   isNightMode: boolean = false;
 
+  useCelShading: boolean = false;
+  toonGradient!: THREE.Texture;
+  gradientCanvas!: HTMLCanvasElement;
+  standardMaterials: { [key: string]: THREE.Material } = {};
+  toonMaterials: { [key: string]: THREE.Material } = {};
+  standardPalettes: {
+    wall: THREE.Material;
+    roof: THREE.Material;
+    trim: THREE.Material;
+    brick: THREE.Material;
+  }[] = [];
+  toonPalettes: {
+    wall: THREE.Material;
+    roof: THREE.Material;
+    trim: THREE.Material;
+    brick: THREE.Material;
+  }[] = [];
+  standardCommercialPalettes: {
+    wall: THREE.Material;
+    roof: THREE.Material;
+    trim: THREE.Material;
+    accent: THREE.Material;
+    brick: THREE.Material;
+  }[] = [];
+  toonCommercialPalettes: {
+    wall: THREE.Material;
+    roof: THREE.Material;
+    trim: THREE.Material;
+    accent: THREE.Material;
+    brick: THREE.Material;
+  }[] = [];
+  materialTransitionMap: Map<THREE.Material, THREE.Material> = new Map();
+
   // Curated cozy color palettes for procedural residential blocks
   palettes: {
-    wall: THREE.MeshStandardMaterial;
-    roof: THREE.MeshStandardMaterial;
-    trim: THREE.MeshStandardMaterial;
-    brick: THREE.MeshStandardMaterial;
+    wall: THREE.Material;
+    roof: THREE.Material;
+    trim: THREE.Material;
+    brick: THREE.Material;
   }[] = [];
 
   // Curated color palettes for procedural commercial buildings
   commercialPalettes: {
-    wall: THREE.MeshStandardMaterial;
-    roof: THREE.MeshStandardMaterial;
-    trim: THREE.MeshStandardMaterial;
-    accent: THREE.MeshStandardMaterial;
-    brick: THREE.MeshStandardMaterial;
+    wall: THREE.Material;
+    roof: THREE.Material;
+    trim: THREE.Material;
+    accent: THREE.Material;
+    brick: THREE.Material;
   }[] = [];
 
   constructor() {
@@ -37,14 +70,75 @@ export class AssetGenerator {
     return this.geometries[key];
   }
 
+  createToonGradientTexture(steps: number = 10): THREE.Texture {
+    const canvas = document.createElement('canvas');
+    canvas.width = steps;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const values = [5, 5, 5, 30, 30, 80, 80, 130, 190, 255]; // 10-step high-contrast default light bands
+      for (let i = 0; i < steps; i++) {
+        const v = values[i] !== undefined ? values[i] : Math.floor((i / (steps - 1)) * 255);
+        ctx.fillStyle = `rgb(${v}, ${v}, ${v})`;
+        ctx.fillRect(i, 0, 1, 1);
+      }
+    }
+    this.gradientCanvas = canvas;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.NearestFilter;
+    texture.magFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    return texture;
+  }
+
+  updateToonGradient(values: number[]) {
+    const canvas = this.gradientCanvas;
+    if (!canvas) {
+      console.warn("Cel Shading updateToonGradient: gradientCanvas is null!");
+      return;
+    }
+    const steps = values.length;
+    canvas.width = steps;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      for (let i = 0; i < steps; i++) {
+        const v = values[i];
+        ctx.fillStyle = `rgb(${v}, ${v}, ${v})`;
+        ctx.fillRect(i, 0, 1, 1);
+      }
+    }
+    
+    console.log("Cel Shading updateToonGradient called with values:", values, "Canvas size:", canvas.width, "x", canvas.height);
+    
+    // Force Three.js to destroy WebGL texture and re-upload from scratch to guarantee real-time updates
+    this.toonGradient.dispose();
+    this.toonGradient.needsUpdate = true;
+  }
+
   initMaterials() {
+    this.toonGradient = this.createToonGradientTexture(10);
+
+    this.standardMaterials = {};
+    this.toonMaterials = {};
+    this.materialTransitionMap = new Map();
+
+    const registerMat = (key: string, creator: (type: 'standard' | 'toon') => THREE.Material) => {
+      const std = creator('standard');
+      const toon = creator('toon');
+      this.standardMaterials[key] = std;
+      this.toonMaterials[key] = toon;
+      this.materialTransitionMap.set(std, toon);
+      this.materialTransitionMap.set(toon, std);
+    };
+
+    const registerBasicMat = (key: string, mat: THREE.Material) => {
+      this.standardMaterials[key] = mat;
+      this.toonMaterials[key] = mat;
+    };
+
     // Ground / Grass
-    const grassMat = new THREE.MeshStandardMaterial({
-      roughness: 0.8,
-      metalness: 0.1,
-      flatShading: true,
-    });
-    grassMat.onBeforeCompile = (shader) => {
+    const applyGrassOnBeforeCompile = (shader: any) => {
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
@@ -82,28 +176,63 @@ export class AssetGenerator {
            diffuseColor = vec4(customColor, opacity);`
         );
     };
-    this.materials.grass = grassMat;
 
-    this.materials.dirt = new THREE.MeshStandardMaterial({
-      color: 0xa18262,
-      roughness: 0.9,
+    registerMat('grass', (type) => {
+      if (type === 'standard') {
+        const mat = new THREE.MeshStandardMaterial({
+          roughness: 0.8,
+          metalness: 0.1,
+          flatShading: true,
+        });
+        mat.onBeforeCompile = applyGrassOnBeforeCompile;
+        return mat;
+      } else {
+        const mat = new THREE.MeshToonMaterial({
+          gradientMap: this.toonGradient,
+        });
+        (mat as any).flatShading = true;
+        mat.onBeforeCompile = applyGrassOnBeforeCompile;
+        return mat;
+      }
+    });
+
+    registerMat('dirt', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({ color: 0xa18262, roughness: 0.9 });
+      } else {
+        return new THREE.MeshToonMaterial({ color: 0xa18262, gradientMap: this.toonGradient });
+      }
     });
 
     // Roads
-    this.materials.road = new THREE.MeshStandardMaterial({
-      color: 0x2d3139,
-      roughness: 0.8,
+    registerMat('road', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({ color: 0x2d3139, roughness: 0.8 });
+      } else {
+        return new THREE.MeshToonMaterial({ color: 0x2d3139, gradientMap: this.toonGradient });
+      }
     });
 
-    this.materials.roadLine = new THREE.MeshBasicMaterial({
+    registerBasicMat('roadLine', new THREE.MeshBasicMaterial({
       color: 0xf59e0b, // Yellow lines
-    });
+    }));
 
-    this.materials.roadCrosswalk = new THREE.MeshStandardMaterial({
-      color: 0xdddddd,      // Slightly brighter off-white
-      roughness: 0.9,
-      transparent: true,
-      opacity: 0.75,        // Increased opacity for better visibility
+    registerMat('roadCrosswalk', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({
+          color: 0xdddddd,      // Slightly brighter off-white
+          roughness: 0.9,
+          transparent: true,
+          opacity: 0.75,        // Increased opacity for better visibility
+        });
+      } else {
+        return new THREE.MeshToonMaterial({
+          color: 0xdddddd,
+          gradientMap: this.toonGradient,
+          transparent: true,
+          opacity: 0.75,
+        });
+      }
     });
 
     // Curated Cozy Palettes definition
@@ -114,12 +243,32 @@ export class AssetGenerator {
       { wallColor: 0xfef3c7, roofColor: 0xb91c1c, trimColor: 0xf8fafc, brickColor: 0xa84c3e }  // Cozy Cream
     ];
 
-    this.palettes = COZY_PALETTES.map(p => ({
+    this.standardPalettes = COZY_PALETTES.map(p => ({
       wall: new THREE.MeshStandardMaterial({ color: p.wallColor, roughness: 0.6 }),
       roof: new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.7 }),
       trim: new THREE.MeshStandardMaterial({ color: p.trimColor, roughness: 0.5 }),
       brick: new THREE.MeshStandardMaterial({ color: p.brickColor, roughness: 0.8 })
     }));
+
+    this.toonPalettes = COZY_PALETTES.map(p => ({
+      wall: new THREE.MeshToonMaterial({ color: p.wallColor, gradientMap: this.toonGradient }),
+      roof: new THREE.MeshToonMaterial({ color: p.roofColor, gradientMap: this.toonGradient }),
+      trim: new THREE.MeshToonMaterial({ color: p.trimColor, gradientMap: this.toonGradient }),
+      brick: new THREE.MeshToonMaterial({ color: p.brickColor, gradientMap: this.toonGradient })
+    }));
+
+    for (let i = 0; i < COZY_PALETTES.length; i++) {
+      const std = this.standardPalettes[i];
+      const toon = this.toonPalettes[i];
+      this.materialTransitionMap.set(std.wall, toon.wall);
+      this.materialTransitionMap.set(toon.wall, std.wall);
+      this.materialTransitionMap.set(std.roof, toon.roof);
+      this.materialTransitionMap.set(toon.roof, std.roof);
+      this.materialTransitionMap.set(std.trim, toon.trim);
+      this.materialTransitionMap.set(toon.trim, std.trim);
+      this.materialTransitionMap.set(std.brick, toon.brick);
+      this.materialTransitionMap.set(toon.brick, std.brick);
+    }
 
     // Curated Commercial Palettes
     const COMMERCIAL_PALETTES = [
@@ -130,7 +279,7 @@ export class AssetGenerator {
       { wallColor: 0xf3f4f6, roofColor: 0x4b5563, trimColor: 0x0ea5e9, accentColor: 0x0284c7 }  // Office Studio: Light Grey/Slate/Cyan/Blue
     ];
 
-    this.commercialPalettes = COMMERCIAL_PALETTES.map(p => ({
+    this.standardCommercialPalettes = COMMERCIAL_PALETTES.map(p => ({
       wall: new THREE.MeshStandardMaterial({ color: p.wallColor, roughness: 0.5 }),
       roof: new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.7 }),
       trim: new THREE.MeshStandardMaterial({ color: p.trimColor, roughness: 0.4 }),
@@ -138,53 +287,77 @@ export class AssetGenerator {
       brick: new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.8 })
     }));
 
+    this.toonCommercialPalettes = COMMERCIAL_PALETTES.map(p => ({
+      wall: new THREE.MeshToonMaterial({ color: p.wallColor, gradientMap: this.toonGradient }),
+      roof: new THREE.MeshToonMaterial({ color: p.roofColor, gradientMap: this.toonGradient }),
+      trim: new THREE.MeshToonMaterial({ color: p.trimColor, gradientMap: this.toonGradient }),
+      accent: new THREE.MeshToonMaterial({ color: p.accentColor, gradientMap: this.toonGradient }),
+      brick: new THREE.MeshToonMaterial({ color: p.roofColor, gradientMap: this.toonGradient })
+    }));
+
+    for (let i = 0; i < COMMERCIAL_PALETTES.length; i++) {
+      const std = this.standardCommercialPalettes[i];
+      const toon = this.toonCommercialPalettes[i];
+      this.materialTransitionMap.set(std.wall, toon.wall);
+      this.materialTransitionMap.set(toon.wall, std.wall);
+      this.materialTransitionMap.set(std.roof, toon.roof);
+      this.materialTransitionMap.set(toon.roof, std.roof);
+      this.materialTransitionMap.set(std.trim, toon.trim);
+      this.materialTransitionMap.set(toon.trim, std.trim);
+      this.materialTransitionMap.set(std.accent, toon.accent);
+      this.materialTransitionMap.set(toon.accent, std.accent);
+      this.materialTransitionMap.set(std.brick, toon.brick);
+      this.materialTransitionMap.set(toon.brick, std.brick);
+    }
+
     // Residential Colors (cozy pastels - fallbacks/legacy)
-    this.materials.wallRes1 = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.6 });
-    this.materials.wallRes2 = new THREE.MeshStandardMaterial({ color: 0xe0f2fe, roughness: 0.6 });
-    this.materials.wallRes3 = new THREE.MeshStandardMaterial({ color: 0xfce7f3, roughness: 0.6 });
-    this.materials.roof = new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.7 }); // Terra cotta red
+    registerMat('wallRes1', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.6 }) : new THREE.MeshToonMaterial({ color: 0xfef3c7, gradientMap: this.toonGradient }));
+    registerMat('wallRes2', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xe0f2fe, roughness: 0.6 }) : new THREE.MeshToonMaterial({ color: 0xe0f2fe, gradientMap: this.toonGradient }));
+    registerMat('wallRes3', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xfce7f3, roughness: 0.6 }) : new THREE.MeshToonMaterial({ color: 0xfce7f3, gradientMap: this.toonGradient }));
+    registerMat('roof', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.7 }) : new THREE.MeshToonMaterial({ color: 0xe11d48, gradientMap: this.toonGradient }));
 
     // Commercial Colors (modern and sleek)
-    this.materials.wallCom = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.4 });
-    this.materials.glass = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      roughness: 0.1,
-      metalness: 0.9,
-      transparent: true,
-      opacity: 0.7,
+    registerMat('wallCom', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.4 }) : new THREE.MeshToonMaterial({ color: 0x64748b, gradientMap: this.toonGradient }));
+    
+    registerMat('glass', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          roughness: 0.1,
+          metalness: 0.9,
+          transparent: true,
+          opacity: 0.7,
+        });
+      } else {
+        return new THREE.MeshToonMaterial({
+          color: 0x38bdf8,
+          gradientMap: this.toonGradient,
+          transparent: true,
+          opacity: 0.7,
+        });
+      }
     });
 
     // Industrial Colors
-    this.materials.wallInd = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 });
-    this.materials.metal = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.3, metalness: 0.8 });
+    registerMat('wallInd', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 }) : new THREE.MeshToonMaterial({ color: 0x475569, gradientMap: this.toonGradient }));
+    registerMat('metal', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.3, metalness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x94a3b8, gradientMap: this.toonGradient }));
 
     // Zoned Empty Boundaries
-    this.materials.zoneR = new THREE.MeshBasicMaterial({ color: 0x10b981, wireframe: true });
-    this.materials.zoneC = new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: true });
-    this.materials.zoneI = new THREE.MeshBasicMaterial({ color: 0xeab308, wireframe: true });
+    registerBasicMat('zoneR', new THREE.MeshBasicMaterial({ color: 0x10b981, wireframe: true }));
+    registerBasicMat('zoneC', new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: true }));
+    registerBasicMat('zoneI', new THREE.MeshBasicMaterial({ color: 0xeab308, wireframe: true }));
 
     // Wood & Leaves
-    this.materials.trunk = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 });
-    this.materials.leaves = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.8 });
-    this.materials.blossom = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.8 }); // Pink trees
-    this.materials.darkVoid = new THREE.MeshStandardMaterial({ color: 0x120c08, roughness: 0.95 });
+    registerMat('trunk', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x78350f, gradientMap: this.toonGradient }));
+    registerMat('leaves', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x16a34a, gradientMap: this.toonGradient }));
+    registerMat('blossom', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0xf472b6, gradientMap: this.toonGradient }));
+    registerMat('darkVoid', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x120c08, roughness: 0.95 }) : new THREE.MeshToonMaterial({ color: 0x120c08, gradientMap: this.toonGradient }));
 
     // Utilities
-    this.materials.whiteMetal = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4, metalness: 0.3 });
-    this.materials.cement = new THREE.MeshStandardMaterial({
-      color: 0x8e929b, // Cement gray
-      roughness: 0.85,
-    });
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x0284c7,
-      roughness: 0.15,
-      metalness: 0.1,
-      transparent: true,
-      opacity: 0.6,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    waterMat.onBeforeCompile = (shader) => {
+    registerMat('whiteMetal', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4, metalness: 0.3 }) : new THREE.MeshToonMaterial({ color: 0xf8fafc, gradientMap: this.toonGradient }));
+    registerMat('cement', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x8e929b, roughness: 0.85 }) : new THREE.MeshToonMaterial({ color: 0x8e929b, gradientMap: this.toonGradient }));
+
+    const applyWaterOnBeforeCompile = (shader: any, mat: THREE.Material) => {
       shader.uniforms.uTime = { value: 0 };
       shader.vertexShader = shader.vertexShader
         .replace(
@@ -199,62 +372,156 @@ export class AssetGenerator {
            float wave = sin(worldPos.x * 1.5 + uTime * 2.0) * cos(worldPos.z * 1.5 + uTime * 2.0) * 0.06;
            transformed.z += wave;`
         );
-      waterMat.userData.shader = shader;
+      mat.userData.shader = shader;
     };
-    this.materials.waterBlue = waterMat;
+
+    registerMat('waterBlue', (type) => {
+      if (type === 'standard') {
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x0284c7,
+          roughness: 0.15,
+          metalness: 0.1,
+          transparent: true,
+          opacity: 0.6,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
+        return mat;
+      } else {
+        const mat = new THREE.MeshToonMaterial({
+          color: 0x0284c7,
+          gradientMap: this.toonGradient,
+          transparent: true,
+          opacity: 0.6,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
+        return mat;
+      }
+    });
 
     // Vegetation Materials (Seeded water features)
-    this.materials.lotusPink = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.6 });
-    this.materials.lilypadGreen = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.9 });
-    this.materials.cattailBrown = new THREE.MeshStandardMaterial({ color: 0x5c2d17, roughness: 0.9 });
-    this.materials.reedGreen = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.95 });
+    registerMat('lotusPink', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.6 }) : new THREE.MeshToonMaterial({ color: 0xf472b6, gradientMap: this.toonGradient }));
+    registerMat('lilypadGreen', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x15803d, gradientMap: this.toonGradient }));
+    registerMat('cattailBrown', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x5c2d17, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x5c2d17, gradientMap: this.toonGradient }));
+    registerMat('reedGreen', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.95 }) : new THREE.MeshToonMaterial({ color: 0x166534, gradientMap: this.toonGradient }));
 
     // Windows (Glowing at night)
-    this.materials.window = new THREE.MeshStandardMaterial({
-      color: 0xfef08a,
-      emissive: 0xfef08a,
-      emissiveIntensity: 0.0, // Day mode: 0, Night mode: 1.0+
-      roughness: 0.2,
+    registerMat('window', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({
+          color: 0xfef08a,
+          emissive: 0xfef08a,
+          emissiveIntensity: 0.0, // Day mode: 0, Night mode: 1.0+
+          roughness: 0.2,
+        });
+      } else {
+        return new THREE.MeshToonMaterial({
+          color: 0xfef08a,
+          emissive: 0xfef08a,
+          emissiveIntensity: 0.0,
+          gradientMap: this.toonGradient,
+        });
+      }
     });
 
     // Fairy lights (glowing orange/yellow bulbs)
-    this.materials.fairyLight = new THREE.MeshStandardMaterial({
-      color: 0xfdba74,
-      emissive: 0xfdba74,
-      emissiveIntensity: 0.0,
-      roughness: 0.2,
+    registerMat('fairyLight', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({
+          color: 0xfdba74,
+          emissive: 0xfdba74,
+          emissiveIntensity: 0.0,
+          roughness: 0.2,
+        });
+      } else {
+        return new THREE.MeshToonMaterial({
+          color: 0xfdba74,
+          emissive: 0xfdba74,
+          emissiveIntensity: 0.0,
+          gradientMap: this.toonGradient,
+        });
+      }
     });
 
     // Traffic Materials
-    this.materials.wheel = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
-    this.materials.headlight = new THREE.MeshStandardMaterial({
-      color: 0xfefbaf,
-      emissive: 0xfefbaf,
-      emissiveIntensity: 0.0,
-      roughness: 0.1,
+    registerMat('wheel', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x1e293b, gradientMap: this.toonGradient }));
+    
+    registerMat('headlight', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({
+          color: 0xfefbaf,
+          emissive: 0xfefbaf,
+          emissiveIntensity: 0.0,
+          roughness: 0.1,
+        });
+      } else {
+        return new THREE.MeshToonMaterial({
+          color: 0xfefbaf,
+          emissive: 0xfefbaf,
+          emissiveIntensity: 0.0,
+          gradientMap: this.toonGradient,
+        });
+      }
     });
-    this.materials.taillight = new THREE.MeshStandardMaterial({
-      color: 0xef4444,
-      emissive: 0xef4444,
-      emissiveIntensity: 0.0,
-      roughness: 0.1,
+
+    registerMat('taillight', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({
+          color: 0xef4444,
+          emissive: 0xef4444,
+          emissiveIntensity: 0.0,
+          roughness: 0.1,
+        });
+      } else {
+        return new THREE.MeshToonMaterial({
+          color: 0xef4444,
+          emissive: 0xef4444,
+          emissiveIntensity: 0.0,
+          gradientMap: this.toonGradient,
+        });
+      }
     });
     
     // Preset car body colors
-    this.materials.carRed = new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.5 });
-    this.materials.carBlue = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.5 });
-    this.materials.carYellow = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.5 });
-    this.materials.carGreen = new THREE.MeshStandardMaterial({ color: 0x059669, roughness: 0.5 });
-    this.materials.carOrange = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.5 });
-    this.materials.carWhite = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 });
+    registerMat('carRed', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0xe11d48, gradientMap: this.toonGradient }));
+    registerMat('carBlue', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0x2563eb, gradientMap: this.toonGradient }));
+    registerMat('carYellow', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0xd97706, gradientMap: this.toonGradient }));
+    registerMat('carGreen', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x059669, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0x059669, gradientMap: this.toonGradient }));
+    registerMat('carOrange', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0xea580c, gradientMap: this.toonGradient }));
+    registerMat('carWhite', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0xe2e8f0, gradientMap: this.toonGradient }));
 
     // Citizen Materials
-    this.materials.citizenSkinLight = new THREE.MeshStandardMaterial({ color: 0xfddcb4, roughness: 0.8 });
-    this.materials.citizenSkinDark = new THREE.MeshStandardMaterial({ color: 0x8d5b4c, roughness: 0.8 });
-    this.materials.citizenHairBrown = new THREE.MeshStandardMaterial({ color: 0x452a1e, roughness: 0.8 });
-    this.materials.citizenHairBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
-    this.materials.citizenHairBlonde = new THREE.MeshStandardMaterial({ color: 0xf5dd90, roughness: 0.8 });
-    this.materials.citizenJeans = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 });
+    registerMat('citizenSkinLight', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xfddcb4, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0xfddcb4, gradientMap: this.toonGradient }));
+    registerMat('citizenSkinDark', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x8d5b4c, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x8d5b4c, gradientMap: this.toonGradient }));
+    registerMat('citizenHairBrown', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x452a1e, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x452a1e, gradientMap: this.toonGradient }));
+    registerMat('citizenHairBlack', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x111111, gradientMap: this.toonGradient }));
+    registerMat('citizenHairBlonde', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf5dd90, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0xf5dd90, gradientMap: this.toonGradient }));
+    registerMat('citizenJeans', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 }) : new THREE.MeshToonMaterial({ color: 0x3b82f6, gradientMap: this.toonGradient }));
+
+    // Initially standard
+    this.materials = this.standardMaterials;
+    this.palettes = this.standardPalettes;
+    this.commercialPalettes = this.standardCommercialPalettes;
+  }
+
+  setCelShading(enabled: boolean) {
+    this.useCelShading = enabled;
+    if (enabled) {
+      this.materials = this.toonMaterials;
+      this.palettes = this.toonPalettes;
+      this.commercialPalettes = this.toonCommercialPalettes;
+    } else {
+      this.materials = this.standardMaterials;
+      this.palettes = this.standardPalettes;
+      this.commercialPalettes = this.standardCommercialPalettes;
+    }
+  }
+
+  getMaterialTransitionMap(): Map<THREE.Material, THREE.Material> {
+    return this.materialTransitionMap;
   }
 
   // Set emissive intensity of windows & headlights (0.0 for day, 1.2+ for night)
@@ -262,17 +529,25 @@ export class AssetGenerator {
     if (this.isNightMode === isNight) return;
     this.isNightMode = isNight;
 
-    const winMat = this.materials.window as THREE.MeshStandardMaterial;
-    gsapAnimate(winMat, 'emissiveIntensity', isNight ? 1.4 : 0.0, 1.5);
+    // Animate standard materials
+    const winMatStd = this.standardMaterials.window as any;
+    if (winMatStd) gsapAnimate(winMatStd, 'emissiveIntensity', isNight ? 1.4 : 0.0, 1.5);
+    const headMatStd = this.standardMaterials.headlight as any;
+    if (headMatStd) gsapAnimate(headMatStd, 'emissiveIntensity', isNight ? 2.5 : 0.0, 1.5);
+    const tailMatStd = this.standardMaterials.taillight as any;
+    if (tailMatStd) gsapAnimate(tailMatStd, 'emissiveIntensity', isNight ? 1.8 : 0.0, 1.5);
+    const fairyMatStd = this.standardMaterials.fairyLight as any;
+    if (fairyMatStd) gsapAnimate(fairyMatStd, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
 
-    const headMat = this.materials.headlight as THREE.MeshStandardMaterial;
-    if (headMat) gsapAnimate(headMat, 'emissiveIntensity', isNight ? 2.5 : 0.0, 1.5);
-
-    const tailMat = this.materials.taillight as THREE.MeshStandardMaterial;
-    if (tailMat) gsapAnimate(tailMat, 'emissiveIntensity', isNight ? 1.8 : 0.0, 1.5);
-
-    const fairyMat = this.materials.fairyLight as THREE.MeshStandardMaterial;
-    if (fairyMat) gsapAnimate(fairyMat, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
+    // Animate toon materials
+    const winMatToon = this.toonMaterials.window as any;
+    if (winMatToon) gsapAnimate(winMatToon, 'emissiveIntensity', isNight ? 1.4 : 0.0, 1.5);
+    const headMatToon = this.toonMaterials.headlight as any;
+    if (headMatToon) gsapAnimate(headMatToon, 'emissiveIntensity', isNight ? 2.5 : 0.0, 1.5);
+    const tailMatToon = this.toonMaterials.taillight as any;
+    if (tailMatToon) gsapAnimate(tailMatToon, 'emissiveIntensity', isNight ? 1.8 : 0.0, 1.5);
+    const fairyMatToon = this.toonMaterials.fairyLight as any;
+    if (fairyMatToon) gsapAnimate(fairyMatToon, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
   }
 
   // Stable LCG random number generator helper
@@ -3714,7 +3989,7 @@ export class AssetGenerator {
 }
 
 // Simple Helper for material animations
-function gsapAnimate(material: THREE.MeshStandardMaterial, key: 'emissiveIntensity', targetValue: number, duration: number) {
+function gsapAnimate(material: any, key: 'emissiveIntensity', targetValue: number, duration: number) {
   let start = material[key];
   let startTime = performance.now();
 

@@ -4,7 +4,6 @@ import { InputManager } from './InputManager';
 import { AssetGenerator } from './AssetGenerator';
 import { SoundManager } from './SoundManager';
 import { TrafficManager } from './TrafficManager';
-import { DevMenu } from './DevMenu';
 import { CitizenManager } from './CitizenManager';
 
 function escapeHTML(str: string): string {
@@ -25,7 +24,6 @@ export class Game {
   sounds: SoundManager;
   traffic: TrafficManager;
   citizens: CitizenManager;
-  devMenu: DevMenu;
 
   // Loop references
   lastFrameTime = performance.now();
@@ -51,9 +49,10 @@ export class Game {
     this.renderer.traffic = this.traffic;
     this.citizens = new CitizenManager(this.sim, this.renderer);
     this.renderer.citizens = this.citizens;
-    this.devMenu = new DevMenu(this.assets);
 
     this.setupBindings();
+    this.initCelSandbox();
+    this.initDevDropdown();
     this.startLoops();
     this.updateAudioButtonsUI();
 
@@ -393,6 +392,8 @@ export class Game {
       this.sounds.playClickSFX();
     });
 
+
+
     // Tax Control
     document.getElementById('btn-tax-down')?.addEventListener('click', () => {
       this.sim.changeTaxRate(-0.01);
@@ -420,6 +421,194 @@ export class Game {
     });
     document.getElementById('btn-reset')?.addEventListener('click', () => {
       this.resetGame();
+    });
+  }
+
+  initCelSandbox() {
+    const bandsSelect = document.getElementById('sandbox-bands-select') as HTMLSelectElement | null;
+    const slidersContainer = document.getElementById('sandbox-sliders-container');
+    
+    if (!bandsSelect || !slidersContainer) return;
+
+    // Close button click listener
+    const btnClose = document.getElementById('btn-sandbox-close');
+    btnClose?.addEventListener('click', () => {
+      this.sounds.playClickSFX();
+      const celSandbox = document.getElementById('cel-sandbox');
+      if (celSandbox) {
+        celSandbox.classList.add('hidden');
+      }
+      
+      // Update dropdown active styling
+      const menuItem = document.getElementById('item-toggle-cel-sandbox');
+      if (menuItem) {
+        menuItem.classList.remove('active');
+      }
+    });
+
+    // Enable/Disable Cel Shading switch inside panel
+    const panelToggle = document.getElementById('panel-cel-toggle') as HTMLInputElement | null;
+    if (panelToggle) {
+      panelToggle.checked = this.assets.useCelShading;
+      panelToggle.addEventListener('change', () => {
+        const isCel = panelToggle.checked;
+        this.assets.setCelShading(isCel);
+        this.renderer.refreshSceneMaterials();
+        this.sounds.playClickSFX();
+      });
+    }
+    
+    const presetLinear = document.getElementById('btn-sandbox-preset-linear');
+    const presetBell = document.getElementById('btn-sandbox-preset-bell');
+    const presetUShape = document.getElementById('btn-sandbox-preset-ushape');
+    
+    let currentValues = [5, 5, 5, 30, 30, 80, 80, 130, 190, 255]; 
+    
+    const renderSliders = () => {
+      slidersContainer.innerHTML = '';
+      const steps = parseInt(bandsSelect.value);
+      
+      if (currentValues.length !== steps) {
+        const newValues = [];
+        for (let i = 0; i < steps; i++) {
+          const t = i / (steps - 1);
+          newValues.push(Math.round(20 + t * 235));
+        }
+        currentValues = newValues;
+      }
+      
+      for (let i = 0; i < steps; i++) {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.flexDirection = 'column';
+        row.style.gap = '2px';
+        
+        const labelRow = document.createElement('div');
+        labelRow.style.display = 'flex';
+        labelRow.style.justifyContent = 'space-between';
+        labelRow.style.fontSize = '0.75rem';
+        labelRow.style.color = '#94a3b8';
+        
+        const label = document.createElement('span');
+        label.innerText = `Band ${i + 1}`;
+        
+        const valText = document.createElement('span');
+        valText.innerText = currentValues[i].toString();
+        valText.id = `sandbox-val-text-${i}`;
+        
+        labelRow.appendChild(label);
+        labelRow.appendChild(valText);
+        
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '255';
+        slider.value = currentValues[i].toString();
+        slider.style.width = '100%';
+        slider.style.cursor = 'pointer';
+        
+        slider.addEventListener('input', () => {
+          const val = parseInt(slider.value);
+          currentValues[i] = val;
+          valText.innerText = val.toString();
+          
+          this.assets.updateToonGradient(currentValues);
+        });
+        
+        row.appendChild(labelRow);
+        row.appendChild(slider);
+        slidersContainer.appendChild(row);
+      }
+      
+      this.assets.updateToonGradient(currentValues);
+    };
+    
+    bandsSelect.addEventListener('change', () => {
+      renderSliders();
+    });
+    
+    presetLinear?.addEventListener('click', () => {
+      const steps = parseInt(bandsSelect.value);
+      const newVals = [];
+      for (let i = 0; i < steps; i++) {
+        const t = i / (steps - 1);
+        newVals.push(Math.round(20 + t * 235));
+      }
+      currentValues = newVals;
+      renderSliders();
+    });
+    
+    presetBell?.addEventListener('click', () => {
+      const steps = parseInt(bandsSelect.value);
+      const newVals = [];
+      if (steps === 7) {
+        currentValues = [20, 100, 120, 128, 136, 156, 255];
+      } else if (steps === 5) {
+        currentValues = [20, 110, 128, 146, 255];
+      } else {
+        for (let i = 0; i < steps; i++) {
+          const t = i / (steps - 1);
+          const x = t * 2 - 1;
+          const sign = x < 0 ? -1 : 1;
+          const v = 128 + 108 * sign * Math.pow(Math.abs(x), 2.2);
+          newVals.push(Math.round(Math.max(20, Math.min(255, v))));
+        }
+        currentValues = newVals;
+      }
+      renderSliders();
+    });
+    
+    presetUShape?.addEventListener('click', () => {
+      const steps = parseInt(bandsSelect.value);
+      const newVals = [];
+      if (steps === 10) {
+        currentValues = [5, 5, 5, 30, 30, 80, 80, 130, 190, 255];
+      } else if (steps === 7) {
+        currentValues = [20, 30, 50, 135, 220, 240, 255];
+      } else if (steps === 5) {
+        currentValues = [20, 40, 70, 210, 255];
+      } else {
+        for (let i = 0; i < steps; i++) {
+          const t = i / (steps - 1);
+          const x = t * 2 - 1;
+          const v = 128 + 108 * Math.pow(x, 3);
+          newVals.push(Math.round(Math.max(20, Math.min(255, v))));
+        }
+        currentValues = newVals;
+      }
+      renderSliders();
+    });
+    
+    renderSliders();
+  }
+
+  initDevDropdown() {
+    const devDropdown = document.getElementById('dev-dropdown');
+    const btnDevToggle = document.getElementById('btn-dev-toggle');
+    const itemToggleCelSandbox = document.getElementById('item-toggle-cel-sandbox');
+    
+    if (!devDropdown || !btnDevToggle) return;
+    
+    btnDevToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      devDropdown.classList.toggle('hidden');
+    });
+    
+    window.addEventListener('click', () => {
+      if (!devDropdown.classList.contains('hidden')) {
+        devDropdown.classList.add('hidden');
+      }
+    });
+    
+    itemToggleCelSandbox?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.sounds.playClickSFX();
+      
+      const celSandbox = document.getElementById('cel-sandbox');
+      if (celSandbox) {
+        const isHidden = celSandbox.classList.toggle('hidden');
+        itemToggleCelSandbox.classList.toggle('active', !isHidden);
+      }
     });
   }
 

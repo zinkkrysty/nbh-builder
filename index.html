@@ -167,13 +167,29 @@
         <button id="btn-speed-fast" class="speed-btn" title="Fast Forward"><img class="btn-icon" src="/fast_icon.png" alt="Fast Forward"></button>
         <button id="btn-music-toggle" class="control-btn" title="Toggle Calm Music"><img class="btn-icon" src="/music_icon.png" alt="Music"></button>
         <button id="btn-sfx-toggle" class="control-btn" title="Toggle Sound Effects"><img class="btn-icon" src="/sfx_icon.png" alt="SFX"></button>
-        <button id="btn-dev-toggle" class="control-btn" title="Open Developer Menu">
-          <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px; display: block; margin: 0 auto; color: #60a5fa; transition: color 0.2s;">
-            <polyline points="16 18 22 12 16 6"></polyline>
-            <polyline points="8 6 2 12 8 18"></polyline>
-            <line x1="12" y1="4" x2="12" y2="20"></line>
-          </svg>
-        </button>
+        <div class="dropdown-container" style="position: relative; display: inline-block;">
+          <button id="btn-dev-toggle" class="control-btn" title="Open Developer Menu">
+            <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px; display: block; margin: 0 auto; color: #60a5fa; transition: color 0.2s;">
+              <polyline points="16 18 22 12 16 6"></polyline>
+              <polyline points="8 6 2 12 8 18"></polyline>
+              <line x1="12" y1="4" x2="12" y2="20"></line>
+            </svg>
+          </button>
+          
+          <div id="dev-dropdown" class="glass hidden" style="position: absolute; top: 100%; right: 0; margin-top: 8px; width: 220px; z-index: 100; border-radius: 12px; padding: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 4px;">
+            <button id="item-toggle-cel-sandbox" class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; padding: 10px 12px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; transition: background 0.15s;">
+              <span style="font-size: 1.1rem; width: 20px; display: inline-block; text-align: center;">🎨</span>
+              <span style="flex: 1;">Cel Shading Sandbox</span>
+              <svg class="active-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; color: #60a5fa; margin-left: auto; opacity: 0; transition: opacity 0.15s;">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+            <a href="/assets.html" target="_blank" class="dropdown-item" style="display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 10px 12px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 0.85rem; text-decoration: none; cursor: pointer; transition: background 0.15s;">
+              <span style="font-size: 1.1rem; width: 20px; display: inline-block; text-align: center;">📚</span>
+              <span>Visual Asset Catalog</span>
+            </a>
+          </div>
+      </div>
       </div>
     </header>
 
@@ -320,84 +336,50 @@
 
     <!-- Toast Notification Container -->
     <div id="toast-container"></div>
-  </div>
 
-  <!-- Dev Menu Panel -->
-  <div id="dev-menu" class="glass hidden">
-    <div class="dev-menu-header">
-      <div class="dev-menu-title-group">
-        <svg class="dev-menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px; color: #60a5fa; margin-right: 8px; display: inline-block; vertical-align: middle;">
-          <polyline points="16 18 22 12 16 6"></polyline>
-          <polyline points="8 6 2 12 8 18"></polyline>
-          <line x1="12" y1="4" x2="12" y2="20"></line>
-        </svg>
-        <span class="dev-menu-title">Developer Menu</span>
+    <!-- Cel Shading Sandbox Panel -->
+    <div id="cel-sandbox" class="glass hidden" style="position: absolute; top: 160px; right: 20px; width: 300px; z-index: 90; padding: 1.25rem; border-radius: 16px; display: flex; flex-direction: column; gap: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08);">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem;">
+        <h3 style="margin: 0; font-size: 1.05rem; font-weight: 600; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
+          🎨 Cel Shading Sandbox
+        </h3>
+        <button id="btn-sandbox-close" style="background: none; border: none; color: #94a3b8; font-size: 1.25rem; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.15s; margin-left: auto;">&times;</button>
       </div>
-      <button id="btn-dev-close" class="close-btn" title="Close Panel">&times;</button>
-    </div>
-    <div class="dev-menu-body">
-      <!-- 3D Canvas Preview Viewport -->
-      <div class="preview-panel">
-        <div id="dev-preview-canvas-container"></div>
-        <div class="preview-controls">
-          <button id="btn-preview-rotate" class="preview-btn active">Auto Rotate</button>
-          <button id="btn-preview-time" class="preview-btn">Day Mode</button>
-          <button id="dev-gen-grid-btn" class="preview-btn" style="background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.4); color: #10b981;">Gen 4x4 Grid</button>
-        </div>
+      
+      <!-- Enable Cel Shading Switch -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.75rem; margin-bottom: 0.25rem;">
+        <span style="font-size: 0.85rem; font-weight: 500; color: #fff;">Enable Cel Shading</span>
+        <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px; flex-shrink: 0;">
+          <input type="checkbox" id="panel-cel-toggle" style="opacity: 0; width: 0; height: 0;">
+          <span class="slider-round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .2s; border-radius: 34px; border: 1px solid rgba(255,255,255,0.08);"></span>
+        </label>
       </div>
 
-      <!-- Controls Panel -->
-      <div class="controls-panel">
-        <div class="control-group">
-          <label for="dev-asset-select">Select Asset</label>
-          <div class="select-wrapper">
-            <select id="dev-asset-select">
-              <option value="residential">Residential House</option>
-              <option value="commercial">Commercial Building</option>
-              <option value="industrial">Industrial Building</option>
-              <option value="turbine">Wind Turbine</option>
-              <option value="water">Water Tower</option>
-              <option value="park">Cozy Park</option>
-              <option value="tree">Tree</option>
-              <option value="car">Traffic Car</option>
-              <option value="citizen">Cozy Citizen</option>
-              <option value="road">Road Segment</option>
-              <option value="water_body">Water Body</option>
-            </select>
-          </div>
+      <div class="control-group" style="display: flex; flex-direction: column; gap: 0.25rem;">
+        <label for="sandbox-bands-select" style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Number of Bands</label>
+        <div class="select-wrapper" style="position: relative;">
+          <select id="sandbox-bands-select" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(18, 22, 33, 0.6); color: #fff; font-family: inherit; font-size: 0.9rem; cursor: pointer; outline: none; -webkit-appearance: none;">
+            <option value="2">2 Bands</option>
+            <option value="3">3 Bands</option>
+            <option value="4">4 Bands</option>
+            <option value="5">5 Bands</option>
+            <option value="6">6 Bands</option>
+            <option value="7">7 Bands</option>
+            <option value="8">8 Bands</option>
+            <option value="9">9 Bands</option>
+            <option value="10" selected>10 Bands</option>
+          </select>
         </div>
+      </div>
+      
+      <div id="sandbox-sliders-container" style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 250px; overflow-y: auto; padding-right: 4px;">
+        <!-- Sliders will be generated dynamically here -->
+      </div>
 
-        <div class="control-group" id="dev-level-group">
-          <label for="dev-level-select">Density Level</label>
-          <div class="select-wrapper">
-            <select id="dev-level-select">
-              <option value="0">Level 0 (Zone)</option>
-              <option value="1" selected>Level 1</option>
-              <option value="2">Level 2 (Cozy Redesign)</option>
-              <option value="3">Level 3</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Seed/Coordinate Selection for Residential Building Procedural Variations -->
-        <div class="control-group" id="dev-seed-group">
-          <label>Procedural Seed (Tile X / Y)</label>
-          <div class="coordinate-inputs" style="display: flex; gap: 8px;">
-            <input type="number" id="dev-seed-x" value="0" min="0" max="99" style="width: 50%; padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(18, 22, 33, 0.6); color: #fff; font-family: inherit; font-size: 0.95rem; text-align: center;">
-            <input type="number" id="dev-seed-y" value="0" min="0" max="99" style="width: 50%; padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(18, 22, 33, 0.6); color: #fff; font-family: inherit; font-size: 0.95rem; text-align: center;">
-          </div>
-        </div>
-
-        <!-- Road Connection Options (Only shown when Road is selected) -->
-        <div class="control-group hidden" id="dev-road-group">
-          <label>Road Connections</label>
-          <div class="checkbox-grid">
-            <label><input type="checkbox" id="dev-road-n" checked> North</label>
-            <label><input type="checkbox" id="dev-road-s" checked> South</label>
-            <label><input type="checkbox" id="dev-road-e"> East</label>
-            <label><input type="checkbox" id="dev-road-w"> West</label>
-          </div>
-        </div>
+      <div style="display: flex; gap: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
+        <button id="btn-sandbox-preset-linear" class="small-btn" style="flex: 1; padding: 6px; font-size: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #fff; cursor: pointer;">Linear</button>
+        <button id="btn-sandbox-preset-bell" class="small-btn" style="flex: 1; padding: 6px; font-size: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #fff; cursor: pointer;">Bell Shape</button>
+        <button id="btn-sandbox-preset-ushape" class="small-btn" style="flex: 1; padding: 6px; font-size: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #fff; cursor: pointer;">U-Shape</button>
       </div>
     </div>
   </div>

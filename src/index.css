@@ -119,6 +119,8 @@ body, html {
   align-items: center;
   padding: 0 2rem;
   height: 100%;
+  position: relative;
+  z-index: 95;
 }
 
 .hud-brand {
@@ -628,233 +630,54 @@ body, html {
   to { opacity: 0; transform: translateX(40px); visibility: hidden; }
 }
 
-/* Developer Menu Panel */
-#dev-menu {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(1);
-  width: 90%;
-  max-width: 1100px;
-  height: 85%;
-  max-height: 800px;
-  z-index: 999;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  pointer-events: auto;
-  opacity: 1;
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+/* Toggle Switch Style (Cel Shading toggle inside panel) */
+.switch input:checked + .slider-round {
+  background-color: #fbbf24;
+  border-color: #fbbf24 !important;
 }
-
-#dev-menu.hidden {
-  display: none !important;
-  opacity: 0;
-  transform: translate(-50%, -45%) scale(0.95);
+.switch input:checked + .slider-round:before {
+  transform: translateX(20px);
 }
-
-.dev-menu-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.25rem 1.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+.slider-round {
+  transition: background-color 0.2s, border-color 0.2s;
 }
-
-.dev-menu-title-group {
-  display: flex;
-  align-items: center;
-}
-
-.dev-menu-title {
-  font-weight: 600;
-  font-size: 1.25rem;
-  letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #a7f3d0, #60a5fa);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.dev-menu-body {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  padding: 1.75rem;
-  gap: 1.75rem;
-  overflow: hidden;
-}
-
-/* 3D Preview Panel */
-.preview-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  height: 100%;
-}
-
-#dev-preview-canvas-container {
-  flex: 1;
-  width: 100%;
-  background: rgba(8, 10, 15, 0.6);
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  overflow: hidden;
-  position: relative;
-  cursor: grab;
-  min-height: 0;
-}
-
-#dev-preview-canvas-container:active {
-  cursor: grabbing;
-}
-
-.preview-controls {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.preview-btn {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  color: #94a3b8;
-  padding: 0.65rem;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-family: inherit;
-}
-
-.preview-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f3f5;
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.preview-btn.active {
-  background: rgba(96, 165, 250, 0.15);
-  border-color: rgba(96, 165, 250, 0.3);
-  color: #60a5fa;
-}
-
-/* Controls Panel */
-.controls-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  overflow-y: auto;
-  padding-right: 0.5rem;
-  height: 100%;
-}
-
-.control-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.control-group label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: #64748b;
-  letter-spacing: 0.05em;
-}
-
-.select-wrapper {
-  position: relative;
-  width: 100%;
-}
-
-.select-wrapper select {
-  width: 100%;
-  background: rgba(8, 10, 15, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  color: #e2e8f0;
-  padding: 0.75rem 1.25rem;
-  font-size: 0.88rem;
-  font-weight: 500;
-  outline: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-family: inherit;
-  appearance: none;
-}
-
-.select-wrapper::after {
-  content: "▼";
-  font-size: 0.6rem;
-  color: #64748b;
+.slider-round:before {
   position: absolute;
-  right: 1.25rem;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  transition: transform 0.2s;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 
-.select-wrapper select:focus {
-  border-color: rgba(96, 165, 250, 0.5);
-  background: rgba(8, 10, 15, 0.7);
-  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.15);
-}
-
-/* Road connections checkboxes grid */
-.checkbox-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
-  background: rgba(8, 10, 15, 0.3);
-  border-radius: 8px;
-  padding: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.checkbox-grid label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: #94a3b8;
-  font-size: 0.85rem;
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: normal;
-  cursor: pointer;
-}
-
-.checkbox-grid input[type="checkbox"] {
-  accent-color: #60a5fa;
-  width: 15px;
-  height: 15px;
-  cursor: pointer;
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .dev-menu-body {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
-    gap: 1.5rem;
-  }
-  #dev-preview-canvas-container {
-    aspect-ratio: 1;
-    height: 320px;
-    flex: none;
-  }
-  .controls-panel {
-    overflow-y: visible;
-    height: auto;
-  }
-  #dev-menu {
-    height: 90%;
-    max-height: none;
-  }
-}
 
 /* Dev Toggle hover state */
 #btn-dev-toggle:hover svg {
   color: #93c5fd !important;
   transform: rotate(15deg);
+}
+
+/* Dev Dropdown Menu Item Styling */
+.dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #60a5fa !important;
+}
+.dropdown-item:active {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+.dropdown-item.active {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: #60a5fa !important;
+}
+.dropdown-item.active .active-check {
+  opacity: 1 !important;
+}
+
+/* Global Utility Classes */
+.hidden {
+  display: none !important;
 }

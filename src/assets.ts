@@ -506,6 +506,32 @@ document.getElementById('tod-night-btn')!.onclick = () => {
   updateDayNightLighting();
 };
 
+document.getElementById('cel-standard-btn')!.onclick = () => {
+  assets.setCelShading(false);
+  document.getElementById('cel-standard-btn')!.classList.add('active');
+  document.getElementById('cel-toon-btn')!.classList.remove('active');
+  
+  if (activeCell) {
+    modalGroup.clear();
+    const mesh = createAssetMesh(activeCell);
+    modalGroup.add(mesh);
+  }
+  buildHTMLGrid();
+};
+
+document.getElementById('cel-toon-btn')!.onclick = () => {
+  assets.setCelShading(true);
+  document.getElementById('cel-standard-btn')!.classList.remove('active');
+  document.getElementById('cel-toon-btn')!.classList.add('active');
+  
+  if (activeCell) {
+    modalGroup.clear();
+    const mesh = createAssetMesh(activeCell);
+    modalGroup.add(mesh);
+  }
+  buildHTMLGrid();
+};
+
 document.getElementById('modal-reset-btn')!.onclick = () => {
   currentRotation = { x: 0.15, y: Math.PI / 4 };
   modalGroup.rotation.set(currentRotation.x, currentRotation.y, 0);
