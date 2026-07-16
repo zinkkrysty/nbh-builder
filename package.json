@@ -8,8 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "pages:build": "npm run build",
-    "pages:preview": "wrangler pages dev ./dist",
-    "pages:deploy": "wrangler pages deploy ./dist"
+    "pages:preview": "wrangler dev",
+    "pages:deploy": "wrangler deploy"
   },
   "dependencies": {
     "three": "^0.170.0"
