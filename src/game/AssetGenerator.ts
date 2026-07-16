@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { Simulation } from './Simulation';
 
 export class AssetGenerator {
@@ -61,6 +62,103 @@ export class AssetGenerator {
 
   constructor() {
     this.initMaterials();
+  }
+
+  mergeMeshesByMaterial(group: THREE.Group): THREE.Group {
+    const mergedGroup = new THREE.Group();
+    const materialGroups = new Map<THREE.Material, { geometries: THREE.BufferGeometry[] }>();
+    const dynamicObjects: THREE.Object3D[] = [];
+
+    const collect = (node: THREE.Object3D) => {
+      if (node.name === 'turbine_rotor' || node.userData.dynamic || node.name.includes('rotor')) {
+        dynamicObjects.push(node);
+        return;
+      }
+      
+      if ((node as any).isMesh) {
+        const mesh = node as THREE.Mesh;
+        const geometry = mesh.geometry;
+        const material = mesh.material as THREE.Material;
+        
+        if (geometry && material) {
+          node.updateMatrix();
+          let relMatrix = node.matrix.clone();
+          let p = node.parent;
+          while (p && p !== group) {
+            p.updateMatrix();
+            relMatrix.premultiply(p.matrix);
+            p = p.parent;
+          }
+          
+          const clonedGeo = geometry.clone();
+          clonedGeo.applyMatrix4(relMatrix);
+          
+          if (!materialGroups.has(material)) {
+            materialGroups.set(material, { geometries: [] });
+          }
+          materialGroups.get(material)!.geometries.push(clonedGeo);
+        }
+      }
+
+      for (const child of node.children) {
+        collect(child);
+      }
+    };
+
+    for (const child of group.children) {
+      collect(child);
+    }
+
+    materialGroups.forEach((data, material) => {
+      if (data.geometries.length > 0) {
+        const processedGeoms: THREE.BufferGeometry[] = [];
+        let hasUV = false;
+
+        data.geometries.forEach(g => {
+          let pg = g;
+          if (g.index) {
+            pg = g.toNonIndexed();
+            g.dispose();
+          }
+          if (!pg.attributes.normal) {
+            pg.computeVertexNormals();
+          }
+          if (pg.attributes.uv) {
+            hasUV = true;
+          }
+          processedGeoms.push(pg);
+        });
+
+        const finalGeoms = processedGeoms.map(g => {
+          if (hasUV && !g.attributes.uv) {
+            const count = g.attributes.position.count;
+            const uvs = new Float32Array(count * 2);
+            g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+          }
+          return g;
+        });
+
+        try {
+          const mergedGeo = BufferGeometryUtils.mergeGeometries(finalGeoms, false);
+          if (mergedGeo) {
+            const mergedMesh = new THREE.Mesh(mergedGeo, material);
+            mergedMesh.castShadow = true;
+            mergedMesh.receiveShadow = true;
+            mergedGroup.add(mergedMesh);
+          }
+        } catch (e) {
+          console.error("Failed to merge geometries for material", material, e);
+        } finally {
+          finalGeoms.forEach(geo => geo.dispose());
+        }
+      }
+    });
+
+    dynamicObjects.forEach((obj) => {
+      mergedGroup.add(obj);
+    });
+
+    return mergedGroup;
   }
 
   getGeometry(key: string, creator: () => THREE.BufferGeometry): THREE.BufferGeometry {

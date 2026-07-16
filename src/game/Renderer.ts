@@ -985,6 +985,7 @@ export class Renderer {
     }
 
     if (newMesh) {
+      newMesh = this.assets.mergeMeshesByMaterial(newMesh);
       const tileElevation = tile.elevation || 0;
       const baseHeight = tileElevation * 0.8;
       const yOffset = tile.type === 'residential' ? -0.06 : 0;
@@ -1065,7 +1066,8 @@ export class Renderer {
       E: x < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[x + 1][y].type === 'water_body' || this.sim.grid[x + 1][y].bridge === true) : false),
       W: x > 0 && (this.sim ? (this.sim.grid[x - 1][y].type === 'water_body' || this.sim.grid[x - 1][y].bridge === true) : false)
     };
-    const roadMesh = this.assets.createRoadMesh(connections, isBridge, neighbors, x, y);
+    let roadMesh = this.assets.createRoadMesh(connections, isBridge, neighbors, x, y);
+    roadMesh = this.assets.mergeMeshesByMaterial(roadMesh);
     
     let yPos = this.sim ? (this.sim.grid[x][y].elevation || 0) * 0.8 : 0;
     if (this.sim) {

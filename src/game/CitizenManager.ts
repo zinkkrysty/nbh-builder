@@ -239,11 +239,13 @@ export class CitizenManager {
       return [start];
     }
 
-    const queue: { x: number; y: number; path: { x: number; y: number }[] }[] = [];
-    const visited = new Uint8Array(this.gridSize * this.gridSize);
-
-    queue.push({ x: start.x, y: start.y, path: [{ x: start.x, y: start.y }] });
-    visited[start.y * this.gridSize + start.x] = 1;
+    const queue: { x: number; y: number }[] = [];
+    const parentGrid = new Int16Array(this.gridSize * this.gridSize);
+    parentGrid.fill(-1);
+    
+    const startIndex = start.y * this.gridSize + start.x;
+    queue.push(start);
+    parentGrid[startIndex] = -2; // Unique identifier for start node
 
     let head = 0;
     const maxVisited = 1500; // prevent lockups
@@ -259,12 +261,15 @@ export class CitizenManager {
       return tile.type === 'road' || tile.type === 'boardwalk' || tile.type === 'park';
     };
 
+    let reached = false;
+
     while (head < queue.length && visitedCount < maxVisited) {
       const curr = queue[head++];
       visitedCount++;
 
       if (curr.x === end.x && curr.y === end.y) {
-        return curr.path;
+        reached = true;
+        break;
       }
 
       const neighbors = [
@@ -274,19 +279,38 @@ export class CitizenManager {
         { x: curr.x, y: curr.y - 1 }
       ];
 
+      const currIdx = curr.y * this.gridSize + curr.x;
+
       for (const n of neighbors) {
         if (n.x >= 0 && n.x < this.gridSize && n.y >= 0 && n.y < this.gridSize) {
           const idx = n.y * this.gridSize + n.x;
-          if (visited[idx] === 0 && isWalkable(n.x, n.y)) {
-            visited[idx] = 1;
-            queue.push({
-              x: n.x,
-              y: n.y,
-              path: [...curr.path, { x: n.x, y: n.y }]
-            });
+          if (parentGrid[idx] === -1 && isWalkable(n.x, n.y)) {
+            parentGrid[idx] = currIdx;
+            queue.push(n);
           }
         }
       }
+    }
+
+    if (reached) {
+      const path: { x: number; y: number }[] = [];
+      let currX = end.x;
+      let currY = end.y;
+      
+      while (true) {
+        path.push({ x: currX, y: currY });
+        const currIdx = currY * this.gridSize + currX;
+        const parentIdx = parentGrid[currIdx];
+        
+        if (parentIdx === -2) {
+          break;
+        }
+        
+        currX = parentIdx % this.gridSize;
+        currY = Math.floor(parentIdx / this.gridSize);
+      }
+      
+      return path.reverse();
     }
 
     return null;
