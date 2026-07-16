@@ -7,6 +7,16 @@ import { TrafficManager } from './TrafficManager';
 import { DevMenu } from './DevMenu';
 import { CitizenManager } from './CitizenManager';
 
+function escapeHTML(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export class Game {
   sim: Simulation;
   assets: AssetGenerator;
@@ -19,12 +29,13 @@ export class Game {
 
   // Loop references
   lastFrameTime = performance.now();
-  simTimer: any = null;
+  simTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Selected tile for inspector
   selectedTile: { x: number; y: number } | null = null;
 
   constructor() {
+    this.migrateSaveKeys();
     this.sim = new Simulation();
     this.assets = new AssetGenerator();
     this.assets.sim = this.sim;
@@ -71,7 +82,7 @@ export class Game {
         // Try to auto-load saved game if exists
         let hasSave = false;
         try {
-          hasSave = !!(localStorage.getItem('nabocity_save') || localStorage.getItem('serene_valley_save'));
+          hasSave = !!localStorage.getItem('nabocity_save');
         } catch (e) {
           console.error('Failed to access localStorage during boot:', e);
         }
@@ -313,7 +324,13 @@ export class Game {
     // Keyboard shortcuts
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       // Ignore shortcuts when typing in an input/textarea
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement).isContentEditable
+      ) {
+        return;
+      }
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -325,7 +342,7 @@ export class Game {
         document.getElementById(activeId)?.classList.add('active');
       }
 
-      if (e.code === 'Tab') {
+      else if (e.code === 'Tab') {
         e.preventDefault();
         // Cycle: 1 → 2 → 0 → 1 (skip 0 from 2, wrap through pause)
         const cycle: { [key: number]: number } = { 0: 1, 1: 2, 2: 0 };
@@ -334,6 +351,30 @@ export class Game {
         speedButtons.forEach(c => document.getElementById(c.id)?.classList.remove('active'));
         const btnId = speedButtons.find(c => c.val === newSpeed)?.id;
         if (btnId) document.getElementById(btnId)?.classList.add('active');
+      }
+
+      else {
+        let toolId = '';
+        const key = e.key.toLowerCase();
+        switch (key) {
+          case '1': toolId = 'tool-select'; break;
+          case '2': toolId = 'tool-road'; break;
+          case '3': toolId = 'tool-residential'; break;
+          case '4': toolId = 'tool-commercial'; break;
+          case '5': toolId = 'tool-industrial'; break;
+          case '6': toolId = 'tool-power'; break;
+          case '7': toolId = 'tool-water'; break;
+          case '8': toolId = 'tool-park'; break;
+          case '9': toolId = 'tool-boardwalk'; break;
+          case '0': toolId = 'tool-water-body'; break;
+          case 'b': toolId = 'tool-bulldoze'; break;
+          case '[': toolId = 'tool-raise'; break;
+          case ']': toolId = 'tool-lower'; break;
+        }
+        if (toolId) {
+          const btn = document.getElementById(toolId);
+          btn?.click();
+        }
       }
     });
 
@@ -379,32 +420,6 @@ export class Game {
     });
     document.getElementById('btn-reset')?.addEventListener('click', () => {
       this.resetGame();
-    });
-
-    // Keyboard Shortcuts (1-9, 0, b)
-    window.addEventListener('keydown', (e) => {
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      let toolId = '';
-      const key = e.key.toLowerCase();
-      switch (key) {
-        case '1': toolId = 'tool-select'; break;
-        case '2': toolId = 'tool-road'; break;
-        case '3': toolId = 'tool-residential'; break;
-        case '4': toolId = 'tool-commercial'; break;
-        case '5': toolId = 'tool-industrial'; break;
-        case '6': toolId = 'tool-power'; break;
-        case '7': toolId = 'tool-water'; break;
-        case '8': toolId = 'tool-park'; break;
-        case '9': toolId = 'tool-boardwalk'; break;
-        case '0': toolId = 'tool-water-body'; break;
-        case 'b': toolId = 'tool-bulldoze'; break;
-        case '[': toolId = 'tool-raise'; break;
-        case ']': toolId = 'tool-lower'; break;
-      }
-      if (toolId) {
-        const btn = document.getElementById(toolId);
-        btn?.click();
-      }
     });
   }
 
@@ -601,16 +616,26 @@ export class Game {
     if (fillI) fillI.style.width = `${Math.max(0, Math.min(100, (this.sim.demandI + 100) / 2))}%`;
 
     // 3. Status card metrics
+    let total = 0;
+    let powered = 0;
+    let watered = 0;
+
+    for (const key in this.sim.tileCaches) {
+      if (key !== 'empty' && key !== 'road') {
+        const list = this.sim.tileCaches[key as TileType];
+        if (list) {
+          total += list.length;
+          for (let i = 0; i < list.length; i++) {
+            const tile = list[i];
+            if (tile.powered) powered++;
+            if (tile.watered) watered++;
+          }
+        }
+      }
+    }
+
     const powerEl = document.getElementById('status-power');
     if (powerEl) {
-      // Basic check: percentage of zoned cells powered
-      let total = 0, powered = 0;
-      this.sim.grid.forEach(row => row.forEach(tile => {
-        if (tile.type !== 'empty' && tile.type !== 'road') {
-          total++;
-          if (tile.powered) powered++;
-        }
-      }));
       const pct = total > 0 ? Math.round((powered / total) * 100) : 100;
       powerEl.innerText = `${pct}%`;
       powerEl.className = pct < 90 ? 'negative' : '';
@@ -618,13 +643,6 @@ export class Game {
 
     const waterEl = document.getElementById('status-water');
     if (waterEl) {
-      let total = 0, watered = 0;
-      this.sim.grid.forEach(row => row.forEach(tile => {
-        if (tile.type !== 'empty' && tile.type !== 'road') {
-          total++;
-          if (tile.watered) watered++;
-        }
-      }));
       const pct = total > 0 ? Math.round((watered / total) * 100) : 100;
       waterEl.innerText = `${pct}%`;
       waterEl.className = pct < 90 ? 'negative' : '';
@@ -806,11 +824,11 @@ export class Game {
           ${occupants.map(c => `
             <div class="occupant-card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
               <div style="display: flex; justify-content: space-between; font-weight: 500; font-size: 0.95rem; color: #f1f3f5;">
-                <span>${c.profile.firstName} ${c.profile.lastName}</span>
+                <span>${escapeHTML(c.profile.firstName)} ${escapeHTML(c.profile.lastName)}</span>
                 <span style="color: #60a5fa; font-size: 0.8rem;">Age ${c.profile.age}</span>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #94a3b8;">
-                <span>Job: ${c.profile.job}</span>
+                <span>Job: ${escapeHTML(c.profile.job)}</span>
                 <span style="color: ${c.profile.happiness >= 75 ? '#4ade80' : c.profile.happiness >= 50 ? '#f59e0b' : '#ef4444'};">😊 ${c.profile.happiness}%</span>
               </div>
             </div>
@@ -871,14 +889,28 @@ export class Game {
     }
   }
 
+  migrateSaveKeys() {
+    try {
+      const sereneSave = localStorage.getItem('serene_valley_save');
+      const naboSave = localStorage.getItem('nabocity_save');
+      if (sereneSave && !naboSave) {
+        localStorage.setItem('nabocity_save', sereneSave);
+        localStorage.removeItem('serene_valley_save');
+        console.log('Migrated serene_valley_save to nabocity_save');
+      } else if (sereneSave && naboSave) {
+        localStorage.removeItem('serene_valley_save');
+        console.log('Consolidated and removed duplicate serene_valley_save');
+      }
+    } catch (e) {
+      console.error('Failed to migrate/consolidate legacy save keys:', e);
+    }
+  }
+
   loadGame() {
     this.sounds.playClickSFX();
     let saveData: string | null = null;
     try {
       saveData = localStorage.getItem('nabocity_save');
-      if (!saveData) {
-        saveData = localStorage.getItem('serene_valley_save');
-      }
     } catch (e) {
       console.error('Failed to load game from localStorage:', e);
       this.sim.onNotification('Failed to load neighborhood: storage access disabled.', 'danger');

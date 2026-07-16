@@ -52,9 +52,48 @@ export class Renderer {
   clearAllBuildings() {
     this.buildingMeshes.forEach((mesh) => {
       this.scene.remove(mesh);
+      this.disposeObject3D(mesh);
     });
     this.buildingMeshes.clear();
     this.turbineRotors.clear();
+  }
+
+  disposeObject3D(object: THREE.Object3D) {
+    const sharedGeometries = new Set(Object.values(this.assets.geometries));
+    const sharedMaterials = new Set<THREE.Material>();
+    
+    // Collect all shared materials
+    Object.values(this.assets.materials).forEach(m => sharedMaterials.add(m));
+    this.assets.palettes.forEach(p => {
+      sharedMaterials.add(p.wall);
+      sharedMaterials.add(p.roof);
+      sharedMaterials.add(p.trim);
+      sharedMaterials.add(p.brick);
+    });
+    this.assets.commercialPalettes.forEach(p => {
+      sharedMaterials.add(p.wall);
+      sharedMaterials.add(p.roof);
+      sharedMaterials.add(p.trim);
+      sharedMaterials.add(p.accent);
+      sharedMaterials.add(p.brick);
+    });
+
+    object.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        if (node.geometry && !sharedGeometries.has(node.geometry)) {
+          node.geometry.dispose();
+        }
+        
+        if (node.material) {
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          mats.forEach(mat => {
+            if (!sharedMaterials.has(mat)) {
+              mat.dispose();
+            }
+          });
+        }
+      }
+    });
   }
 
   // Particle System (Chimney Smoke)
@@ -698,6 +737,7 @@ export class Renderer {
       }
 
       this.scene.remove(oldMesh);
+      this.disposeObject3D(oldMesh);
       this.buildingMeshes.delete(key);
       this.turbineRotors.delete(key);
     }
@@ -822,6 +862,7 @@ export class Renderer {
 
     if (oldMesh) {
       this.scene.remove(oldMesh);
+      this.disposeObject3D(oldMesh);
       this.buildingMeshes.delete(key);
       this.turbineRotors.delete(key);
     }

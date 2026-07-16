@@ -10,6 +10,8 @@ export type TileType =
   | 'water_body'
   | 'boardwalk';
 
+export const CURRENT_SAVE_VERSION = 1;
+
 export interface TileState {
   x: number;
   y: number;
@@ -765,6 +767,7 @@ export class Simulation {
 
   saveState(): string {
     const state = {
+      version: CURRENT_SAVE_VERSION,
       seed: this.seed,
       money: this.money,
       taxRate: this.taxRate,
@@ -798,6 +801,12 @@ export class Simulation {
     try {
       const state = JSON.parse(jsonString);
       if (!state || !state.grid || !Array.isArray(state.grid)) return false;
+
+      const version = state.version !== undefined ? state.version : 0;
+      if (version > CURRENT_SAVE_VERSION) {
+        this.onNotification(`Failed to load: save file is from a newer version (v${version}) of the game.`, 'danger');
+        return false;
+      }
 
       // Validate grid dimensions and cell presence before mutating any simulation state
       if (state.grid.length < this.gridSize) return false;
