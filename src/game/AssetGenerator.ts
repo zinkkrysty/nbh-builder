@@ -66,6 +66,12 @@ export class AssetGenerator {
 
   mergeMeshesByMaterial(group: THREE.Group): THREE.Group {
     const mergedGroup = new THREE.Group();
+    mergedGroup.position.copy(group.position);
+    mergedGroup.rotation.copy(group.rotation);
+    mergedGroup.scale.copy(group.scale);
+    mergedGroup.name = group.name;
+    Object.assign(mergedGroup.userData, group.userData);
+
     const materialGroups = new Map<THREE.Material, { geometries: THREE.BufferGeometry[] }>();
     const dynamicObjects: THREE.Object3D[] = [];
 
