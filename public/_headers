@@ -1,9 +1,0 @@
-# Cache all Vite assets (JS, CSS) for 1 year since they are content-hashed
-/assets/*
-  Cache-Control: public, max-age=31536000, immutable
-
-# Cache static images and icons for 1 week
-/*.png
-  Cache-Control: public, max-age=604800
-/*.jpg
-  Cache-Control: public, max-age=604800
