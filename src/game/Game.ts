@@ -38,9 +38,7 @@ export class Game {
     this.sim = new Simulation();
     this.assets = new AssetGenerator();
     this.assets.sim = this.sim;
-    this.renderer = new Renderer('canvas-container', this.assets);
-    this.renderer.sim = this.sim;
-    this.renderer.rebuildTrees();
+    this.renderer = new Renderer('canvas-container', this.assets, this.sim);
     
     const canvas = this.renderer.renderer.domElement;
     this.input = new InputManager(canvas, this.renderer.camera, this.renderer.scene);

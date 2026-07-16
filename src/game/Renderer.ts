@@ -276,9 +276,10 @@ export class Renderer {
   isDragging = false;
   previousMousePosition = { x: 0, y: 0 };
 
-  constructor(containerId: string, assets: AssetGenerator) {
+  constructor(containerId: string, assets: AssetGenerator, sim: Simulation) {
     this.container = document.getElementById(containerId)!;
     this.assets = assets;
+    this.sim = sim;
 
     this.initParticles();
     this.initScene();
