@@ -34,6 +34,35 @@ export class Renderer {
   // Lights
   dirLight!: THREE.DirectionalLight;
   ambientLight!: THREE.AmbientLight;
+  currentSunOffset = new THREE.Vector3(30, 40, 15);
+  renderTimeOfDay = 8.0;
+
+  // Simulation tick interpolation tracking
+  lastTickTime = 0;
+  tickDuration = 2000;
+  lastTickTimeOfDay = 8.0;
+  targetTickTimeOfDay = 8.0;
+  isInterpolating = false;
+
+  // Shadow Settings State
+  shadowSettings = {
+    castShadows: true,
+    shadowMapType: THREE.PCFSoftShadowMap as THREE.ShadowMapType,
+    shadowMapSize: 1024,
+    bias: 0.0004,
+    normalBias: 0.1,
+    frustumSize: 10,
+    near: 0.5,
+    far: 130,
+    autoFitFrustum: true,
+    overrideSun: false,
+    sunAzimuth: 45,
+    sunElevation: 50,
+    sunColor: '#fffaf0',
+    sunIntensity: 1.2,
+    ambientColor: '#ffffff',
+    ambientIntensity: 0.6,
+  };
 
   // Optimizations
   groundMesh!: THREE.InstancedMesh;
@@ -56,6 +85,127 @@ export class Renderer {
     });
     this.buildingMeshes.clear();
     this.turbineRotors.clear();
+  }
+
+  updateShadowSettings(updates: Partial<typeof this.shadowSettings>) {
+    this.shadowSettings = { ...this.shadowSettings, ...updates };
+
+    if (!this.dirLight || !this.renderer) return;
+
+    if (updates.castShadows !== undefined) {
+      this.dirLight.castShadow = this.shadowSettings.castShadows;
+    }
+
+    if (updates.shadowMapType !== undefined) {
+      this.renderer.shadowMap.type = this.shadowSettings.shadowMapType;
+      
+      // Force all materials in scene to recompile to take new shadow mapping shader path
+      this.scene.traverse((node) => {
+        if (node instanceof THREE.Mesh || node instanceof THREE.InstancedMesh) {
+          if (node.material) {
+            if (Array.isArray(node.material)) {
+              node.material.forEach(m => m.needsUpdate = true);
+            } else {
+              node.material.needsUpdate = true;
+            }
+          }
+        }
+      });
+    }
+
+    if (updates.shadowMapSize !== undefined) {
+      if (this.dirLight.shadow.map) {
+        this.dirLight.shadow.map.dispose();
+        this.dirLight.shadow.map = null as any;
+      }
+      this.dirLight.shadow.mapSize.width = this.shadowSettings.shadowMapSize;
+      this.dirLight.shadow.mapSize.height = this.shadowSettings.shadowMapSize;
+    }
+
+    if (updates.bias !== undefined) {
+      this.dirLight.shadow.bias = this.shadowSettings.bias;
+    }
+    if (updates.normalBias !== undefined) {
+      this.dirLight.shadow.normalBias = this.shadowSettings.normalBias;
+    }
+
+    let camNeedsUpdate = false;
+    if (updates.frustumSize !== undefined && !this.shadowSettings.autoFitFrustum) {
+      const d = this.shadowSettings.frustumSize;
+      this.dirLight.shadow.camera.left = -d;
+      this.dirLight.shadow.camera.right = d;
+      this.dirLight.shadow.camera.top = d;
+      this.dirLight.shadow.camera.bottom = -d;
+      camNeedsUpdate = true;
+    }
+    if (updates.near !== undefined) {
+      this.dirLight.shadow.camera.near = this.shadowSettings.near;
+      camNeedsUpdate = true;
+    }
+    if (updates.far !== undefined) {
+      this.dirLight.shadow.camera.far = this.shadowSettings.far;
+      camNeedsUpdate = true;
+    }
+
+    if (camNeedsUpdate) {
+      this.dirLight.shadow.camera.updateProjectionMatrix();
+    }
+
+    if (updates.autoFitFrustum !== undefined) {
+      if (this.shadowSettings.autoFitFrustum) {
+        this.updateShadowFrustum();
+      } else {
+        // Fall back to current manual frustumSize setting
+        const d = this.shadowSettings.frustumSize;
+        this.dirLight.shadow.camera.left = -d;
+        this.dirLight.shadow.camera.right = d;
+        this.dirLight.shadow.camera.top = d;
+        this.dirLight.shadow.camera.bottom = -d;
+        this.dirLight.shadow.camera.updateProjectionMatrix();
+      }
+    }
+
+    // Update coordinates and illumination intensities instantly
+    this.updateDayNightCycle(this.renderTimeOfDay);
+  }
+
+  updateShadowFrustum() {
+    if (!this.dirLight || !this.renderer) return;
+
+    if (this.shadowSettings.autoFitFrustum) {
+      // Calculate screen dimensions in world space based on orthographic zoom and aspect ratio
+      const aspect = this.container.clientWidth / this.container.clientHeight;
+      const screenFrustum = 1000 / this.cameraZoom;
+
+      const halfWidth = (screenFrustum * aspect) / 2;
+      const halfHeight = screenFrustum / 2;
+      const maxHalfDim = Math.max(halfWidth, halfHeight);
+
+      // Add a 20% margin to prevent edge-clipping of tall buildings casting offscreen shadows
+      const d = maxHalfDim * 1.2;
+      
+      this.shadowSettings.frustumSize = Math.round(d);
+
+      this.dirLight.shadow.camera.left = -d;
+      this.dirLight.shadow.camera.right = d;
+      this.dirLight.shadow.camera.top = d;
+      this.dirLight.shadow.camera.bottom = -d;
+      this.dirLight.shadow.camera.updateProjectionMatrix();
+    }
+  }
+
+  onSimulationTick(lastTime: number, targetTime: number) {
+    this.lastTickTime = performance.now();
+    this.lastTickTimeOfDay = lastTime;
+    this.targetTickTimeOfDay = targetTime;
+    this.isInterpolating = true;
+  }
+
+  resetInterpolation(time: number) {
+    this.renderTimeOfDay = time;
+    this.lastTickTimeOfDay = time;
+    this.targetTickTimeOfDay = time;
+    this.isInterpolating = false;
   }
 
   disposeObject3D(object: THREE.Object3D) {
@@ -111,6 +261,9 @@ export class Renderer {
   private tempForward = new THREE.Vector3();
   private tempRight = new THREE.Vector3();
   private tempMoveDir = new THREE.Vector3();
+  private tempLightMatrix = new THREE.Matrix4();
+  private tempTargetLightSpace = new THREE.Vector3();
+  private tempUp = new THREE.Vector3(0, 1, 0);
 
   // Smooth camera destination states
   desiredCameraTarget = new THREE.Vector3(0, 0, 0);
@@ -200,26 +353,27 @@ export class Renderer {
 
   initLights() {
     // Ambient Light (soft room glow)
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, this.shadowSettings.ambientIntensity);
     this.scene.add(this.ambientLight);
 
     // Directional Sun Light (casts shadows)
-    this.dirLight = new THREE.DirectionalLight(0xfffaf0, 1.2);
+    this.dirLight = new THREE.DirectionalLight(0xfffaf0, this.shadowSettings.sunIntensity);
     this.dirLight.position.set(40, 50, 20);
-    this.dirLight.castShadow = true;
+    this.dirLight.castShadow = this.shadowSettings.castShadows;
 
     // High quality soft shadows settings
-    this.dirLight.shadow.mapSize.width = 2048;
-    this.dirLight.shadow.mapSize.height = 2048;
-    this.dirLight.shadow.camera.near = 0.5;
-    this.dirLight.shadow.camera.far = 200;
+    this.dirLight.shadow.mapSize.width = this.shadowSettings.shadowMapSize;
+    this.dirLight.shadow.mapSize.height = this.shadowSettings.shadowMapSize;
+    this.dirLight.shadow.camera.near = this.shadowSettings.near;
+    this.dirLight.shadow.camera.far = this.shadowSettings.far;
 
-    const d = 60;
+    const d = this.shadowSettings.frustumSize;
     this.dirLight.shadow.camera.left = -d;
     this.dirLight.shadow.camera.right = d;
     this.dirLight.shadow.camera.top = d;
     this.dirLight.shadow.camera.bottom = -d;
-    this.dirLight.shadow.bias = -0.0005;
+    this.dirLight.shadow.bias = this.shadowSettings.bias;
+    this.dirLight.shadow.normalBias = this.shadowSettings.normalBias;
 
     this.scene.add(this.dirLight);
   }
@@ -512,12 +666,42 @@ export class Renderer {
 
     // Adjust shadow camera to follow target area
     if (this.dirLight) {
+      this.updateShadowFrustum();
+      // 1. Establish basic direction vectors by pointing light at camera target
       this.dirLight.target.position.copy(this.cameraTarget);
       this.dirLight.position.set(
-        this.cameraTarget.x + 30,
-        this.cameraTarget.y + 40,
-        this.cameraTarget.z + 15
+        this.cameraTarget.x + this.currentSunOffset.x,
+        this.cameraTarget.y + this.currentSunOffset.y,
+        this.cameraTarget.z + this.currentSunOffset.z
       );
+      this.dirLight.target.updateMatrixWorld();
+
+      // 2. Perform Texel Snapping to align shadow map grid with screen pixels during camera movement/rotation
+      // Compute the orientation matrix of the light
+      this.tempLightMatrix.lookAt(this.dirLight.position, this.dirLight.target.position, this.tempUp);
+
+      // Transform camera target position to light space
+      this.tempTargetLightSpace.copy(this.cameraTarget).applyMatrix4(this.tempLightMatrix);
+
+      // Calculate size of one shadow map texel in world space units
+      const d = this.shadowSettings.frustumSize;
+      const texelSize = (d * 2) / this.shadowSettings.shadowMapSize;
+
+      // Snap coordinates to nearest texel boundaries
+      this.tempTargetLightSpace.x = Math.round(this.tempTargetLightSpace.x / texelSize) * texelSize;
+      this.tempTargetLightSpace.y = Math.round(this.tempTargetLightSpace.y / texelSize) * texelSize;
+
+      // Convert the snapped coordinates back to world space
+      const snappedTarget = this.tempTargetLightSpace.applyMatrix4(this.tempLightMatrix.invert());
+
+      // Update light target and light position to snapped coordinates
+      this.dirLight.target.position.copy(snappedTarget);
+      this.dirLight.position.set(
+        snappedTarget.x + this.currentSunOffset.x,
+        snappedTarget.y + this.currentSunOffset.y,
+        snappedTarget.z + this.currentSunOffset.z
+      );
+      
       this.dirLight.target.updateMatrixWorld();
     }
   }
@@ -964,14 +1148,101 @@ export class Renderer {
 
   // Day/Night transitions updating lights and sky color
   updateDayNightCycle(timeOfDay: number) {
-    // Normalise time to angle: sunrise at 6:00, noon 12:00, sunset 18:00, midnight 00:00
-    const timeRad = ((timeOfDay - 6) / 24) * Math.PI * 2;
+    let sunX = 40;
+    let sunY = 50;
+    let sunZ = 20;
+    
+    let skyColor = new THREE.Color(0xa5f3fc); // Day
+    let ambientIntensity = 0.6;
+    let sunIntensity = 1.2;
+    let sunColor = new THREE.Color(0xfffaf0);
+    let fogColor = new THREE.Color(0xa5f3fc);
+    let ambientColor = new THREE.Color(0xffffff);
 
-    // Rotate Sun Position
-    const sunRadius = 60;
-    const sunX = Math.cos(timeRad) * sunRadius;
-    const sunY = Math.sin(timeRad) * sunRadius;
-    const sunZ = Math.sin(timeRad * 0.5) * 20; // Slight side wobble
+    if (this.shadowSettings.overrideSun) {
+      // Calculate coordinates from azimuth & elevation
+      const azimuthRad = (this.shadowSettings.sunAzimuth * Math.PI) / 180;
+      const elevationRad = (this.shadowSettings.sunElevation * Math.PI) / 180;
+      const sunRadius = 60;
+
+      sunY = Math.sin(elevationRad) * sunRadius;
+      const horiz = Math.cos(elevationRad) * sunRadius;
+      sunX = Math.cos(azimuthRad) * horiz;
+      sunZ = Math.sin(azimuthRad) * horiz;
+
+      sunColor.setStyle(this.shadowSettings.sunColor);
+      sunIntensity = this.shadowSettings.sunIntensity;
+      
+      ambientColor.setStyle(this.shadowSettings.ambientColor);
+      ambientIntensity = this.shadowSettings.ambientIntensity;
+
+      // Adjust sky and fog based on elevation to keep scene immersive
+      const elevDeg = this.shadowSettings.sunElevation;
+      if (elevDeg < 5) {
+        // Night
+        skyColor.setHex(0x0f172a);
+        fogColor.setHex(0x0f172a);
+        this.assets.setNightMode(true);
+      } else if (elevDeg < 20) {
+        // Sunrise / Sunset transition
+        const t = (elevDeg - 5) / 15;
+        skyColor.lerpColors(new THREE.Color(0x1e1b4b), new THREE.Color(0xfdba74), t);
+        fogColor.copy(skyColor);
+        this.assets.setNightMode(false);
+      } else {
+        // Day
+        skyColor.setHex(0xbae6fd);
+        fogColor.setHex(0xbae6fd);
+        this.assets.setNightMode(false);
+      }
+    } else {
+      // Normalise time to angle: sunrise at 6:00, noon 12:00, sunset 18:00, midnight 00:00
+      const timeRad = ((timeOfDay - 6) / 24) * Math.PI * 2;
+
+      // Rotate Sun Position
+      const sunRadius = 60;
+      sunX = Math.cos(timeRad) * sunRadius;
+      sunY = Math.sin(timeRad) * sunRadius;
+      sunZ = Math.sin(timeRad * 0.5) * 20; // Slight side wobble
+
+      if (timeOfDay >= 18.0 && timeOfDay < 20.0) {
+        // Dusk / Sunset
+        const t = (timeOfDay - 18.0) / 2.0;
+        skyColor.lerpColors(new THREE.Color(0xfdba74), new THREE.Color(0x1e1b4b), t); // Sunset orange to night purple
+        sunColor.lerpColors(new THREE.Color(0xf97316), new THREE.Color(0x020617), t);
+        fogColor.copy(skyColor);
+        sunIntensity = 1.2 * (1 - t);
+        ambientIntensity = 0.6 - 0.4 * t;
+        this.assets.setNightMode(true);
+      } else if (timeOfDay >= 20.0 || timeOfDay < 5.0) {
+        // Night
+        skyColor.setHex(0x0f172a); // Deep blue-black
+        sunIntensity = 0.0;
+        ambientIntensity = 0.15;
+        fogColor.setHex(0x0f172a);
+        this.assets.setNightMode(true);
+      } else if (timeOfDay >= 5.0 && timeOfDay < 7.0) {
+        // Dawn / Sunrise
+        const t = (timeOfDay - 5.0) / 2.0;
+        skyColor.lerpColors(new THREE.Color(0x1e1b4b), new THREE.Color(0xfdba74), t); // Night to dawn peach
+        sunColor.lerpColors(new THREE.Color(0x0c4a6e), new THREE.Color(0xfacc15), t);
+        fogColor.copy(skyColor);
+        sunIntensity = 1.0 * t;
+        ambientIntensity = 0.15 + 0.45 * t;
+        this.assets.setNightMode(false);
+      } else {
+        // Day (7.0 to 18.0)
+        skyColor.setHex(0xbae6fd); // Bright sunny day sky
+        sunIntensity = 1.3;
+        ambientIntensity = 0.65;
+        sunColor.setHex(0xfffaf0);
+        fogColor.setHex(0xbae6fd);
+        this.assets.setNightMode(false);
+      }
+    }
+
+    // Cache the calculated offset for the render loop / camera position update
+    this.currentSunOffset.set(sunX, Math.max(1.0, sunY), sunZ);
 
     if (this.dirLight) {
       this.dirLight.position.set(
@@ -984,48 +1255,6 @@ export class Renderer {
       this.dirLight.target.updateMatrixWorld();
     }
 
-    // Determine phase for colors
-    let skyColor = new THREE.Color(0xa5f3fc); // Day
-    let ambientIntensity = 0.6;
-    let sunIntensity = 1.2;
-    let sunColor = new THREE.Color(0xfffaf0);
-    let fogColor = new THREE.Color(0xa5f3fc);
-
-    if (timeOfDay >= 18.0 && timeOfDay < 20.0) {
-      // Dusk / Sunset
-      const t = (timeOfDay - 18.0) / 2.0;
-      skyColor.lerpColors(new THREE.Color(0xfdba74), new THREE.Color(0x1e1b4b), t); // Sunset orange to night purple
-      sunColor.lerpColors(new THREE.Color(0xf97316), new THREE.Color(0x020617), t);
-      fogColor.copy(skyColor);
-      sunIntensity = 1.2 * (1 - t);
-      ambientIntensity = 0.6 - 0.4 * t;
-      this.assets.setNightMode(true);
-    } else if (timeOfDay >= 20.0 || timeOfDay < 5.0) {
-      // Night
-      skyColor.setHex(0x0f172a); // Deep blue-black
-      sunIntensity = 0.0;
-      ambientIntensity = 0.15;
-      fogColor.setHex(0x0f172a);
-      this.assets.setNightMode(true);
-    } else if (timeOfDay >= 5.0 && timeOfDay < 7.0) {
-      // Dawn / Sunrise
-      const t = (timeOfDay - 5.0) / 2.0;
-      skyColor.lerpColors(new THREE.Color(0x1e1b4b), new THREE.Color(0xfdba74), t); // Night to dawn peach
-      sunColor.lerpColors(new THREE.Color(0x0c4a6e), new THREE.Color(0xfacc15), t);
-      fogColor.copy(skyColor);
-      sunIntensity = 1.0 * t;
-      ambientIntensity = 0.15 + 0.45 * t;
-      this.assets.setNightMode(false);
-    } else {
-      // Day (7.0 to 18.0)
-      skyColor.setHex(0xbae6fd); // Bright sunny day sky
-      sunIntensity = 1.3;
-      ambientIntensity = 0.65;
-      sunColor.setHex(0xfffaf0);
-      fogColor.setHex(0xbae6fd);
-      this.assets.setNightMode(false);
-    }
-
     if (this.scene) {
       this.scene.background = skyColor;
       if (this.scene.fog instanceof THREE.FogExp2) {
@@ -1033,7 +1262,7 @@ export class Renderer {
       }
     }
     if (this.ambientLight) {
-      this.ambientLight.color.setHex(0xffffff);
+      this.ambientLight.color.copy(ambientColor);
       this.ambientLight.intensity = ambientIntensity;
     }
     if (this.dirLight) {
@@ -1044,6 +1273,46 @@ export class Renderer {
 
   // Animation ticks for particles and spinning turbines
   animate(timeStep: number) {
+    // 0. Smoothly interpolate renderTimeOfDay to catch up with simulation timeOfDay in real-time
+    if (this.sim) {
+      if (this.sim.speed === 0) {
+        this.renderTimeOfDay = this.sim.timeOfDay;
+        this.isInterpolating = false;
+      } else {
+        const baseInterval = 2000;
+        this.tickDuration = baseInterval / this.sim.speed;
+
+        if (this.isInterpolating) {
+          const now = performance.now();
+          const elapsed = now - this.lastTickTime;
+          const progress = Math.min(1.0, elapsed / this.tickDuration);
+
+          // Calculate circular diff
+          let diff = this.targetTickTimeOfDay - this.lastTickTimeOfDay;
+          if (diff > 12) {
+            diff -= 24;
+          } else if (diff < -12) {
+            diff += 24;
+          }
+
+          this.renderTimeOfDay = this.lastTickTimeOfDay + progress * diff;
+
+          // Enforce 0-24 bounds
+          if (this.renderTimeOfDay >= 24) this.renderTimeOfDay -= 24;
+          if (this.renderTimeOfDay < 0) this.renderTimeOfDay += 24;
+
+          if (progress >= 1.0) {
+            this.isInterpolating = false;
+          }
+        } else {
+          this.renderTimeOfDay = this.sim.timeOfDay;
+        }
+      }
+      
+      // Update lights, colors, sky, fog and shadow coordinates at 60 FPS
+      this.updateDayNightCycle(this.renderTimeOfDay);
+    }
+
     // 1. Update particles (physics simulation)
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -1176,5 +1445,6 @@ export class Renderer {
     if (this.composer) {
       this.composer.setSize(this.container.clientWidth, this.container.clientHeight);
     }
+    this.updateShadowFrustum();
   }
 }

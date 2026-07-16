@@ -184,6 +184,13 @@
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
             </button>
+            <button id="item-toggle-shadow-sandbox" class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; padding: 10px 12px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; transition: background 0.15s;">
+              <span style="font-size: 1.1rem; width: 20px; display: inline-block; text-align: center;">👥</span>
+              <span style="flex: 1;">Shadow Settings Sandbox</span>
+              <svg class="active-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; color: #60a5fa; margin-left: auto; opacity: 0; transition: opacity 0.15s;">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
             <a href="/assets.html" target="_blank" class="dropdown-item" style="display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 10px 12px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 0.85rem; text-decoration: none; cursor: pointer; transition: background 0.15s;">
               <span style="font-size: 1.1rem; width: 20px; display: inline-block; text-align: center;">📚</span>
               <span>Visual Asset Catalog</span>
@@ -350,7 +357,7 @@
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.75rem; margin-bottom: 0.25rem;">
         <span style="font-size: 0.85rem; font-weight: 500; color: #fff;">Enable Cel Shading</span>
         <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px; flex-shrink: 0;">
-          <input type="checkbox" id="panel-cel-toggle" style="opacity: 0; width: 0; height: 0;">
+          <input type="checkbox" id="panel-cel-toggle" checked style="opacity: 0; width: 0; height: 0;">
           <span class="slider-round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .2s; border-radius: 34px; border: 1px solid rgba(255,255,255,0.08);"></span>
         </label>
       </div>
@@ -380,6 +387,174 @@
         <button id="btn-sandbox-preset-linear" class="small-btn" style="flex: 1; padding: 6px; font-size: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #fff; cursor: pointer;">Linear</button>
         <button id="btn-sandbox-preset-bell" class="small-btn" style="flex: 1; padding: 6px; font-size: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #fff; cursor: pointer;">Bell Shape</button>
         <button id="btn-sandbox-preset-ushape" class="small-btn" style="flex: 1; padding: 6px; font-size: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #fff; cursor: pointer;">U-Shape</button>
+      </div>
+    </div>
+
+    <!-- Shadow Settings Sandbox Panel -->
+    <div id="shadow-sandbox" class="glass hidden" style="position: absolute; top: 160px; right: 340px; width: 320px; z-index: 90; padding: 1.25rem; border-radius: 16px; display: flex; flex-direction: column; gap: 0.85rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); max-height: 80vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem;">
+        <h3 style="margin: 0; font-size: 1.05rem; font-weight: 600; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
+          👥 Shadow Settings
+        </h3>
+        <button id="btn-shadow-close" style="background: none; border: none; color: #94a3b8; font-size: 1.25rem; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.15s; margin-left: auto;">&times;</button>
+      </div>
+
+      <!-- Enable Shadows -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.6rem;">
+        <span style="font-size: 0.85rem; font-weight: 500; color: #fff;">Enable Shadows</span>
+        <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px; flex-shrink: 0;">
+          <input type="checkbox" id="panel-shadow-toggle" checked style="opacity: 0; width: 0; height: 0;">
+          <span class="slider-round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .2s; border-radius: 34px; border: 1px solid rgba(255,255,255,0.08);"></span>
+        </label>
+      </div>
+
+      <!-- Shadow Map Type -->
+      <div class="control-group" style="display: flex; flex-direction: column; gap: 0.25rem;">
+        <label for="shadow-type-select" style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Shadow Filter Type</label>
+        <select id="shadow-type-select" style="width: 100%; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(18, 22, 33, 0.6); color: #fff; font-family: inherit; font-size: 0.85rem; cursor: pointer; outline: none;">
+          <option value="basic">Basic Shadow Map</option>
+          <option value="pcf">PCF Shadow Map</option>
+          <option value="pcfsoft" selected>PCF Soft Shadow Map</option>
+          <option value="vsm">VSM Shadow Map</option>
+        </select>
+      </div>
+
+      <!-- Shadow Resolution -->
+      <div class="control-group" style="display: flex; flex-direction: column; gap: 0.25rem;">
+        <label for="shadow-res-select" style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Map Resolution</label>
+        <select id="shadow-res-select" style="width: 100%; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(18, 22, 33, 0.6); color: #fff; font-family: inherit; font-size: 0.85rem; cursor: pointer; outline: none;">
+          <option value="512">512 x 512</option>
+          <option value="1024" selected>1024 x 1024</option>
+          <option value="2048">2048 x 2048</option>
+          <option value="4096">4096 x 4096</option>
+        </select>
+      </div>
+
+      <!-- Sliders for Shadow Properties -->
+      <div style="display: flex; flex-direction: column; gap: 0.6rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.6rem;">
+        
+        <!-- Bias -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Shadow Bias</span>
+            <span id="val-shadow-bias">0.0004</span>
+          </div>
+          <input type="range" id="slider-shadow-bias" min="-0.01" max="0.01" step="0.0001" value="0.0004" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Normal Bias -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Normal Bias</span>
+            <span id="val-shadow-normal-bias">0.1</span>
+          </div>
+          <input type="range" id="slider-shadow-normal-bias" min="0" max="0.1" step="0.001" value="0.1" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Auto-Fit Frustum Toggle -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.25rem;">
+          <span style="font-size: 0.85rem; font-weight: 500; color: #fff;">Auto-Fit Frustum to View</span>
+          <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px; flex-shrink: 0;">
+            <input type="checkbox" id="panel-autofit-frustum" checked style="opacity: 0; width: 0; height: 0;">
+            <span class="slider-round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .2s; border-radius: 34px; border: 1px solid rgba(255,255,255,0.08);"></span>
+          </label>
+        </div>
+
+        <!-- Frustum Size -->
+        <div id="shadow-frustum-control-group" style="display: flex; flex-direction: column; gap: 2px; transition: opacity 0.2s;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Camera Frustum Size</span>
+            <span id="val-shadow-frustum">10</span>
+          </div>
+          <input type="range" id="slider-shadow-frustum" min="10" max="200" step="1" value="10" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Near Plane -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Camera Near Plane</span>
+            <span id="val-shadow-near">0.5</span>
+          </div>
+          <input type="range" id="slider-shadow-near" min="0.1" max="20" step="0.1" value="0.5" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Far Plane -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Camera Far Plane</span>
+            <span id="val-shadow-far">130</span>
+          </div>
+          <input type="range" id="slider-shadow-far" min="20" max="500" step="5" value="130" style="width: 100%; cursor: pointer;">
+        </div>
+      </div>
+
+      <!-- Sun Overrides Section -->
+      <div style="display: flex; flex-direction: column; gap: 0.6rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.6rem;">
+        
+        <!-- Enable Sun Override -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.25rem;">
+          <span style="font-size: 0.85rem; font-weight: 500; color: #fff;">Override Sun Direction</span>
+          <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px; flex-shrink: 0;">
+            <input type="checkbox" id="panel-override-sun" style="opacity: 0; width: 0; height: 0;">
+            <span class="slider-round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .2s; border-radius: 34px; border: 1px solid rgba(255,255,255,0.08);"></span>
+          </label>
+        </div>
+
+        <!-- Override group -->
+        <div id="sun-override-group" style="display: flex; flex-direction: column; gap: 0.6rem; opacity: 0.5; pointer-events: none; transition: opacity 0.2s;">
+          <!-- Azimuth -->
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+              <span>Sun Azimuth</span>
+              <span id="val-sun-azimuth">45°</span>
+            </div>
+            <input type="range" id="slider-sun-azimuth" min="0" max="360" step="1" value="45" style="width: 100%; cursor: pointer;">
+          </div>
+
+          <!-- Elevation -->
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+              <span>Sun Elevation</span>
+              <span id="val-sun-elevation">50°</span>
+            </div>
+            <input type="range" id="slider-sun-elevation" min="0" max="90" step="1" value="50" style="width: 100%; cursor: pointer;">
+          </div>
+
+          <!-- Light Intensities -->
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+              <span>Sun Intensity</span>
+              <span id="val-sun-intensity">1.2</span>
+            </div>
+            <input type="range" id="slider-sun-intensity" min="0" max="3" step="0.1" value="1.2" style="width: 100%; cursor: pointer;">
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+              <span>Ambient Intensity</span>
+              <span id="val-ambient-intensity">0.6</span>
+            </div>
+            <input type="range" id="slider-ambient-intensity" min="0" max="2" step="0.1" value="0.6" style="width: 100%; cursor: pointer;">
+          </div>
+
+          <!-- Colors -->
+          <div style="display: flex; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+              <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Sun Color</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="picker-sun-color" value="#fffaf0" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
+                <span id="text-sun-color" style="font-size: 0.75rem; font-family: monospace; color: #fff;">#fffaf0</span>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+              <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Ambient Color</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="picker-ambient-color" value="#ffffff" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
+                <span id="text-ambient-color" style="font-size: 0.75rem; font-family: monospace; color: #ffffff;">#ffffff</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

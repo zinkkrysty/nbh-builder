@@ -5,6 +5,7 @@ import { AssetGenerator } from './AssetGenerator';
 import { SoundManager } from './SoundManager';
 import { TrafficManager } from './TrafficManager';
 import { CitizenManager } from './CitizenManager';
+import * as THREE from 'three';
 
 function escapeHTML(str: string): string {
   if (!str) return '';
@@ -52,6 +53,7 @@ export class Game {
 
     this.setupBindings();
     this.initCelSandbox();
+    this.initShadowSandbox();
     this.initDevDropdown();
     this.startLoops();
     this.updateAudioButtonsUI();
@@ -582,10 +584,302 @@ export class Game {
     renderSliders();
   }
 
+  initShadowSandbox() {
+    const shadowSandbox = document.getElementById('shadow-sandbox');
+    const btnClose = document.getElementById('btn-shadow-close');
+    const panelToggle = document.getElementById('panel-shadow-toggle') as HTMLInputElement | null;
+    const typeSelect = document.getElementById('shadow-type-select') as HTMLSelectElement | null;
+    const resSelect = document.getElementById('shadow-res-select') as HTMLSelectElement | null;
+
+    const sliderBias = document.getElementById('slider-shadow-bias') as HTMLInputElement | null;
+    const valBias = document.getElementById('val-shadow-bias');
+
+    const sliderNormalBias = document.getElementById('slider-shadow-normal-bias') as HTMLInputElement | null;
+    const valNormalBias = document.getElementById('val-shadow-normal-bias');
+
+    const sliderFrustum = document.getElementById('slider-shadow-frustum') as HTMLInputElement | null;
+    const valFrustum = document.getElementById('val-shadow-frustum');
+    const toggleAutoFitFrustum = document.getElementById('panel-autofit-frustum') as HTMLInputElement | null;
+    const frustumControlGroup = document.getElementById('shadow-frustum-control-group');
+
+    const sliderNear = document.getElementById('slider-shadow-near') as HTMLInputElement | null;
+    const valNear = document.getElementById('val-shadow-near');
+
+    const sliderFar = document.getElementById('slider-shadow-far') as HTMLInputElement | null;
+    const valFar = document.getElementById('val-shadow-far');
+
+    const toggleOverride = document.getElementById('panel-override-sun') as HTMLInputElement | null;
+    const overrideGroup = document.getElementById('sun-override-group');
+
+    const sliderAzimuth = document.getElementById('slider-sun-azimuth') as HTMLInputElement | null;
+    const valAzimuth = document.getElementById('val-sun-azimuth');
+
+    const sliderElevation = document.getElementById('slider-sun-elevation') as HTMLInputElement | null;
+    const valElevation = document.getElementById('val-sun-elevation');
+
+    const sliderSunIntensity = document.getElementById('slider-sun-intensity') as HTMLInputElement | null;
+    const valSunIntensity = document.getElementById('val-sun-intensity');
+
+    const sliderAmbientIntensity = document.getElementById('slider-ambient-intensity') as HTMLInputElement | null;
+    const valAmbientIntensity = document.getElementById('val-ambient-intensity');
+
+    const pickerSunColor = document.getElementById('picker-sun-color') as HTMLInputElement | null;
+    const textSunColor = document.getElementById('text-sun-color');
+
+    const pickerAmbientColor = document.getElementById('picker-ambient-color') as HTMLInputElement | null;
+    const textAmbientColor = document.getElementById('text-ambient-color');
+
+    // Close button
+    btnClose?.addEventListener('click', () => {
+      this.sounds.playClickSFX();
+      shadowSandbox?.classList.add('hidden');
+      document.getElementById('item-toggle-shadow-sandbox')?.classList.remove('active');
+    });
+
+    // Toggle shadows
+    if (panelToggle) {
+      panelToggle.checked = this.renderer.shadowSettings.castShadows;
+      panelToggle.addEventListener('change', () => {
+        this.renderer.updateShadowSettings({ castShadows: panelToggle.checked });
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Shadow Type
+    if (typeSelect) {
+      const typeMap: { [key: string]: THREE.ShadowMapType } = {
+        basic: THREE.BasicShadowMap,
+        pcf: THREE.PCFShadowMap,
+        pcfsoft: THREE.PCFSoftShadowMap,
+        vsm: THREE.VSMShadowMap,
+      };
+      
+      typeSelect.addEventListener('change', () => {
+        const type = typeMap[typeSelect.value];
+        if (type !== undefined) {
+          this.renderer.updateShadowSettings({ shadowMapType: type });
+          this.sounds.playClickSFX();
+        }
+      });
+    }
+
+    // Shadow Resolution
+    if (resSelect) {
+      resSelect.addEventListener('change', () => {
+        const size = parseInt(resSelect.value);
+        if (!isNaN(size)) {
+          this.renderer.updateShadowSettings({ shadowMapSize: size });
+          this.sounds.playClickSFX();
+        }
+      });
+    }
+
+    // Bias
+    if (sliderBias && valBias) {
+      sliderBias.value = this.renderer.shadowSettings.bias.toString();
+      valBias.innerText = this.renderer.shadowSettings.bias.toString();
+      sliderBias.addEventListener('input', () => {
+        const val = parseFloat(sliderBias.value);
+        valBias.innerText = val.toFixed(4);
+        this.renderer.updateShadowSettings({ bias: val });
+      });
+      sliderBias.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Normal Bias
+    if (sliderNormalBias && valNormalBias) {
+      sliderNormalBias.value = this.renderer.shadowSettings.normalBias.toString();
+      valNormalBias.innerText = this.renderer.shadowSettings.normalBias.toString();
+      sliderNormalBias.addEventListener('input', () => {
+        const val = parseFloat(sliderNormalBias.value);
+        valNormalBias.innerText = val.toFixed(3);
+        this.renderer.updateShadowSettings({ normalBias: val });
+      });
+      sliderNormalBias.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Helper function to update the visual state of the manual frustum group based on auto-fit state
+    const updateFrustumUIState = () => {
+      if (!toggleAutoFitFrustum || !sliderFrustum || !frustumControlGroup || !valFrustum) return;
+      const isAuto = toggleAutoFitFrustum.checked;
+      sliderFrustum.disabled = isAuto;
+      if (isAuto) {
+        frustumControlGroup.style.opacity = '0.5';
+        frustumControlGroup.style.pointerEvents = 'none';
+        // Immediately sync display with dynamic frustum size
+        valFrustum.innerText = this.renderer.shadowSettings.frustumSize.toString();
+        sliderFrustum.value = this.renderer.shadowSettings.frustumSize.toString();
+      } else {
+        frustumControlGroup.style.opacity = '1';
+        frustumControlGroup.style.pointerEvents = 'auto';
+      }
+    };
+
+    if (toggleAutoFitFrustum) {
+      toggleAutoFitFrustum.checked = this.renderer.shadowSettings.autoFitFrustum;
+      toggleAutoFitFrustum.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+        this.renderer.updateShadowSettings({ autoFitFrustum: toggleAutoFitFrustum.checked });
+        updateFrustumUIState();
+      });
+    }
+
+    // Frustum Size
+    if (sliderFrustum && valFrustum) {
+      sliderFrustum.value = this.renderer.shadowSettings.frustumSize.toString();
+      valFrustum.innerText = this.renderer.shadowSettings.frustumSize.toString();
+      sliderFrustum.addEventListener('input', () => {
+        const val = parseInt(sliderFrustum.value);
+        valFrustum.innerText = val.toString();
+        this.renderer.updateShadowSettings({ frustumSize: val });
+      });
+      sliderFrustum.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    updateFrustumUIState();
+
+    // Near
+    if (sliderNear && valNear) {
+      sliderNear.value = this.renderer.shadowSettings.near.toString();
+      valNear.innerText = this.renderer.shadowSettings.near.toString();
+      sliderNear.addEventListener('input', () => {
+        const val = parseFloat(sliderNear.value);
+        valNear.innerText = val.toFixed(1);
+        this.renderer.updateShadowSettings({ near: val });
+      });
+      sliderNear.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Far
+    if (sliderFar && valFar) {
+      sliderFar.value = this.renderer.shadowSettings.far.toString();
+      valFar.innerText = this.renderer.shadowSettings.far.toString();
+      sliderFar.addEventListener('input', () => {
+        const val = parseInt(sliderFar.value);
+        valFar.innerText = val.toString();
+        this.renderer.updateShadowSettings({ far: val });
+      });
+      sliderFar.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Override Sun
+    if (toggleOverride && overrideGroup) {
+      toggleOverride.checked = this.renderer.shadowSettings.overrideSun;
+      const updateOverrideState = () => {
+        const over = toggleOverride.checked;
+        this.renderer.updateShadowSettings({ overrideSun: over });
+        if (over) {
+          overrideGroup.style.opacity = '1';
+          overrideGroup.style.pointerEvents = 'auto';
+        } else {
+          overrideGroup.style.opacity = '0.5';
+          overrideGroup.style.pointerEvents = 'none';
+        }
+      };
+      
+      // Initialize state on boot
+      updateOverrideState();
+      
+      toggleOverride.addEventListener('change', () => {
+        updateOverrideState();
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Azimuth
+    if (sliderAzimuth && valAzimuth) {
+      sliderAzimuth.value = this.renderer.shadowSettings.sunAzimuth.toString();
+      valAzimuth.innerText = `${this.renderer.shadowSettings.sunAzimuth}°`;
+      sliderAzimuth.addEventListener('input', () => {
+        const val = parseInt(sliderAzimuth.value);
+        valAzimuth.innerText = `${val}°`;
+        this.renderer.updateShadowSettings({ sunAzimuth: val });
+      });
+      sliderAzimuth.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Elevation
+    if (sliderElevation && valElevation) {
+      sliderElevation.value = this.renderer.shadowSettings.sunElevation.toString();
+      valElevation.innerText = `${this.renderer.shadowSettings.sunElevation}°`;
+      sliderElevation.addEventListener('input', () => {
+        const val = parseInt(sliderElevation.value);
+        valElevation.innerText = `${val}°`;
+        this.renderer.updateShadowSettings({ sunElevation: val });
+      });
+      sliderElevation.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Sun Intensity
+    if (sliderSunIntensity && valSunIntensity) {
+      sliderSunIntensity.value = this.renderer.shadowSettings.sunIntensity.toString();
+      valSunIntensity.innerText = this.renderer.shadowSettings.sunIntensity.toString();
+      sliderSunIntensity.addEventListener('input', () => {
+        const val = parseFloat(sliderSunIntensity.value);
+        valSunIntensity.innerText = val.toFixed(1);
+        this.renderer.updateShadowSettings({ sunIntensity: val });
+      });
+      sliderSunIntensity.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Ambient Intensity
+    if (sliderAmbientIntensity && valAmbientIntensity) {
+      sliderAmbientIntensity.value = this.renderer.shadowSettings.ambientIntensity.toString();
+      valAmbientIntensity.innerText = this.renderer.shadowSettings.ambientIntensity.toString();
+      sliderAmbientIntensity.addEventListener('input', () => {
+        const val = parseFloat(sliderAmbientIntensity.value);
+        valAmbientIntensity.innerText = val.toFixed(1);
+        this.renderer.updateShadowSettings({ ambientIntensity: val });
+      });
+      sliderAmbientIntensity.addEventListener('change', () => {
+        this.sounds.playClickSFX();
+      });
+    }
+
+    // Sun Color Picker
+    if (pickerSunColor && textSunColor) {
+      pickerSunColor.value = this.renderer.shadowSettings.sunColor;
+      textSunColor.innerText = this.renderer.shadowSettings.sunColor;
+      pickerSunColor.addEventListener('input', () => {
+        const val = pickerSunColor.value;
+        textSunColor.innerText = val;
+        this.renderer.updateShadowSettings({ sunColor: val });
+      });
+    }
+
+    // Ambient Color Picker
+    if (pickerAmbientColor && textAmbientColor) {
+      pickerAmbientColor.value = this.renderer.shadowSettings.ambientColor;
+      textAmbientColor.innerText = this.renderer.shadowSettings.ambientColor;
+      pickerAmbientColor.addEventListener('input', () => {
+        const val = pickerAmbientColor.value;
+        textAmbientColor.innerText = val;
+        this.renderer.updateShadowSettings({ ambientColor: val });
+      });
+    }
+  }
+
   initDevDropdown() {
     const devDropdown = document.getElementById('dev-dropdown');
     const btnDevToggle = document.getElementById('btn-dev-toggle');
     const itemToggleCelSandbox = document.getElementById('item-toggle-cel-sandbox');
+    const itemToggleShadowSandbox = document.getElementById('item-toggle-shadow-sandbox');
     
     if (!devDropdown || !btnDevToggle) return;
     
@@ -608,6 +902,17 @@ export class Game {
       if (celSandbox) {
         const isHidden = celSandbox.classList.toggle('hidden');
         itemToggleCelSandbox.classList.toggle('active', !isHidden);
+      }
+    });
+
+    itemToggleShadowSandbox?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.sounds.playClickSFX();
+      
+      const shadowSandbox = document.getElementById('shadow-sandbox');
+      if (shadowSandbox) {
+        const isHidden = shadowSandbox.classList.toggle('hidden');
+        itemToggleShadowSandbox.classList.toggle('active', !isHidden);
       }
     });
   }
@@ -654,6 +959,20 @@ export class Game {
       // Animate 3D renderer updates (particles, turbines)
       this.renderer.animate(deltaTime);
 
+      // If shadow sandbox is open and auto-fit frustum is active, keep slider in sync
+      const shadowSandbox = document.getElementById('shadow-sandbox');
+      if (shadowSandbox && shadowSandbox.style.display !== 'none') {
+        const toggleAutoFitFrustum = document.getElementById('panel-autofit-frustum') as HTMLInputElement | null;
+        if (toggleAutoFitFrustum && toggleAutoFitFrustum.checked) {
+          const sliderFrustum = document.getElementById('slider-shadow-frustum') as HTMLInputElement | null;
+          const valFrustum = document.getElementById('val-shadow-frustum');
+          if (sliderFrustum && valFrustum) {
+            sliderFrustum.value = this.renderer.shadowSettings.frustumSize.toString();
+            valFrustum.innerText = this.renderer.shadowSettings.frustumSize.toString();
+          }
+        }
+      }
+
       // Trigger random industrial chimney smoke
       this.processIndustrialSmoke();
 
@@ -670,6 +989,7 @@ export class Game {
     const runSimTick = () => {
       const prevTime = this.sim.timeOfDay;
       this.sim.tick();
+      this.renderer.onSimulationTick(prevTime, this.sim.timeOfDay);
       this.updateHUD();
       
       // Autosave every day at 6:00 AM
@@ -837,8 +1157,7 @@ export class Game {
       waterEl.className = pct < 90 ? 'negative' : '';
     }
 
-    // Trigger Day/Night Renderer update
-    this.renderer.updateDayNightCycle(this.sim.timeOfDay);
+
 
     // Dynamic inspector update
     if (this.selectedTile) {
@@ -1128,6 +1447,7 @@ export class Game {
     const success = this.sim.loadState(saveData);
 
     if (success) {
+      this.renderer.resetInterpolation(this.sim.timeOfDay);
       this.renderer.resetGroundInstances();
       this.renderer.rebuildTrees();
       // 4. Rebuild all roads and structures in the 3D scene
@@ -1169,6 +1489,7 @@ export class Game {
       this.sim.demandI = 20;
       this.sim.dayCount = 1;
       this.sim.timeOfDay = 8.0;
+      this.renderer.resetInterpolation(8.0);
       this.sim.weeklyTaxes = 0;
       this.sim.weeklyMaintenance = 0;
       this.sim.weeklyNetIncome = 0;

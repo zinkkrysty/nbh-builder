@@ -9,7 +9,7 @@ export class AssetGenerator {
   geometries: { [key: string]: THREE.BufferGeometry } = {};
   isNightMode: boolean = false;
 
-  useCelShading: boolean = false;
+  useCelShading: boolean = true;
   toonGradient!: THREE.Texture;
   gradientCanvas!: HTMLCanvasElement;
   standardMaterials: { [key: string]: THREE.Material } = {};
@@ -501,10 +501,16 @@ export class AssetGenerator {
     registerMat('citizenHairBlonde', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf5dd90, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0xf5dd90, gradientMap: this.toonGradient }));
     registerMat('citizenJeans', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 }) : new THREE.MeshToonMaterial({ color: 0x3b82f6, gradientMap: this.toonGradient }));
 
-    // Initially standard
-    this.materials = this.standardMaterials;
-    this.palettes = this.standardPalettes;
-    this.commercialPalettes = this.standardCommercialPalettes;
+    // Set default active material map
+    if (this.useCelShading) {
+      this.materials = this.toonMaterials;
+      this.palettes = this.toonPalettes;
+      this.commercialPalettes = this.toonCommercialPalettes;
+    } else {
+      this.materials = this.standardMaterials;
+      this.palettes = this.standardPalettes;
+      this.commercialPalettes = this.standardCommercialPalettes;
+    }
   }
 
   setCelShading(enabled: boolean) {
