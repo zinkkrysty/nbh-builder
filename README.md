@@ -1,8 +1,28 @@
-# NaboCity - Calm 3D City Builder
+# NaboCity — Cozy Neighborhood Builder
 
-NaboCity is a cozy, low-poly 3D city builder game set in a peaceful neighborhood, complete with a realistic economic simulation, zoning, utility propagation grids, a day/night cycle, and a custom procedurally generated lofi soundtrack.
+NaboCity is a cozy, low-poly 3D neighborhood-building game about creating a small place where people know one another, help shape their surroundings, and make stories worth remembering.
 
 Built using **Three.js** and **Vite** with **TypeScript**, the game runs completely client-side in the browser.
+
+## North Star
+
+> **Build a small place where people know one another, help shape their surroundings, and create stories the player wants to remember.**
+
+The player should feel like a **caretaker, designer, and participant** in a community—not a distant mayor optimizing statistics. Growth is measured by attachment, expression, belonging, and the history of a place rather than population or urban scale. A tiny five-home neighborhood with deep relationships should be every bit as successful as a larger town.
+
+### Design Principles
+
+Every major feature should support at least two of these principles:
+
+1. **Help the player know a resident.** People are persistent characters with homes, preferences, routines, relationships, and memories—not anonymous population units.
+2. **Help the player express themselves.** Building and decorating should create recognizable, personal places rather than only solve coverage or efficiency problems.
+3. **Create a visible neighborhood moment.** Systems should produce scenes the player can watch: visits, picnics, markets, celebrations, favors, and everyday routines.
+4. **Make existing places more meaningful.** Prefer deepening homes, streets, gardens, shops, and gathering places over encouraging endless expansion.
+5. **Create stories worth remembering.** Important arrivals, projects, friendships, events, and changes should become part of the neighborhood's persistent history.
+6. **Support multiple valid play styles.** A compact garden village, creative waterfront, crafting community, or bustling market street should all be successful outcomes.
+7. **Create delight without demanding optimization.** Friction should invite care, creativity, and compromise rather than punish the player with collapse or irreversible failure.
+
+When evaluating work, the key question is not “does this make the simulation more realistic?” but **“does this help the neighborhood feel more personal, expressive, connected, or memorable?”**
 
 ---
 
