@@ -40,7 +40,7 @@ The following completed systems are foundations for the new direction rather tha
 - [x] Day/night lighting, warm emissive windows, shadows, and procedural lofi soundscape.
 - [x] Traffic, pedestrians, sidewalks, crosswalks, parks, and boardwalk paths.
 - [x] Water, bridges, waterfront boardwalks, docks, and associated props.
-- [x] Citizen profiles and home/work associations.
+- [x] Persistent residents and households, deterministic citizen presentation, direct selection, and destination-based routines.
 - [x] Topography, hills, terrain sculpting, and elevation-aware movement.
 
 These systems may be simplified, reframed, or replaced where they conflict with the north star. Existing implementation is not a reason to preserve the old city-builder loop.
@@ -70,15 +70,16 @@ Do not expand the feature set until this loop is coherent, legible, and enjoyabl
 
 Turn citizens from temporary population visualizations into people the player can know.
 
-- [ ] Introduce stable IDs and serializable state for citizens and households.
-- [ ] Assign each developed home one persistent household.
-- [ ] Store household members, home, workplace, preferences, current hope, relationships, and memories.
-- [ ] Preserve residents and household state across save/load.
-- [ ] Reconcile citizen state safely when a home or workplace changes.
-- [ ] Add direct citizen selection in the 3D world.
-- [ ] Replace the tile-first residential inspector with a household-first view.
-- [ ] Show a concise resident profile: name, portrait/model, home, occupation, preferences, routine, and current hope.
-- [ ] Give residents deterministic enough schedules that the player can recognize their habits.
+- [x] Introduce stable IDs, deterministic appearance seeds, and serializable state for residents and households.
+- [x] Link occupied developed homes to one persistent household while allowing newly prepared homes to remain vacant for invitations.
+- [x] Store household members, home, occupation, routine, current authored hope, and arrival/request-completion memories.
+- [~] Add persistent workplaces, preferences, and relationships. *(Workplaces persist via `workplacePlaceId` and `workerIds`; applicant preferences exist via `PlaceTag` matching. Still missing: preferences on settled residents and resident-to-resident relationships.)*
+- [x] Preserve residents and household state across save/load, including versioned migrations through save v7.
+- [x] Reconcile resident, household, home, and tile ownership safely after loading or housing changes.
+- [x] Add direct citizen selection in the 3D world.
+- [x] Add a resident-first, household-focused inspector.
+- [x] Show name, appearance, home, occupation, routine activity, household, and any current shared-garden hope.
+- [x] Give residents deterministic enough schedules that the player can recognize their habits.
 
 ### Done when
 
@@ -88,12 +89,12 @@ The player can follow a named resident through a normal day, inspect where they 
 
 Make existing places part of residents’ lives instead of decorative happiness modifiers.
 
-- [ ] Replace random walks with destination-based routes to home, work, parks, and boardwalks.
-- [ ] Define simple activities for each supported place: work, stroll, sit, picnic, garden, read, shop, or watch the water.
-- [ ] Give activities visible staging, duration, and resident state.
-- [ ] Let preferences influence destination and activity choices.
-- [ ] Surface resident intent in the inspector, such as “Walking to Harbor Park to read.”
-- [ ] Ensure routines favor readable, recurring behavior over maximal simulation complexity.
+- [x] Replace random walks with scheduled, destination-based routes to home, parks, boardwalks, and temporary community-garden green spaces.
+- [x] Define and visibly stage home, garden, park, and boardwalk activities with readable runtime state.
+- [ ] Add richer place activities: work, sitting, picnics, reading, shopping, and watching the water.
+- [ ] Let preferences and relationships influence destination and activity choices.
+- [x] Surface resident intent in the inspector, such as “Walking to a garden” or “Strolling on the boardwalk.”
+- [x] Ensure routines favor readable, recurring behavior over maximal simulation complexity.
 
 ### Done when
 
@@ -103,14 +104,14 @@ The player can understand why a resident is traveling somewhere and can watch th
 
 Replace anonymous residential growth with intentional arrivals.
 
-- [ ] Introduce a small household application or invitation panel.
-- [ ] Present meaningful, non-optimal choices between prospective households.
-- [ ] Show each household’s members, personality, preferences, and reason for moving.
-- [ ] Let the player prepare or select a home before inviting a household.
-- [ ] Name homes and preserve their history.
-- [ ] Add a short visible arrival and welcome moment.
-- [ ] Decouple successful progression from residential demand and automatic density upgrades.
-- [ ] Remove RCI demand from the primary player guidance once invitations can replace it.
+- [x] Introduce a small inspector-based household application and invitation flow.
+- [x] Present three authored, non-optimal prospective households.
+- [x] Show each applicant household’s members, occupations, introduction, and reason for moving.
+- [x] Let the player prepare a developed vacant home before inviting a household.
+- [ ] Name homes and preserve their individual history.
+- [x] Add a visible staged arrival from a reachable map-edge entry point, with a safe home-placement fallback.
+- [x] Stop automatic household assignment for newly developed homes.
+- [x] Remove RCI demand from the primary player guidance once invitations fully replace it.
 
 ### Done when
 
@@ -120,13 +121,14 @@ A new resident arrives because the player chose to welcome them, not because a d
 
 Turn resident needs into personal invitations to shape the neighborhood.
 
-- [ ] Give households one legible current hope at a time.
+- [x] Give Rosa Alvarez one legible, persistent authored shared-garden hope after she arrives.
 - [ ] Generate requests from personality, routine, relationships, and nearby places.
-- [ ] Start with a small authored request set rather than a broad procedural quest generator.
-- [ ] Support requests such as creating a quiet bench, shared garden, picnic place, scenic path, or welcoming storefront.
-- [ ] Make ignored requests wait or change rather than punish the player.
+- [x] Start with a small authored request set rather than a broad procedural quest generator.
+- [x] Support the first request: create a new reachable shared garden using a nearby Park tile.
+- [x] Make the first hope gentle: it has no deadline, penalty, or failure state.
 - [ ] Replace opaque happiness optimization with a small set of understandable qualities where needed: belonging, comfort, purpose, nature, and delight.
-- [ ] Show why a place or resident feels the way they do using plain language.
+- [x] Show request and completion progress in plain language in the HUD and resident inspector.
+- [x] Record one persistent completion memory and make Rosa prefer the completed garden in her routine.
 
 ### Done when
 
@@ -168,12 +170,12 @@ The player can explain how two residents met, see that relationship in the inter
 
 Make completed moments persist emotionally as well as technically.
 
-- [ ] Record a small set of meaningful events: arrival, request completion, first friendship, project opening, and gathering.
-- [ ] Attach memories to relevant residents, households, and places.
+- [x] Record household arrivals and shared-garden request completions.
+- [x] Attach those memories to relevant residents, households, and the completed garden tile.
 - [ ] Add a simple neighborhood scrapbook or timeline.
-- [ ] Include names, dates, participants, location, and a short description.
+- [x] Persist names, dates, participants, location, and a short description for implemented memories.
 - [ ] Let the player rename important homes and shared places.
-- [ ] Preserve the timeline across save/load and migrations.
+- [x] Preserve implemented memories across save/load and migrations.
 - [ ] Use past events to influence occasional future requests or activity text.
 
 ### Done when
@@ -190,12 +192,12 @@ These phases begin only after “The First Five Neighbors” validates the north
 
 Replace anonymous commercial and industrial growth with resident-owned places.
 
-- [ ] Establish named businesses such as a bakery, café, florist, bookshop, grocer, or repair workshop.
-- [ ] Connect owners and workers to real resident profiles.
-- [ ] Give each business visible resident activities and opening rhythms.
-- [ ] Reframe industrial zoning as neighborhood-scale crafts and production: carpenter, potter, orchard, greenhouse, or boat workshop.
+- [x] Establish named businesses such as a bakery, café, florist, bookshop, grocer, or repair workshop. *(All six exist in `PlaceCatalog.ts`, plus a community studio.)*
+- [x] Connect owners and workers to real resident profiles. *(`founderResidentId`, `workerIds`, and `workplacePlaceId` link jobs to settled residents; founders get hiring priority.)*
+- [~] Give each business visible resident activities and opening rhythms. *(Workers walk to their workplace and enter a `working` state, and businesses have an `opening → open → struggling → closed` lifecycle. Still missing: per-business visible activities like baking or serving, and actual opening/closing hours.)*
+- [~] Reframe industrial zoning as neighborhood-scale crafts and production: carpenter, potter, orchard, greenhouse, or boat workshop. *(Pottery, carpenter, bicycle, maker space, and production depot exist. Still missing: orchard, greenhouse, boat workshop.)*
 - [ ] Add a few gentle, visible connections such as garden produce supplying a bakery or market.
-- [ ] Measure success through usefulness, character, and relationships rather than throughput optimization.
+- [~] Measure success through usefulness, character, and relationships rather than throughput optimization. *(Businesses currently use a numerical viability score and close after 7 struggling days — a failure loop that should be softened into character- and relationship-driven outcomes.)*
 
 ## Phase 4 — Community Projects
 
@@ -248,19 +250,3 @@ The following work is not a current priority because it does not directly prove 
 - More procedural asset breadth without resident interaction or place-making value.
 
 Deferred does not mean rejected. A feature can return when it has a clear neighborhood-scale purpose—for example, rain that causes residents to gather in a café, a library that creates a reading club, or a street closure that hosts a block party.
-
----
-
-## Immediate Implementation Order
-
-1. Define serializable `ResidentState` and `HouseholdState` domain models.
-2. Migrate spawning so developed homes own persistent households.
-3. Save and load those entities safely.
-4. Add direct resident selection and a household-first inspector.
-5. Add deterministic home/park/boardwalk routines with visible intent.
-6. Author one household hope and one shared-place request.
-7. Add the minimum decoration set needed to fulfill that request expressively.
-8. Add one shared activity between two residents.
-9. Record its completion as the first scrapbook memory.
-
-Until these steps form a satisfying loop, new systems should not broaden the simulation.

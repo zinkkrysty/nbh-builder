@@ -1,10 +1,11 @@
-import { Simulation, TileState, TileType } from './Simulation';
+import { Simulation, TileState, TileType, APPLICATION_INTEREST_THRESHOLD } from './Simulation';
 import { Renderer } from './Renderer';
 import { InputManager } from './InputManager';
 import { AssetGenerator } from './AssetGenerator';
 import { SoundManager } from './SoundManager';
 import { TrafficManager } from './TrafficManager';
 import { CitizenManager } from './CitizenManager';
+import { PlaceArchetype, getPlace, PLACE_CATALOG } from './PlaceCatalog';
 import * as THREE from 'three';
 
 function escapeHTML(str: string): string {
@@ -18,6 +19,8 @@ function escapeHTML(str: string): string {
 }
 
 export class Game {
+  private static readonly SAVE_KEY = 'nabocity_save_v7';
+  private static readonly FRAME_INTERVAL_MS = 1000 / 60;
   sim: Simulation;
   assets: AssetGenerator;
   renderer: Renderer;
@@ -28,10 +31,16 @@ export class Game {
 
   // Loop references
   lastFrameTime = performance.now();
+  lastRenderTime = performance.now();
+  frameTimeAccumulator = 0;
   simTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Selected tile for inspector
+  // Inspector selection state
   selectedTile: { x: number; y: number } | null = null;
+  selectedResidentId: string | null = null;
+  reviewingApplicationsFor: { x: number; y: number } | null = null;
+  selectedArchetype: PlaceArchetype | null = null;
+  neighborhoodModalReturnFocus: HTMLElement | null = null;
 
   constructor() {
     this.migrateSaveKeys();
@@ -81,7 +90,7 @@ export class Game {
         // Try to auto-load saved game if exists
         let hasSave = false;
         try {
-          hasSave = !!localStorage.getItem('nabocity_save');
+          hasSave = !!localStorage.getItem(Game.SAVE_KEY);
         } catch (e) {
           console.error('Failed to access localStorage during boot:', e);
         }
@@ -92,7 +101,7 @@ export class Game {
             this.startSimulationLoop();
           }, 400);
         } else {
-          this.sim.onNotification('Welcome to NaboCity! Start by laying some roads and zoning Residential zones.', 'success');
+          this.sim.onNotification('Welcome to NaboCity! Build a home project, then welcome your first neighbors.', 'success');
           this.startSimulationLoop();
         }
       });
@@ -109,7 +118,9 @@ export class Game {
     // When a tile develops or changes, update its visual mesh
     this.sim.onTileUpdate = (tile) => {
       this.rebuildRoadNetworkAround(tile.x, tile.y);
+      this.sim.evaluateSharedGardenHopes();
       this.updateInspectorIfNeeded(tile);
+      this.updateHUD();
     };
 
     // 2. Input Manager bindings
@@ -177,12 +188,12 @@ export class Game {
       if (tool === 'bulldoze') {
         const tile = this.sim.grid[x][y];
         if (tile.type !== 'empty') {
-          const wasRoad = tile.type === 'road';
+          const wasWalkableRoute = tile.type === 'road' || tile.type === 'boardwalk';
           const success = this.sim.demolish(x, y);
           if (success) {
             this.sounds.playDemolishSFX();
             this.renderer.triggerPlacementParticles(x, y);
-            if (wasRoad) {
+            if (wasWalkableRoute) {
               this.traffic.handleRoadDemolish(x, y);
               this.citizens.handleRoadDemolish(x, y);
             }
@@ -191,11 +202,11 @@ export class Game {
         }
       } else {
         // Place zone or utility structure
-        const cost = this.sim.getBuildCost(tool);
+        const cost = this.selectedArchetype ? this.sim.getBuildCostForArchetype(this.selectedArchetype) : this.sim.getBuildCost(tool);
         const tile = this.sim.grid[x][y];
 
         if ((tile.type === 'empty' || (tool === 'road' && tile.type === 'water_body') || (tool === 'boardwalk' && tile.type === 'water_body')) && this.sim.money >= cost) {
-          const success = this.sim.build(x, y, tool);
+          const success = this.selectedArchetype ? this.sim.buildPlace(x, y, this.selectedArchetype) : this.sim.build(x, y, tool);
           if (success) {
             this.sounds.playBuildSFX();
             this.renderer.triggerPlacementParticles(x, y);
@@ -233,8 +244,12 @@ export class Game {
       }
     };
 
+    this.input.selectableCitizenMeshesProvider = () => this.citizens.getSelectableMeshes();
+    this.input.onSelectResident = (residentId) => this.selectResident(residentId);
     this.input.onSelect = (x, y) => {
       this.sounds.playClickSFX();
+      this.selectedResidentId = null;
+      this.reviewingApplicationsFor = null;
       this.selectedTile = { x, y };
       this.updateInspector();
     };
@@ -269,7 +284,7 @@ export class Game {
             isValid = this.sim.money >= totalCost;
           }
         } else {
-          const cost = this.sim.getBuildCost(tool);
+          const cost = this.selectedArchetype ? this.sim.getBuildCostForArchetype(this.selectedArchetype) : this.sim.getBuildCost(tool);
           const tile = this.sim.grid[x][y];
           if (tool === 'water_body' || tool === 'boardwalk') {
             isValid = tile.elevation === 0 && (tile.type === 'empty' || (tool === 'boardwalk' && tile.type === 'water_body')) && this.sim.money >= cost;
@@ -293,13 +308,28 @@ export class Game {
         target.classList.add('active');
 
         this.sounds.playClickSFX();
-        this.input.setTool(tool);
+        this.selectedArchetype = target.dataset.archetype as PlaceArchetype | undefined ?? null;
+        this.input.setTool(this.selectedArchetype ? getPlace(this.selectedArchetype).tileType : tool);
 
         // Hide inspector when choosing a build tool
         if (tool !== 'select') {
           this.closeInspector();
         }
       });
+    });
+
+    const archetypeSelect = document.getElementById('place-archetype-select') as HTMLSelectElement | null;
+    archetypeSelect?.addEventListener('change', () => {
+      const value = archetypeSelect.value as PlaceArchetype | '';
+      this.selectedArchetype = value || null;
+      if (!this.selectedArchetype) return;
+      const place = getPlace(this.selectedArchetype);
+      toolButtons.forEach(button => button.classList.remove('active'));
+      const matchingTool = document.querySelector<HTMLElement>(`.tool-btn[data-tool="${place.tileType}"]`);
+      matchingTool?.classList.add('active');
+      this.input.setTool(place.tileType);
+      this.closeInspector();
+      this.sim.onNotification(`Selected ${place.label}. Choose an empty plot to start construction.`, 'info');
     });
 
     // Speed controls
@@ -422,6 +452,137 @@ export class Game {
     document.getElementById('btn-reset')?.addEventListener('click', () => {
       this.resetGame();
     });
+    document.getElementById('btn-places')?.addEventListener('click', () => this.openNeighborhoodCenter('places'));
+    document.getElementById('btn-neighborhood-center')?.addEventListener('click', () => this.openNeighborhoodCenter('households'));
+    document.getElementById('btn-neighborhood-close')?.addEventListener('click', () => this.closeNeighborhoodCenter());
+    document.querySelector<HTMLElement>('#neighborhood-modal .neighborhood-modal-backdrop')?.addEventListener('click', () => this.closeNeighborhoodCenter());
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !document.getElementById('neighborhood-modal')?.classList.contains('hidden')) {
+        this.closeNeighborhoodCenter();
+      }
+    });
+  }
+
+  private closeNeighborhoodCenter() {
+    document.getElementById('neighborhood-modal')?.classList.add('hidden');
+    this.neighborhoodModalReturnFocus?.focus();
+    this.neighborhoodModalReturnFocus = null;
+  }
+
+  openNeighborhoodCenter(tab: 'places' | 'households') {
+    const modal = document.getElementById('neighborhood-modal');
+    const content = document.getElementById('neighborhood-modal-content');
+    const title = document.getElementById('neighborhood-modal-title');
+    if (!modal || !content || !title) return;
+    if (modal.classList.contains('hidden')) this.neighborhoodModalReturnFocus = document.activeElement as HTMLElement | null;
+    modal.classList.remove('hidden');
+    if (tab === 'places') {
+      title.textContent = 'Choose a place';
+      content.innerHTML = `
+        <div class="center-intro">
+          <div>
+            <span class="center-eyebrow">New project</span>
+            <p class="center-intro-title">What should the neighborhood build next?</p>
+            <p class="neighborhood-modal-intro">Choose a project, then place it on an empty plot.</p>
+          </div>
+        </div>
+        <div class="place-grid">
+          ${Object.values(PLACE_CATALOG).filter(place => place.availability === 'basic').map(place => `
+            <button class="place-choice" data-archetype="${place.archetype}">
+              <span class="place-choice-name">${escapeHTML(place.label)}</span>
+              <span class="place-choice-meta">$${place.cost}${place.residentCapacity ? ` · Home for ${place.residentCapacity}` : place.workerCapacity ? ` · ${place.workerCapacity} ${place.workerCapacity === 1 ? 'job' : 'jobs'}` : ' · Community place'}</span>
+            </button>
+          `).join('')}
+        </div>`;
+      content.querySelectorAll<HTMLButtonElement>('.place-choice').forEach(button => button.addEventListener('click', () => { const archetype = button.dataset.archetype as PlaceArchetype; this.selectedArchetype = archetype; this.input.setTool(getPlace(archetype).tileType); modal.classList.add('hidden'); this.closeInspector(); }));
+      document.getElementById('btn-neighborhood-close')?.focus();
+      return;
+    }
+    title.textContent = 'Household proposals';
+    const applications = this.sim.getAvailableApplications();
+    const readyHomes = this.sim.grid.flat().filter(tile => tile.type === 'residential' && this.sim.getHomeReadinessIssues(tile).length === 0).length;
+    const cards = applications.map(application => {
+      const fit = this.sim.getCompatibleHomes(application)[0];
+      const home = fit && this.sim.findPlace(fit.placeId);
+      const initials = application.members.slice(0, 2).map(member => member.firstName[0]).join('').toUpperCase();
+      const memberLabel = `${application.members.length} ${application.members.length === 1 ? 'neighbor' : 'neighbors'}`;
+      const daysLeft = application.expiresDay === undefined ? null : Math.max(0, application.expiresDay - this.sim.dayCount);
+      const deadline = daysLeft === null
+        ? '<span class="proposal-deadline is-open"><span aria-hidden="true">&#9711;</span> No deadline until a home is ready</span>'
+        : `<span class="proposal-deadline${daysLeft <= 3 ? ' is-urgent' : ''}"><span aria-hidden="true">&#9684;</span> ${daysLeft === 0 ? 'Respond today' : `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} to respond`}</span>`;
+      const people = application.members.map(member => `
+        <span class="proposal-member"><strong>${escapeHTML(member.firstName)}</strong><span>${member.age} · ${escapeHTML(member.occupation)}</span></span>
+      `).join('');
+      const preferenceTags = (application.preferences ?? []).map(preference => `<span class="proposal-tag">Likes ${escapeHTML(preference)}</span>`).join('');
+      const contributionTags = (application.contributionTags ?? []).map(contribution => `<span class="proposal-tag contribution">Brings ${escapeHTML(contribution)}</span>`).join('');
+      const match = fit ? `
+        <div class="proposal-match is-ready">
+          <span class="proposal-match-icon" aria-hidden="true">&#10003;</span>
+          <div class="proposal-match-copy">
+            <span class="proposal-match-label">Best home match</span>
+            <strong>${escapeHTML(home?.name ?? 'Ready home')}</strong>
+            <span>${fit.matchedFactors.map(escapeHTML).join(' · ')}</span>
+          </div>
+        </div>
+      ` : `
+        <div class="proposal-match is-blocked">
+          <span class="proposal-match-icon" aria-hidden="true">!</span>
+          <div class="proposal-match-copy">
+            <span class="proposal-match-label">Not ready to welcome yet</span>
+            <strong>A suitable home is still needed</strong>
+            <span>Build enough capacity, then connect power, water, and road access.</span>
+          </div>
+        </div>
+      `;
+      return `
+        <article class="proposal-card" aria-labelledby="proposal-title-${escapeHTML(application.id)}">
+          <div class="proposal-card-header">
+            <span class="proposal-avatar" aria-hidden="true">${escapeHTML(initials)}</span>
+            <div class="proposal-identity">
+              <h3 id="proposal-title-${escapeHTML(application.id)}">The ${escapeHTML(application.surname)} household</h3>
+              <span>${memberLabel} interested in joining NaboCity</span>
+            </div>
+            <span class="proposal-status ${fit ? 'is-ready' : 'is-waiting'}">${fit ? 'Home match ready' : 'Needs a home'}</span>
+          </div>
+          <p class="proposal-story">${escapeHTML(application.reasonForMoving)}</p>
+          <div class="proposal-members" aria-label="Household members">${people}</div>
+          ${(preferenceTags || contributionTags) ? `<div class="proposal-tags">${preferenceTags}${contributionTags}</div>` : ''}
+          ${match}
+          <div class="proposal-card-footer">
+            ${deadline}
+            <div class="proposal-actions">
+              <button class="proposal-button secondary defer-application" data-application="${application.id}" aria-label="Review the ${escapeHTML(application.surname)} household later">Decide later</button>
+              ${fit
+                ? `<button class="proposal-button primary invite-application" data-application="${application.id}" data-place="${fit.placeId}">Welcome to ${escapeHTML(home?.name ?? 'this home')}</button>`
+                : '<button class="proposal-button primary browse-home-projects">Build a home</button>'}
+            </div>
+          </div>
+        </article>`;
+    }).join('');
+    content.innerHTML = `
+      <div class="center-intro proposals-intro">
+        <div>
+          <span class="center-eyebrow">New neighbors</span>
+          <p class="center-intro-title">${applications.length ? `${applications.length} ${applications.length === 1 ? 'household is' : 'households are'} interested` : 'No proposals waiting'}</p>
+          <p class="neighborhood-modal-intro">Meet each household, check their home match, and decide who to welcome.</p>
+        </div>
+        <div class="ready-home-count" aria-label="${readyHomes} homes ready for new neighbors">
+          <strong>${readyHomes}</strong>
+          <span>ready ${readyHomes === 1 ? 'home' : 'homes'}</span>
+        </div>
+      </div>
+      ${cards ? `<div class="proposal-list">${cards}</div>` : `
+        <div class="proposal-empty">
+          <span class="proposal-empty-icon" aria-hidden="true">&#8962;</span>
+          <h3>More neighbors will discover NaboCity soon</h3>
+          <p>Keep building welcoming places and a new proposal will appear here.</p>
+          <button class="proposal-button primary browse-home-projects">Browse places to build</button>
+        </div>`}
+    `;
+    content.querySelectorAll<HTMLButtonElement>('.invite-application').forEach(button => button.addEventListener('click', () => { const home = this.sim.findPlace(button.dataset.place!); const household = home && this.sim.inviteHousehold(button.dataset.application!, { x: home.x, y: home.y }); if (household) { this.citizens.stageHouseholdArrival(household.id); modal.classList.add('hidden'); this.updateHUD(); } }));
+    content.querySelectorAll<HTMLButtonElement>('.defer-application').forEach(button => button.addEventListener('click', () => { this.sim.deferApplication(button.dataset.application!); this.openNeighborhoodCenter('households'); }));
+    content.querySelectorAll<HTMLButtonElement>('.browse-home-projects').forEach(button => button.addEventListener('click', () => this.openNeighborhoodCenter('places')));
+    document.getElementById('btn-neighborhood-close')?.focus();
   }
 
   initCelSandbox() {
@@ -946,13 +1107,24 @@ export class Game {
   }
 
   startLoops() {
-    // 1. Render Loop (at 60fps)
+    // 1. Render loop: browsers can drive requestAnimationFrame at rates that do
+    // not divide evenly into 60Hz. Accumulating rAF time avoids aliasing to a
+    // lower rate while keeping render work capped at 60fps.
     const animateLoop = () => {
       requestAnimationFrame(animateLoop);
 
       const now = performance.now();
-      const deltaTime = (now - this.lastFrameTime) / 1000;
+      const elapsed = now - this.lastFrameTime;
       this.lastFrameTime = now;
+      const accumulatedTime = this.frameTimeAccumulator + elapsed;
+      if (accumulatedTime < Game.FRAME_INTERVAL_MS) {
+        this.frameTimeAccumulator = accumulatedTime;
+        return;
+      }
+
+      this.frameTimeAccumulator = accumulatedTime % Game.FRAME_INTERVAL_MS;
+      const deltaTime = (now - this.lastRenderTime) / 1000;
+      this.lastRenderTime = now;
 
       // Animate 3D renderer updates (particles, turbines)
       this.renderer.animate(deltaTime);
@@ -1077,13 +1249,6 @@ export class Game {
     const popEl = document.getElementById('stat-population');
     if (popEl) popEl.innerText = this.sim.population.toString();
 
-    const popTrendEl = document.getElementById('stat-pop-trend');
-    if (popTrendEl) {
-      const demand = this.sim.demandR;
-      popTrendEl.innerText = demand > 15 ? '▲' : demand < -15 ? '▼' : '→';
-      popTrendEl.className = `stat-trend ${demand > 15 ? 'positive' : demand < -15 ? 'negative' : ''}`;
-    }
-
     const happyEl = document.getElementById('stat-happiness');
     if (happyEl) happyEl.innerText = `${this.sim.overallHappiness}%`;
 
@@ -1112,15 +1277,39 @@ export class Game {
     const dayEl = document.getElementById('stat-day');
     if (dayEl) dayEl.innerText = `Day ${this.sim.dayCount}`;
 
-    // 2. Demand Progress bars
-    const fillR = document.getElementById('demand-r');
-    if (fillR) fillR.style.width = `${Math.max(0, Math.min(100, (this.sim.demandR + 100) / 2))}%`;
+    // Shared-garden request status
+    const hopesCard = document.getElementById('neighborhood-hopes-card');
+    const hopesRequest = document.getElementById('neighborhood-hope-request');
+    const hopesStatus = document.getElementById('neighborhood-hope-status');
+    const hope = this.sim.hopes[0];
+    if (!hope || !hopesCard || !hopesRequest || !hopesStatus) {
+      if (hopesCard) hopesCard.style.display = 'none';
+    } else {
+      const owner = this.sim.getResident(hope.ownerResidentId);
+      const ownerName = owner ? `${owner.firstName} ${owner.lastName}` : 'A neighbor';
+      hopesCard.style.display = '';
+      hopesRequest.innerText = `${ownerName} hopes to start a shared garden.`;
+      hopesStatus.innerText = hope.status === 'fulfilled' && hope.targetTile
+        ? `Shared garden created at ${this.sim.getGardenName(hope)}.`
+        : `Build a reachable park near ${ownerName}'s home.`;
+    }
 
-    const fillC = document.getElementById('demand-c');
-    if (fillC) fillC.style.width = `${Math.max(0, Math.min(100, (this.sim.demandC + 100) / 2))}%`;
-
-    const fillI = document.getElementById('demand-i');
-    if (fillI) fillI.style.width = `${Math.max(0, Math.min(100, (this.sim.demandI + 100) / 2))}%`;
+    const readyHomes = this.sim.grid.flat().filter(tile => tile.type === 'residential' && this.sim.getHomeReadinessIssues(tile).length === 0).length;
+    const availableProposals = this.sim.getAvailableApplications().length;
+    const setText = (id: string, value: string) => { const element = document.getElementById(id); if (element) element.textContent = value; };
+    setText('overview-popularity', String(this.sim.popularity.score));
+    setText('overview-interest', `${Math.floor(this.sim.popularity.applicationInterest)} / ${APPLICATION_INTEREST_THRESHOLD}`);
+    setText('overview-homes', String(readyHomes));
+    setText('overview-employment', `${this.sim.employed} / ${this.sim.jobs}`);
+    setText('neighborhood-center-count', String(availableProposals));
+    setText('neighborhood-center-meta', availableProposals
+      ? `${availableProposals} ${availableProposals === 1 ? 'proposal' : 'proposals'} waiting · ${readyHomes} ${readyHomes === 1 ? 'home' : 'homes'} ready`
+      : `No proposals waiting · ${readyHomes} ${readyHomes === 1 ? 'home' : 'homes'} ready`);
+    const neighborhoodCenterButton = document.getElementById('btn-neighborhood-center');
+    neighborhoodCenterButton?.classList.toggle('has-proposals', availableProposals > 0);
+    neighborhoodCenterButton?.setAttribute('aria-label', availableProposals
+      ? `Review ${availableProposals} household ${availableProposals === 1 ? 'proposal' : 'proposals'}; ${readyHomes} ${readyHomes === 1 ? 'home is' : 'homes are'} ready`
+      : `Review household proposals; none waiting, ${readyHomes} ${readyHomes === 1 ? 'home is' : 'homes are'} ready`);
 
     // 3. Status card metrics
     let total = 0;
@@ -1158,9 +1347,12 @@ export class Game {
 
 
     // Dynamic inspector update
-    if (this.selectedTile) {
-      const tile = this.sim.grid[this.selectedTile.x][this.selectedTile.y];
-      this.updateInspectorDetails(tile);
+    if (this.selectedResidentId) {
+      this.updateResidentInspector();
+    } else if (this.selectedTile) {
+      const tile = this.sim.grid[this.selectedTile.x]?.[this.selectedTile.y];
+      if (tile) this.updateInspectorDetails(tile);
+      else this.closeInspector();
     }
   }
 
@@ -1202,14 +1394,18 @@ export class Game {
       return;
     }
 
-    const tile = this.sim.grid[this.selectedTile.x][this.selectedTile.y];
-    
-    // Position marker or spotlight if needed, but let's just populate UI
-    const panel = document.getElementById('inspector-panel');
-    panel?.classList.remove('hidden');
+    const tile = this.sim.grid[this.selectedTile.x]?.[this.selectedTile.y];
+    if (!tile) {
+      this.closeInspector();
+      return;
+    }
+
+    document.getElementById('inspector-panel')?.classList.remove('hidden');
+    const metadata = document.getElementById('inspect-tile-metadata');
+    if (metadata) metadata.style.display = '';
 
     const titleEl = document.getElementById('inspect-title');
-    if (titleEl) titleEl.innerText = `Inspect Tile`;
+    if (titleEl) titleEl.innerText = 'Inspect Tile';
 
     const coordsEl = document.getElementById('inspect-coords');
     if (coordsEl) coordsEl.innerText = `${tile.x}, ${tile.y}`;
@@ -1225,6 +1421,77 @@ export class Game {
     this.updateInspectorDetails(tile);
   }
 
+  selectResident(residentId: string) {
+    if (!this.sim.getResident(residentId)) return;
+    this.sounds.playClickSFX();
+    this.selectedTile = null;
+    this.reviewingApplicationsFor = null;
+    this.selectedResidentId = residentId;
+    this.updateResidentInspector();
+  }
+
+  updateResidentInspector() {
+    if (!this.selectedResidentId) return;
+
+    const resident = this.sim.getResident(this.selectedResidentId);
+    const household = resident ? this.sim.getHousehold(resident.householdId) : undefined;
+    if (!resident || !household) {
+      this.closeInspector();
+      return;
+    }
+
+    const panel = document.getElementById('inspector-panel');
+    const detailsContainer = document.getElementById('inspect-simulation-details');
+    if (!detailsContainer) return;
+    panel?.classList.remove('hidden');
+    const metadata = document.getElementById('inspect-tile-metadata');
+    if (metadata) metadata.style.display = 'none';
+
+    const titleEl = document.getElementById('inspect-title');
+    if (titleEl) titleEl.innerText = 'Resident';
+
+    const escape = (value: string | number) => escapeHTML(String(value));
+    const fullName = `${resident.firstName} ${resident.lastName}`;
+    const home = resident.home;
+    const settledHomeTile = household.status === 'settled' && home
+      ? this.sim.grid[home.x]?.[home.y]
+      : undefined;
+    const members = household.residentIds
+      .map(id => this.sim.getResident(id))
+      .filter((member): member is NonNullable<ReturnType<Simulation['getResident']>> => member !== undefined);
+    const hope = this.sim.getHopeForResident(resident.id);
+    const hopeContext = hope ? `
+      <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
+      <h3 style="font-size: 0.95rem; font-weight: 600; color: #94a3b8; margin: 0 0 0.5rem 0;">Neighborhood hope</h3>
+      <div class="inspect-row"><span class="inspect-label">Request:</span><span class="inspect-value">Start a shared garden</span></div>
+      <div class="inspect-row"><span class="inspect-label">Progress:</span><span class="inspect-value">${escape(hope.status === 'fulfilled' ? `Shared garden created at ${this.sim.getGardenName(hope)}` : `Build a reachable park near ${resident.firstName}'s home`)}</span></div>
+    ` : '';
+    const homeContext = settledHomeTile ? `
+      <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
+      <h3 style="font-size: 0.95rem; font-weight: 600; color: #94a3b8; margin: 0 0 0.5rem 0;">Home context</h3>
+      <div class="inspect-row"><span class="inspect-label">Tile happiness:</span><span class="inspect-value">${escape(settledHomeTile.happiness)}%</span></div>
+      <div class="inspect-row"><span class="inspect-label">Power available:</span><span class="inspect-value">${escape(settledHomeTile.powered ? 'Yes' : 'No')}</span></div>
+      <div class="inspect-row"><span class="inspect-label">Water available:</span><span class="inspect-value">${escape(settledHomeTile.watered ? 'Yes' : 'No')}</span></div>
+    ` : '';
+
+    detailsContainer.innerHTML = `
+      <div class="inspect-row"><span class="inspect-label">Name:</span><span class="inspect-value">${escape(fullName)}</span></div>
+      <div class="inspect-row"><span class="inspect-label">Age:</span><span class="inspect-value">${escape(resident.age)}</span></div>
+      <div class="inspect-row"><span class="inspect-label">Occupation:</span><span class="inspect-value">${escape(resident.occupation)}</span></div>
+      <div class="inspect-row"><span class="inspect-label">Current activity:</span><span class="inspect-value">${escape(this.citizens.getActivityLabel(resident.id))}</span></div>
+      <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
+      <h3 style="font-size: 0.95rem; font-weight: 600; color: #94a3b8; margin: 0 0 0.5rem 0;">${escape(household.surname)} household</h3>
+      <div class="inspect-row"><span class="inspect-label">Household status:</span><span class="inspect-value">${escape(household.status)}</span></div>
+      <div class="inspect-row"><span class="inspect-label">Home:</span><span class="inspect-value">${home ? escape(`${home.x}, ${home.y}`) : 'Currently unhoused'}</span></div>
+      <h3 style="font-size: 0.95rem; font-weight: 600; color: #94a3b8; margin: 0.75rem 0 0.5rem 0;">Household members</h3>
+      <div class="occupants-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding-right: 4px;">
+        ${members.map(member => `<div class="occupant-card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px 10px;"><strong>${escape(`${member.firstName} ${member.lastName}`)}</strong><div style="font-size: 0.78rem; color: #94a3b8;">Age ${escape(member.age)} · ${escape(member.occupation)}</div></div>`).join('')}
+      </div>
+      ${hopeContext}
+      ${homeContext}
+    `;
+  }
+
   updateInspectorIfNeeded(tile: TileState) {
     if (this.selectedTile && this.selectedTile.x === tile.x && this.selectedTile.y === tile.y) {
       this.updateInspectorDetails(tile);
@@ -1235,8 +1502,13 @@ export class Game {
     const detailsContainer = document.getElementById('inspect-simulation-details');
     if (!detailsContainer) return;
 
+    if (this.reviewingApplicationsFor?.x === tile.x && this.reviewingApplicationsFor.y === tile.y) {
+      this.renderApplicationReview(tile);
+      return;
+    }
+
     if (tile.type === 'empty') {
-      detailsContainer.innerHTML = `<p style="color: #8e9aab;">Nothing built here. Select a tool from the toolbar below to construct zones, roads or utility grids.</p>`;
+      detailsContainer.innerHTML = `<p style="color: #8e9aab;">Nothing built here. Use Places to begin a home or local-place project.</p>`;
       return;
     }
 
@@ -1314,28 +1586,55 @@ export class Game {
       occupancyLabel = 'Workers';
     }
 
+    const homeReadyForMatching = this.sim.isHomeReadyForMatching(tile);
+    const homeReadinessIssues = this.sim.getHomeReadinessIssues(tile);
+    const arrivalIssues = homeReadinessIssues.filter(issue => issue !== 'This home is already assigned');
+    const operatingStatusBadge = tile.operatingStatus === 'struggling'
+      ? `<span class="inspect-badge warning">Struggling</span>`
+      : tile.operatingStatus === 'closed'
+        ? `<span class="inspect-badge danger">Closed</span>`
+        : tile.operatingStatus === 'opening'
+          ? `<span class="inspect-badge info">Opening</span>`
+          : `<span class="inspect-badge success">Open</span>`;
     const statusBadge = tile.abandoned 
       ? `<span class="inspect-badge danger">Abandoned</span>`
-      : tile.level === 0 
-        ? `<span class="inspect-badge info">Zoned / Developing</span>`
-        : `<span class="inspect-badge success">Grown (Lvl ${tile.level})</span>`;
+      : tile.constructionStatus !== 'complete'
+        ? (() => {
+            const blockers = tile.constructionStatus === 'planned' ? (tile.constructionBlockers ?? []) : [];
+            return blockers.length
+              ? `<span class="inspect-badge warning">Waiting for infrastructure</span>`
+              : `<span class="inspect-badge info">Building ${Math.round(tile.constructionProgress ?? 0)}%</span>`;
+          })()
+        : tile.workerCapacity
+          ? operatingStatusBadge
+        : tile.type === 'residential' && tile.reservedHouseholdId
+          ? `<span class="inspect-badge ${arrivalIssues.length ? 'warning' : 'info'}">${arrivalIssues.length ? 'Arrival blocked' : 'Household arriving'}</span>`
+        : tile.type === 'residential' && tile.householdId
+          ? `<span class="inspect-badge success">Occupied</span>`
+        : tile.type === 'residential' && !homeReadyForMatching
+          ? `<span class="inspect-badge warning">Needs utilities or access</span>`
+          : `<span class="inspect-badge success">Ready</span>`;
 
     let citizensHtml = '';
-    const occupants = this.citizens ? this.citizens.getCitizensAtTile(tile.x, tile.y) : [];
+    const occupants = this.citizens
+      ? this.citizens.getCitizensAtTile(tile.x, tile.y)
+        .map(citizen => ({ citizen, resident: this.sim.getResident(citizen.residentId) }))
+        .filter((occupant): occupant is { citizen: CitizenManager['cims'][number]; resident: NonNullable<ReturnType<Simulation['getResident']>> } => occupant.resident !== undefined)
+      : [];
     if (occupants.length > 0) {
       citizensHtml = `
         <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
         <h3 style="font-size: 0.95rem; font-weight: 600; color: #94a3b8; margin: 0 0 0.5rem 0;">Occupants Profile</h3>
         <div class="occupants-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding-right: 4px;">
-          ${occupants.map(c => `
+          ${occupants.map(({ resident }) => `
             <div class="occupant-card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
               <div style="display: flex; justify-content: space-between; font-weight: 500; font-size: 0.95rem; color: #f1f3f5;">
-                <span>${escapeHTML(c.profile.firstName)} ${escapeHTML(c.profile.lastName)}</span>
-                <span style="color: #60a5fa; font-size: 0.8rem;">Age ${c.profile.age}</span>
+                <span>${escapeHTML(resident.firstName)} ${escapeHTML(resident.lastName)}</span>
+                <span style="color: #60a5fa; font-size: 0.8rem;">Age ${resident.age}</span>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #94a3b8;">
-                <span>Job: ${escapeHTML(c.profile.job)}</span>
-                <span style="color: ${c.profile.happiness >= 75 ? '#4ade80' : c.profile.happiness >= 50 ? '#f59e0b' : '#ef4444'};">😊 ${c.profile.happiness}%</span>
+                <span>Job: ${escapeHTML(resident.occupation)}</span>
+                <span style="color: #94a3b8;">Local resident</span>
               </div>
             </div>
           `).join('')}
@@ -1343,30 +1642,102 @@ export class Game {
       `;
     }
 
+    const readyForNeighbors = homeReadyForMatching;
+    const homeReadinessHtml = tile.type === 'residential' && tile.constructionStatus === 'complete' && tile.reservedHouseholdId
+      ? `<p style="color: ${arrivalIssues.length ? '#fcd34d' : '#bfdbfe'}; margin: 0.6rem 0 0; line-height: 1.4;">${arrivalIssues.length ? `Arrival is waiting: ${arrivalIssues.map(escapeHTML).join(' · ')}.` : 'This household is traveling in from the map edge.'}</p>`
+      : tile.type === 'residential' && tile.constructionStatus === 'complete' && !readyForNeighbors && !tile.householdId
+      ? `<p style="color: #fcd34d; margin: 0.6rem 0 0; line-height: 1.4;">${homeReadinessIssues.map(escapeHTML).join(' · ')}</p>`
+      : '';
+    const invitationHtml = readyForNeighbors ? `
+      <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
+      <p style="color: #bbf7d0; margin: 0 0 0.6rem; line-height: 1.4;">This home is ready for new neighbors.</p>
+      <button id="btn-review-applications" class="small-btn" style="width: 100%; padding: 8px; cursor: pointer;">Review applications</button>
+    ` : '';
+
     detailsContainer.innerHTML = `
       <div class="inspect-row">
         <span class="inspect-label">Status:</span>
         <span class="inspect-value">${statusBadge}</span>
       </div>
       <div class="inspect-row">
-        <span class="inspect-label">Development:</span>
-        <span class="inspect-value">${Math.round(tile.progress)}%</span>
+        <span class="inspect-label">Place:</span>
+        <span class="inspect-value">${escapeHTML(tile.name ?? tile.archetype ?? tile.type)}</span>
       </div>
       <div class="inspect-row">
         <span class="inspect-label">${occupancyLabel}:</span>
         <span class="inspect-value">${tile.occupancy} / ${tile.maxOccupancy}</span>
       </div>
-      <div class="inspect-row">
-        <span class="inspect-label">Happiness:</span>
-        <span class="inspect-value">${tile.happiness}%</span>
-      </div>
       ${utilitiesHtml}
       ${citizensHtml}
+      ${homeReadinessHtml}
+      ${invitationHtml}
     `;
+
+    const reviewButton = detailsContainer.querySelector<HTMLButtonElement>('#btn-review-applications');
+    reviewButton?.addEventListener('click', () => {
+      if (!this.selectedTile || this.selectedTile.x !== tile.x || this.selectedTile.y !== tile.y) return;
+      this.reviewingApplicationsFor = { x: tile.x, y: tile.y };
+      this.renderApplicationReview(tile);
+    });
+  }
+
+  private renderApplicationReview(tile: TileState) {
+    const detailsContainer = document.getElementById('inspect-simulation-details');
+    if (!detailsContainer) return;
+    if (tile.type !== 'residential' || tile.constructionStatus !== 'complete' || tile.abandoned || tile.householdId) {
+      this.reviewingApplicationsFor = null;
+      this.updateInspectorDetails(tile);
+      return;
+    }
+
+    const applications = this.sim.getAvailableApplications();
+    detailsContainer.innerHTML = `
+      <p style="color: #bbf7d0; margin: 0 0 0.7rem;">Choose a household to welcome to this home.</p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        ${applications.map(application => {
+          const issues = this.sim.getApplicationCompatibilityIssues(application, tile);
+          const compatible = issues.length === 0;
+          return `
+          <article style="padding: 9px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.02);">
+            <strong>${escapeHTML(application.surname)} household</strong>
+            <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 3px;">${application.members.map(member => `${escapeHTML(member.firstName)} · ${escapeHTML(member.occupation)}`).join('<br>')}</div>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin: 7px 0 3px; line-height: 1.35;">${escapeHTML(application.introduction)}</p>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 8px; line-height: 1.35;"><em>${escapeHTML(application.reasonForMoving)}</em></p>
+            ${compatible
+              ? `<button class="small-btn welcome-household-btn" data-application-id="${escapeHTML(application.id)}" style="width: 100%; padding: 7px; cursor: pointer;">Welcome ${escapeHTML(application.surname)}</button>`
+              : `<p style="font-size: 0.78rem; color: #fcd34d; margin: 0 0 8px; line-height: 1.35;">${issues.map(escapeHTML).join(' · ')}</p><button class="small-btn" disabled style="width: 100%; padding: 7px; opacity: .5; cursor: not-allowed;">Not compatible</button>`}
+          </article>
+        `;
+        }).join('')}
+      </div>
+    `;
+
+    detailsContainer.querySelectorAll<HTMLButtonElement>('.welcome-household-btn').forEach(button => {
+      button.addEventListener('click', () => {
+        const applicationId = button.dataset.applicationId;
+        const selected = this.selectedTile;
+        if (!applicationId || !selected || selected.x !== tile.x || selected.y !== tile.y) return;
+        const household = this.sim.inviteHousehold(applicationId, { x: tile.x, y: tile.y });
+        if (!household) {
+          this.sim.onNotification('This home is no longer ready for a new household. Check its utilities and availability.', 'warning');
+          this.sounds.playWarningSFX();
+          return;
+        }
+        this.reviewingApplicationsFor = null;
+        this.renderer.updateTileMesh(tile);
+        this.citizens.stageHouseholdArrival(household.id);
+        this.sounds.playBuildSFX();
+        this.sim.onNotification(`Welcome to NaboCity, the ${household.surname} household!`, 'success');
+        this.updateInspectorDetails(tile);
+        this.updateHUD();
+      });
+    });
   }
 
   closeInspector() {
     this.selectedTile = null;
+    this.selectedResidentId = null;
+    this.reviewingApplicationsFor = null;
     const panel = document.getElementById('inspector-panel');
     panel?.classList.add('hidden');
   }
@@ -1375,7 +1746,7 @@ export class Game {
     this.sounds.playClickSFX();
     const saveData = this.sim.saveState();
     try {
-      localStorage.setItem('nabocity_save', saveData);
+      localStorage.setItem(Game.SAVE_KEY, saveData);
       this.sim.onNotification('Neighborhood saved successfully to Local Storage!', 'success');
     } catch (e) {
       console.error('Failed to save game to localStorage:', e);
@@ -1387,7 +1758,7 @@ export class Game {
   autosaveGame() {
     const saveData = this.sim.saveState();
     try {
-      localStorage.setItem('nabocity_save', saveData);
+      localStorage.setItem(Game.SAVE_KEY, saveData);
       this.sim.onNotification('Neighborhood autosaved successfully!', 'success');
     } catch (e) {
       console.error('Failed to autosave game to localStorage:', e);
@@ -1398,15 +1769,9 @@ export class Game {
   migrateSaveKeys() {
     try {
       const sereneSave = localStorage.getItem('serene_valley_save');
-      const naboSave = localStorage.getItem('nabocity_save');
-      if (sereneSave && !naboSave) {
-        localStorage.setItem('nabocity_save', sereneSave);
-        localStorage.removeItem('serene_valley_save');
-        console.log('Migrated serene_valley_save to nabocity_save');
-      } else if (sereneSave && naboSave) {
-        localStorage.removeItem('serene_valley_save');
-        console.log('Consolidated and removed duplicate serene_valley_save');
-      }
+      // Older saves intentionally remain untouched. They are incompatible with the
+      // household-and-places simulation and must never be silently reset or deleted.
+      void sereneSave;
     } catch (e) {
       console.error('Failed to migrate/consolidate legacy save keys:', e);
     }
@@ -1416,7 +1781,7 @@ export class Game {
     this.sounds.playClickSFX();
     let saveData: string | null = null;
     try {
-      saveData = localStorage.getItem('nabocity_save');
+      saveData = localStorage.getItem(Game.SAVE_KEY);
     } catch (e) {
       console.error('Failed to load game from localStorage:', e);
       this.sim.onNotification('Failed to load neighborhood: storage access disabled.', 'danger');
@@ -1425,6 +1790,13 @@ export class Game {
     }
 
     if (!saveData) {
+      const oldSave = localStorage.getItem('nabocity_save') || localStorage.getItem('serene_valley_save');
+      if (oldSave) {
+        if (confirm('This browser has a save from the retired zoning simulation. It cannot be converted. Start a new neighborhood? The old save will be kept.')) {
+          this.resetGame();
+        }
+        return;
+      }
       this.sim.onNotification('No saved neighborhood data found in this browser!', 'warning');
       this.sounds.playWarningSFX();
       return;
@@ -1460,9 +1832,16 @@ export class Game {
         }
       }
 
+      this.citizens.syncResidents();
+      this.sim.evaluateSharedGardenHopes();
+      this.selectedTile = null;
+      if (this.selectedResidentId) {
+        this.updateResidentInspector();
+      } else {
+        this.closeInspector();
+      }
       this.updateHUD();
       this.updateTaxUI();
-      this.closeInspector();
 
       this.sim.onNotification('Neighborhood loaded successfully!', 'success');
     } else {
@@ -1476,15 +1855,16 @@ export class Game {
     if (confirm('Are you sure you want to start a new neighborhood? All current progress will be lost.')) {
       this.sim.seed = Math.floor(Math.random() * 1000000);
       this.sim.initializeGrid();
+      this.sim.resetResidentData();
+      this.sim.nextApplicationId = 1;
+      this.sim.popularity = { score: 50, reputation: 50, momentum: 50, applicationInterest: 0, lastApplicationDay: 1 };
+      this.sim.initializeApplications();
       this.sim.money = 30000;
       this.sim.taxRate = 0.12;
       this.sim.population = 0;
       this.sim.jobs = 0;
       this.sim.employed = 0;
       this.sim.overallHappiness = 100;
-      this.sim.demandR = 50;
-      this.sim.demandC = 30;
-      this.sim.demandI = 20;
       this.sim.dayCount = 1;
       this.sim.timeOfDay = 8.0;
       this.renderer.resetInterpolation(8.0);

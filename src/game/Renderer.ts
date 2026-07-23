@@ -74,6 +74,9 @@ export class Renderer {
 
   // Active Building Meshes
   buildingMeshes: Map<string, THREE.Object3D> = new Map();
+  private constructionOverlays = new Map<string, HTMLDivElement>();
+  private overlayWorldPosition = new THREE.Vector3();
+  private constructionOverlaysDirty = true;
   turbineRotors: Map<string, THREE.Object3D> = new Map();
   traffic!: TrafficManager;
   citizens!: CitizenManager;
@@ -85,6 +88,7 @@ export class Renderer {
     });
     this.buildingMeshes.clear();
     this.turbineRotors.clear();
+    this.clearConstructionOverlays();
   }
 
   updateShadowSettings(updates: Partial<typeof this.shadowSettings>) {
@@ -342,7 +346,10 @@ export class Renderer {
     this.composer.addPass(renderPass);
 
 
-    // 3. Unreal Bloom Pass for glowing emissive windows & vehicle headlights
+    // 3. Unreal Bloom Pass for glowing emissive windows & vehicle headlights.
+    // UnrealBloomPass creates its internal source buffers at half this supplied
+    // size. EffectComposer supplies drawing-buffer dimensions on resize, so this
+    // keeps those buffers at exactly 50% of the renderer resolution.
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(this.container.clientWidth, this.container.clientHeight),
       0.25, // strength (cozy and soft)
@@ -903,9 +910,109 @@ export class Renderer {
   }
 
   // Render individual zoned structures on state changes
+  private createConstructionSiteMesh(): THREE.Group {
+    const group = new THREE.Group();
+    const foundationMaterial = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.92, metalness: 0.05 });
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.7, metalness: 0.08 });
+
+    const foundation = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.08, 1.7), foundationMaterial);
+    foundation.position.y = 0.04;
+    group.add(foundation);
+
+    for (const [x, z] of [[-0.62, -0.62], [0.62, -0.62], [-0.62, 0.62], [0.62, 0.62]]) {
+      const stake = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.62, 0.09), frameMaterial);
+      stake.position.set(x, 0.35, z);
+      group.add(stake);
+    }
+
+    return group;
+  }
+
+  private clearConstructionOverlays() {
+    this.constructionOverlays.forEach(overlay => overlay.remove());
+    this.constructionOverlays.clear();
+    this.constructionOverlaysDirty = true;
+  }
+
+  /**
+   * Construction progress is simulation-driven, while its screen placement is
+   * camera-driven. Keep both updates off the render loop until one changes.
+   */
+  private markConstructionOverlaysDirty() {
+    this.constructionOverlaysDirty = true;
+  }
+
+  private updateConstructionOverlays() {
+    if (!this.constructionOverlaysDirty) return;
+    if (!this.sim) return;
+    const root = document.getElementById('construction-progress-overlays');
+    if (!root) return;
+    this.constructionOverlaysDirty = false;
+    this.camera.updateMatrixWorld();
+    const activeKeys = new Set<string>();
+    const canvasBounds = this.renderer.domElement.getBoundingClientRect();
+    const gridOffset = 25;
+    const overlayMode = this.cameraZoom >= 18 ? 'full' : this.cameraZoom >= 11 ? 'compact' : 'hidden';
+
+    for (const row of this.sim.grid) for (const tile of row) {
+      if (tile.constructionStatus !== 'planned' && tile.constructionStatus !== 'building') continue;
+      const key = `${tile.x},${tile.y}`;
+      activeKeys.add(key);
+      let overlay = this.constructionOverlays.get(key);
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'construction-progress-overlay';
+        overlay.innerHTML = `<span class="construction-compact-icon" aria-hidden="true">⚒</span><span class="construction-warning-icon" aria-hidden="true">⚠</span><span class="construction-progress-label"></span><div class="construction-progress-track"><div class="construction-progress-fill"></div></div>`;
+        root.appendChild(overlay);
+        this.constructionOverlays.set(key, overlay);
+      }
+      const percent = Math.round(tile.constructionProgress ?? 0);
+      const label = overlay.querySelector<HTMLElement>('.construction-progress-label');
+      const fill = overlay.querySelector<HTMLElement>('.construction-progress-fill');
+      const compactIcon = overlay.querySelector<HTMLElement>('.construction-compact-icon');
+      const waitingFor = tile.constructionStatus === 'planned' ? (tile.constructionBlockers ?? []) : [];
+      const blocked = waitingFor.length > 0;
+      overlay.classList.toggle('is-blocked', blocked);
+      overlay.classList.toggle('is-compact', overlayMode === 'compact');
+      if (compactIcon) compactIcon.textContent = blocked ? '⚠' : '⚒';
+      if (label) label.textContent = blocked ? `Waiting: ${waitingFor.join(' · ')}` : `Building ${percent}%`;
+      if (fill) fill.style.width = blocked ? '0%' : `${percent}%`;
+
+      this.overlayWorldPosition.set((tile.x - gridOffset) * 2, (tile.elevation || 0) * 0.8 + 1.05, (tile.y - gridOffset) * 2).project(this.camera);
+      const inViewport =
+        this.overlayWorldPosition.x >= -1 && this.overlayWorldPosition.x <= 1 &&
+        this.overlayWorldPosition.y >= -1 && this.overlayWorldPosition.y <= 1 &&
+        this.overlayWorldPosition.z >= -1 && this.overlayWorldPosition.z <= 1;
+      const visible = overlayMode !== 'hidden' && inViewport;
+      overlay.style.display = visible ? '' : 'none';
+      if (visible) {
+        overlay.style.left = `${canvasBounds.left + (this.overlayWorldPosition.x * 0.5 + 0.5) * canvasBounds.width}px`;
+        overlay.style.top = `${canvasBounds.top + (-this.overlayWorldPosition.y * 0.5 + 0.5) * canvasBounds.height}px`;
+        // DOM overlays are outside WebGL's depth buffer, so mirror its depth order.
+        // Nearer tiles receive a larger stacking value and remain readable on top.
+        overlay.style.zIndex = String(Math.round((1 - this.overlayWorldPosition.z) * 10_000));
+      }
+    }
+    for (const [key, overlay] of this.constructionOverlays) {
+      if (!activeKeys.has(key)) {
+        overlay.remove();
+        this.constructionOverlays.delete(key);
+      }
+    }
+  }
+
   updateTileMesh(tile: TileState) {
     const key = `${tile.x},${tile.y}`;
     const oldMesh = this.buildingMeshes.get(key);
+    // A new or completed construction site can add or remove its HTML overlay.
+    // Other tile mesh changes do not affect this overlay layer.
+    if (
+      tile.constructionStatus === 'planned' ||
+      tile.constructionStatus === 'building' ||
+      this.constructionOverlays.has(key)
+    ) {
+      this.markConstructionOverlaysDirty();
+    }
     const targetRotation = this.calculateTileRotation(tile);
     const neighborsHash = this.computeNeighborsHash(tile);
 
@@ -915,6 +1022,7 @@ export class Renderer {
         oldMesh.userData &&
         oldMesh.userData.type === tile.type &&
         oldMesh.userData.level === tile.level &&
+        oldMesh.userData.constructionStatus === tile.constructionStatus &&
         oldMesh.userData.rotation === targetRotation &&
         oldMesh.userData.neighborsHash === neighborsHash
       ) {
@@ -936,7 +1044,9 @@ export class Renderer {
     const xPos = (tile.x - gridOffset) * 2;
     const zPos = (tile.y - gridOffset) * 2;
 
-    switch (tile.type) {
+    if (tile.constructionStatus === 'planned' || tile.constructionStatus === 'building') {
+      newMesh = this.createConstructionSiteMesh();
+    } else switch (tile.type) {
       case 'road':
         // Determine road neighbors (we will delegate connection computation in input or coordinator)
         break;
@@ -985,7 +1095,7 @@ export class Renderer {
     }
 
     if (newMesh) {
-      newMesh = this.assets.mergeMeshesByMaterial(newMesh);
+      if (tile.constructionStatus !== 'planned' && tile.constructionStatus !== 'building') newMesh = this.assets.mergeMeshesByMaterial(newMesh);
       const tileElevation = tile.elevation || 0;
       const baseHeight = tileElevation * 0.8;
       const yOffset = tile.type === 'residential' ? -0.06 : 0;
@@ -996,6 +1106,7 @@ export class Renderer {
       newMesh.userData = { 
         type: tile.type, 
         level: tile.level, 
+        constructionStatus: tile.constructionStatus,
         rotation: targetRotation,
         neighborsHash: neighborsHash
       };
@@ -1347,8 +1458,13 @@ export class Renderer {
       waterMat.userData.shader.uniforms.uTime.value += timeStep;
     }
 
-    // 3. Smooth Camera Pan, Zoom, and Rotation Updates
-    this.updateCameraSmoothing(timeStep);
+    // 3. Smooth Camera Pan, Zoom, and Rotation Updates. Once the camera has
+    // settled, skip the math, projection update, shadow fitting, and overlay
+    // repositioning until another camera input arrives.
+    if (this.cameraNeedsSmoothing() && this.updateCameraSmoothing(timeStep)) {
+      this.markConstructionOverlaysDirty();
+    }
+    this.updateConstructionOverlays();
 
     // 4. Update procedural traffic
     if (this.traffic) {
@@ -1365,31 +1481,77 @@ export class Renderer {
   }
 
   // Camera Smoothing update method
-  updateCameraSmoothing(timeStep: number) {
+  private cameraNeedsSmoothing(): boolean {
+    const isPanningWithKeyboard = Boolean(
+      this.keysPressed['w'] || this.keysPressed['arrowup'] ||
+      this.keysPressed['a'] || this.keysPressed['arrowleft'] ||
+      this.keysPressed['s'] || this.keysPressed['arrowdown'] ||
+      this.keysPressed['d'] || this.keysPressed['arrowright']
+    );
+    return isPanningWithKeyboard ||
+      this.cameraTarget.distanceToSquared(this.desiredCameraTarget) >= 0.000001 ||
+      Math.abs(this.desiredCameraZoom - this.cameraZoom) >= 0.0001 ||
+      Math.abs(this.desiredAngleX - this.cameraAngleX) >= 0.0001 ||
+      Math.abs(this.desiredAngleY - this.cameraAngleY) >= 0.0001;
+  }
+
+  updateCameraSmoothing(timeStep: number): boolean {
+    const isPanningWithKeyboard = Boolean(
+      this.keysPressed['w'] || this.keysPressed['arrowup'] ||
+      this.keysPressed['a'] || this.keysPressed['arrowleft'] ||
+      this.keysPressed['s'] || this.keysPressed['arrowdown'] ||
+      this.keysPressed['d'] || this.keysPressed['arrowright']
+    );
+    const targetDeltaSq = this.cameraTarget.distanceToSquared(this.desiredCameraTarget);
+    const zoomDelta = Math.abs(this.desiredCameraZoom - this.cameraZoom);
+    const angleXDelta = Math.abs(this.desiredAngleX - this.cameraAngleX);
+    const angleYDelta = Math.abs(this.desiredAngleY - this.cameraAngleY);
+    const targetSettled = targetDeltaSq < 0.000001;
+    const zoomSettled = zoomDelta < 0.0001;
+    const anglesSettled = angleXDelta < 0.0001 && angleYDelta < 0.0001;
+
+    if (!isPanningWithKeyboard && targetSettled && zoomSettled && anglesSettled) {
+      return false;
+    }
+
     // 1. Process Keyboard Panning
-    const forward = this.tempForward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    const right = this.tempRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
-    forward.y = 0;
-    right.y = 0;
-    forward.normalize();
-    right.normalize();
+    if (isPanningWithKeyboard) {
+      const forward = this.tempForward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      const right = this.tempRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+      forward.y = 0;
+      right.y = 0;
+      forward.normalize();
+      right.normalize();
 
-    const moveDir = this.tempMoveDir.set(0, 0, 0);
-    if (this.keysPressed['w'] || this.keysPressed['arrowup']) moveDir.add(forward);
-    if (this.keysPressed['s'] || this.keysPressed['arrowdown']) moveDir.addScaledVector(forward, -1);
-    if (this.keysPressed['d'] || this.keysPressed['arrowright']) moveDir.add(right);
-    if (this.keysPressed['a'] || this.keysPressed['arrowleft']) moveDir.addScaledVector(right, -1);
+      const moveDir = this.tempMoveDir.set(0, 0, 0);
+      if (this.keysPressed['w'] || this.keysPressed['arrowup']) moveDir.add(forward);
+      if (this.keysPressed['s'] || this.keysPressed['arrowdown']) moveDir.addScaledVector(forward, -1);
+      if (this.keysPressed['d'] || this.keysPressed['arrowright']) moveDir.add(right);
+      if (this.keysPressed['a'] || this.keysPressed['arrowleft']) moveDir.addScaledVector(right, -1);
 
-    if (moveDir.lengthSq() > 0) {
-      moveDir.normalize();
-      // Pan speed scales with zoom: pan faster when zoomed out, slower when zoomed in
-      const panBaseSpeed = 35; // units per second
-      const speed = panBaseSpeed * timeStep * (25 / this.cameraZoom);
-      this.desiredCameraTarget.addScaledVector(moveDir, speed);
+      if (moveDir.lengthSq() > 0) {
+        moveDir.normalize();
+        // Pan speed scales with zoom: pan faster when zoomed out, slower when zoomed in
+        const panBaseSpeed = 35; // units per second
+        const speed = panBaseSpeed * timeStep * (25 / this.cameraZoom);
+        this.desiredCameraTarget.addScaledVector(moveDir, speed);
 
-      // Clamp target to grid boundary (50x50 board)
-      this.desiredCameraTarget.x = Math.max(-50, Math.min(50, this.desiredCameraTarget.x));
-      this.desiredCameraTarget.z = Math.max(-50, Math.min(50, this.desiredCameraTarget.z));
+        // Clamp target to grid boundary (50x50 board)
+        this.desiredCameraTarget.x = Math.max(-50, Math.min(50, this.desiredCameraTarget.x));
+        this.desiredCameraTarget.z = Math.max(-50, Math.min(50, this.desiredCameraTarget.z));
+      }
+    }
+
+    // A held pan key can be clamped at the map edge. In that case it does not
+    // change the camera state, so avoid falling through to projection/shadow
+    // work just because input is still active.
+    if (
+      this.cameraTarget.distanceToSquared(this.desiredCameraTarget) < 0.000001 &&
+      Math.abs(this.desiredCameraZoom - this.cameraZoom) < 0.0001 &&
+      Math.abs(this.desiredAngleX - this.cameraAngleX) < 0.0001 &&
+      Math.abs(this.desiredAngleY - this.cameraAngleY) < 0.0001
+    ) {
+      return false;
     }
 
     // 2. Exponential decay interpolation (lerp) for smooth gliding
@@ -1402,6 +1564,21 @@ export class Renderer {
     this.cameraAngleX += (this.desiredAngleX - this.cameraAngleX) * angleLerp;
     this.cameraAngleY += (this.desiredAngleY - this.cameraAngleY) * angleLerp;
 
+    // End the asymptotic interpolation exactly so future idle frames can take
+    // the fast path without imperceptible camera or DOM work.
+    if (this.cameraTarget.distanceToSquared(this.desiredCameraTarget) < 0.000001) {
+      this.cameraTarget.copy(this.desiredCameraTarget);
+    }
+    if (Math.abs(this.desiredCameraZoom - this.cameraZoom) < 0.0001) {
+      this.cameraZoom = this.desiredCameraZoom;
+    }
+    if (Math.abs(this.desiredAngleX - this.cameraAngleX) < 0.0001) {
+      this.cameraAngleX = this.desiredAngleX;
+    }
+    if (Math.abs(this.desiredAngleY - this.cameraAngleY) < 0.0001) {
+      this.cameraAngleY = this.desiredAngleY;
+    }
+
     // 3. Update Orthographic frustum based on smooth zoom
     const aspect = this.container.clientWidth / this.container.clientHeight;
     const frustumSize = 1000 / this.cameraZoom;
@@ -1412,6 +1589,7 @@ export class Renderer {
 
     // 4. Update scene positions
     this.updateCameraPosition();
+    return true;
   }
 
   refreshSceneMaterials() {
@@ -1449,5 +1627,6 @@ export class Renderer {
       this.composer.setSize(this.container.clientWidth, this.container.clientHeight);
     }
     this.updateShadowFrustum();
+    this.markConstructionOverlaysDirty();
   }
 }

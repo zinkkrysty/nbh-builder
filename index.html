@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NaboCity - Calm 3D City Builder</title>
-  <meta name="description" content="A calm, low-poly 3D city builder game with a realistic economic simulation, zoning, utilities, and cozy aesthetics.">
+  <title>NaboCity - Neighborhood Builder</title>
+  <meta name="description" content="A calm, low-poly neighborhood builder about welcoming households and creating named local places.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -143,7 +143,6 @@
         <div class="stat-item" title="Population">
           <img class="stat-icon" src="/population_icon.png" alt="Population">
           <span class="stat-value" id="stat-population">0</span>
-          <span class="stat-trend" id="stat-pop-trend">→</span>
         </div>
 
         <div class="stat-item" title="Citizen Happiness">
@@ -200,29 +199,33 @@
       </div>
     </header>
 
-    <!-- Left Panel: Demand & Info -->
+    <!-- Left Panel: Neighborhood overview -->
     <aside class="hud-left glass">
-      <h2>Zoning Demand</h2>
-      <div class="demand-container">
-        <div class="demand-bar-group">
-          <label for="demand-r">Residential</label>
-          <div class="demand-track">
-            <div id="demand-r" class="demand-fill residential" style="width: 50%;"></div>
-          </div>
-        </div>
-        <div class="demand-bar-group">
-          <label for="demand-c">Commercial</label>
-          <div class="demand-track">
-            <div id="demand-c" class="demand-fill commercial" style="width: 30%;"></div>
-          </div>
-        </div>
-        <div class="demand-bar-group">
-          <label for="demand-i">Industrial</label>
-          <div class="demand-track">
-            <div id="demand-i" class="demand-fill industrial" style="width: 20%;"></div>
-          </div>
-        </div>
+      <h2>Neighborhood Overview</h2>
+      <div class="status-grid">
+        <div class="status-card"><span class="status-label">Popularity</span><span class="status-value" id="overview-popularity">50</span></div>
+        <div class="status-card"><span class="status-label">Application interest</span><span class="status-value" id="overview-interest">0 / 100</span></div>
+        <div class="status-card"><span class="status-label">Ready homes</span><span class="status-value" id="overview-homes">0</span></div>
+        <div class="status-card"><span class="status-label">Employment</span><span class="status-value" id="overview-employment">0 / 0</span></div>
       </div>
+      <button id="btn-neighborhood-center" class="neighborhood-center-button" aria-label="Review household proposals">
+        <span class="neighborhood-center-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 20v-1.6a3.4 3.4 0 0 0-3.4-3.4H6.4A3.4 3.4 0 0 0 3 18.4V20"></path>
+            <circle cx="9.5" cy="7.5" r="3.5"></circle>
+            <path d="M17 11.5a3 3 0 0 0 0-6"></path>
+            <path d="M18.5 15.3a3.3 3.3 0 0 1 2.5 3.2V20"></path>
+          </svg>
+        </span>
+        <span class="neighborhood-center-copy">
+          <strong>Household proposals</strong>
+          <span id="neighborhood-center-meta" aria-live="polite">Checking for new neighbors…</span>
+        </span>
+        <span class="neighborhood-center-end" aria-hidden="true">
+          <span id="neighborhood-center-count" class="neighborhood-center-count">0</span>
+          <span class="neighborhood-center-arrow">&rsaquo;</span>
+        </span>
+      </button>
 
       <hr class="panel-divider">
 
@@ -245,6 +248,12 @@
           </div>
         </div>
       </div>
+
+      <section id="neighborhood-hopes-card" class="status-card" style="display: none; margin-top: 14px; padding: 12px;">
+        <span class="status-label">Neighborhood Hopes</span>
+        <p id="neighborhood-hope-request" style="margin: 6px 0 4px; line-height: 1.35;"></p>
+        <p id="neighborhood-hope-status" style="margin: 0; color: #bbf7d0; font-size: 0.85rem; line-height: 1.35;"></p>
+      </section>
     </aside>
 
     <!-- Bottom Right Panel: Inspector -->
@@ -254,13 +263,15 @@
         <button id="btn-inspect-close" class="close-btn">&times;</button>
       </div>
       <div class="inspect-body">
-        <div class="inspect-row">
-          <span class="inspect-label">Coordinates:</span>
-          <span class="inspect-value" id="inspect-coords">0, 0</span>
-        </div>
-        <div class="inspect-row">
-          <span class="inspect-label">Zone/Type:</span>
-          <span class="inspect-value" id="inspect-type">Empty</span>
+        <div id="inspect-tile-metadata">
+          <div class="inspect-row">
+            <span class="inspect-label">Coordinates:</span>
+            <span class="inspect-value" id="inspect-coords">0, 0</span>
+          </div>
+          <div class="inspect-row">
+            <span class="inspect-label">Place / type:</span>
+            <span class="inspect-value" id="inspect-type">Empty</span>
+          </div>
         </div>
         <div id="inspect-simulation-details">
           <!-- Dynamically populated details like occupancy, power, water, level -->
@@ -271,6 +282,33 @@
     <!-- Bottom Bar: Toolbar -->
     <nav class="hud-footer glass">
       <div class="toolbar">
+        <label class="place-select" title="Choose the specific place to construct">
+          <span>Build</span>
+          <select id="place-archetype-select" aria-label="Place type">
+            <option value="">Quick tools</option>
+            <optgroup label="Homes">
+              <option value="cozy_cottage">Cozy Cottage — $400</option>
+              <option value="family_home">Family Home — $700</option>
+              <option value="alpine_chalet">Alpine Chalet — $1,100</option>
+            </optgroup>
+            <optgroup label="Businesses">
+              <option value="bakery">Bakery — $550</option>
+              <option value="cafe">Café — $500</option>
+              <option value="florist">Florist — $450</option>
+              <option value="grocer">Grocer — $650</option>
+              <option value="repair_shop">Repair Shop — $500</option>
+            </optgroup>
+            <optgroup label="Workshops">
+              <option value="pottery_workshop">Pottery Workshop — $600</option>
+              <option value="carpenter_workshop">Carpenter Workshop — $600</option>
+              <option value="bike_workshop">Bicycle Workshop — $550</option>
+            </optgroup>
+            <optgroup label="Public places">
+              <option value="community_park">Community Park — $300</option>
+              <option value="community_garden">Community Garden — $350</option>
+            </optgroup>
+          </select>
+        </label>
         <button id="tool-select" class="tool-btn active" data-tool="select" title="Inspect & Select (1)">
           <img class="tool-icon" src="/inspect_icon.png" alt="Inspect">
           <span class="tool-name">Inspect</span>
@@ -279,17 +317,9 @@
           <img class="tool-icon" src="/road_icon.png" alt="Road">
           <span class="tool-name">Road</span>
         </button>
-        <button id="tool-residential" class="tool-btn" data-tool="residential" title="Zone Residential - $20 (3)">
-          <img class="tool-icon" src="/residential_icon.png" alt="Res Zone">
-          <span class="tool-name">Res Zone</span>
-        </button>
-        <button id="tool-commercial" class="tool-btn" data-tool="commercial" title="Zone Commercial - $30 (4)">
-          <img class="tool-icon" src="/commercial_icon.png" alt="Com Zone">
-          <span class="tool-name">Com Zone</span>
-        </button>
-        <button id="tool-industrial" class="tool-btn" data-tool="industrial" title="Zone Industrial - $40 (5)">
-          <img class="tool-icon" src="/industrial_icon.png" alt="Ind Zone">
-          <span class="tool-name">Ind Zone</span>
+        <button id="btn-places" class="tool-btn" title="Open Places">
+          <img class="tool-icon" src="/residential_icon.png" alt="Places">
+          <span class="tool-name">Places</span>
         </button>
         <button id="tool-power" class="tool-btn" data-tool="power" title="Wind Turbine - $500 (6)">
           <img class="tool-icon" src="/turbine_icon.png" alt="Turbine">
@@ -341,8 +371,18 @@
       </div>
     </nav>
 
+    <div id="construction-progress-overlays" aria-live="off"></div>
+
     <!-- Toast Notification Container -->
     <div id="toast-container"></div>
+
+    <section id="neighborhood-modal" class="neighborhood-modal glass hidden" aria-labelledby="neighborhood-modal-title" aria-modal="true" role="dialog">
+      <div class="neighborhood-modal-backdrop" aria-hidden="true"></div>
+      <div class="neighborhood-modal-panel">
+        <div class="panel-header"><h2 id="neighborhood-modal-title">Neighborhood Center</h2><button id="btn-neighborhood-close" class="close-btn" aria-label="Close neighborhood center">&times;</button></div>
+        <div id="neighborhood-modal-content"></div>
+      </div>
+    </section>
 
     <!-- Cel Shading Sandbox Panel -->
     <div id="cel-sandbox" class="glass hidden" style="position: absolute; top: 160px; right: 20px; width: 300px; z-index: 90; padding: 1.25rem; border-radius: 16px; display: flex; flex-direction: column; gap: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08);">

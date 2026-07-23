@@ -1,19 +1,10 @@
 import * as THREE from 'three';
-import { Simulation, TileState, TileType } from './Simulation';
+import { Simulation, TileState, TileType, ResidentState, RoutineActivity, RoutineBlock } from './Simulation';
 import { Renderer } from './Renderer';
 
-export interface CitizenProfile {
-  firstName: string;
-  lastName: string;
-  age: number;
-  job: string;
-  happiness: number;
-}
-
 export interface CitizenState {
-  id: number;
+  residentId: string;
   mesh: THREE.Group | null;
-  profile: CitizenProfile;
   homeX: number;
   homeY: number;
   workX: number | null;
@@ -24,8 +15,9 @@ export interface CitizenState {
   targetY: number;
   prevX: number;
   prevY: number;
-  targetType: 'work' | 'park' | 'boardwalk' | 'home';
-  state: 'home' | 'walking_to_work' | 'working' | 'walking_to_park' | 'relaxing_at_park' | 'walking_to_boardwalk' | 'strolling_on_boardwalk' | 'walking_home';
+  targetType: 'work' | 'garden' | 'park' | 'boardwalk' | 'home';
+  state: 'home' | 'awaiting_arrival_access' | 'arriving_home' | 'walking_to_work' | 'working' | 'walking_to_garden' | 'gardening_in_community_green_space' | 'walking_to_park' | 'relaxing_at_park' | 'walking_to_boardwalk' | 'strolling_on_boardwalk' | 'walking_home';
+  activeRoutineBlock: string | null;
   path: { x: number; y: number }[];
   pathIndex: number;
   progress: number; // 0 to 1 between path nodes
@@ -41,8 +33,7 @@ export class CitizenManager {
   sim: Simulation;
   renderer: Renderer;
   cims: CitizenState[] = [];
-  nextCimId = 1;
-  maxCims = 0;
+  private arrivalRetrySeconds = 0;
 
   // Grid references
   gridSize = 50;
@@ -58,37 +49,14 @@ export class CitizenManager {
   tempPos = new THREE.Vector3();
   tempBoardwalkOffset = new THREE.Vector3();
 
-  private firstNames = [
-    'Bob', 'Alice', 'Charlie', 'Daisy', 'Ethan', 'Fiona', 'George', 'Hazel', 'Ian', 'Julia',
-    'Kevin', 'Lily', 'Max', 'Nora', 'Oscar', 'Penelope', 'Quincy', 'Rose', 'Sam', 'Tina',
-    'Leo', 'Maya', 'Toby', 'Sophie', 'Oliver', 'Emma', 'Jack', 'Mia', 'Henry', 'Grace'
-  ];
 
-  private lastNames = [
-    'Cozy', 'Warm', 'Gentle', 'Calm', 'Soft', 'Lofi', 'Placid', 'Green', 'Wood', 'Hill',
-    'Brook', 'Stone', 'Field', 'Bell', 'Lane', 'Vale', 'Forest', 'Meadow', 'Lake', 'Cove'
-  ];
-
-  private jobsList = [
-    'Barista', 'Book Clerk', 'Librarian', 'Wind Tech', 'Water Engineer', 'Gardener',
-    'Architect', 'Lofi Artist', 'Baker', 'Florist', 'Diner Chef', 'Studio Designer'
-  ];
 
   constructor(sim: Simulation, renderer: Renderer) {
     this.sim = sim;
     this.renderer = renderer;
   }
 
-  // Determine max cims based on current population
-  updateMaxCims() {
-    // 1 cim per 2 population, minimum 0, maximum 40 to avoid performance degradation
-    const resCount = this.getZonedTiles('residential').length;
-    if (resCount === 0) {
-      this.maxCims = 0;
-    } else {
-      this.maxCims = Math.min(40, Math.max(3, Math.floor(this.sim.population / 2)));
-    }
-  }
+
 
   // Get all tiles of a certain type
   getZonedTiles(type: TileType): TileState[] {
@@ -147,69 +115,64 @@ export class CitizenManager {
     );
   }
 
-  // Generate a random citizen profile
-  generateProfile(happiness: number): CitizenProfile {
-    const firstName = this.firstNames[Math.floor(Math.random() * this.firstNames.length)];
-    const lastName = this.lastNames[Math.floor(Math.random() * this.lastNames.length)];
-    const age = 18 + Math.floor(Math.random() * 63); // 18 to 80
-    const job = this.jobsList[Math.floor(Math.random() * this.jobsList.length)];
-    return {
-      firstName,
-      lastName,
-      age,
-      job,
-      happiness: Math.round(happiness),
+
+
+  getSelectableMeshes(): THREE.Object3D[] {
+    return this.cims.flatMap(cim => cim.mesh ? [cim.mesh] : []);
+  }
+
+  getCitizen(residentId: string): CitizenState | undefined {
+    return this.cims.find(cim => cim.residentId === residentId);
+  }
+
+  getActivityLabel(residentId: string): string {
+    const state = this.getCitizen(residentId)?.state ?? 'home';
+    const labels: Record<CitizenState['state'], string> = {
+      home: 'At home',
+      arriving_home: 'Arriving home',
+      awaiting_arrival_access: 'Waiting for road access',
+      walking_to_work: 'Walking to work',
+      working: 'Working',
+      walking_to_garden: 'Walking to a garden',
+      gardening_in_community_green_space: 'Gardening in a community green space',
+      walking_to_park: 'Walking to a park',
+      relaxing_at_park: 'Visiting a park',
+      walking_to_boardwalk: 'Walking to the boardwalk',
+      strolling_on_boardwalk: 'Strolling on the boardwalk',
+      walking_home: 'Walking home',
     };
+    return labels[state] ?? 'At home';
   }
 
   // Find all citizens residing or working at a tile
   getCitizensAtTile(x: number, y: number): CitizenState[] {
-    return this.cims.filter(c => 
-      (c.homeX === x && c.homeY === y) || 
-      (c.workX === x && c.workY === y)
-    );
+    return this.cims.filter(c => {
+      const settled = this.sim.getHousehold(this.sim.getResident(c.residentId)?.householdId ?? '')?.status === 'settled';
+      return settled && ((c.homeX === x && c.homeY === y) || (c.workX === x && c.workY === y));
+    });
   }
 
-  // Spawn a citizen from a residential house
-  spawnCim(): boolean {
-    const residences = this.getZonedTiles('residential');
-    if (residences.length === 0) return false;
+  private isValidResident(resident: ResidentState): boolean {
+    const household = this.sim.getHousehold(resident.householdId);
+    const home = resident.home;
+    if (!household || (household.status !== 'settled' && household.status !== 'arriving') || !home
+      || household.home?.x !== home.x || household.home?.y !== home.y
+      || home.x < 0 || home.x >= this.sim.gridSize || home.y < 0 || home.y >= this.sim.gridSize) return false;
 
-    // Pick random residence
-    const home = residences[Math.floor(Math.random() * residences.length)];
-    
-    // Find job site if any commercial or industrial tiles exist
-    const workSites = [...this.getZonedTiles('commercial'), ...this.getZonedTiles('industrial')];
-    let workX: number | null = null;
-    let workY: number | null = null;
-    let jobTitle = 'Unemployed';
+    const tile = this.sim.grid[home.x][home.y];
+    return tile.type === 'residential' && tile.constructionStatus === 'complete' && !tile.abandoned && (tile.householdId === household.id || tile.reservedHouseholdId === household.id);
+  }
 
-    if (workSites.length > 0 && Math.random() > 0.15) {
-      const site = workSites[Math.floor(Math.random() * workSites.length)];
-      workX = site.x;
-      workY = site.y;
-      if (site.type === 'commercial') {
-        jobTitle = site.level === 1 ? 'Shop Barista' : site.level === 2 ? 'Store Clerk' : 'Studio Designer';
-      } else {
-        jobTitle = site.level === 1 ? 'Factory Helper' : site.level === 2 ? 'Machinist' : 'Plant Engineer';
-      }
-    }
+  private createRuntimeCitizen(resident: ResidentState): CitizenState {
+    const home = resident.home!;
 
-    const profile = this.generateProfile(home.happiness);
-    if (workX !== null) {
-      profile.job = jobTitle;
-    } else {
-      profile.job = 'Unemployed';
-    }
-
-    const cim: CitizenState = {
-      id: this.nextCimId++,
+    return {
+      residentId: resident.id,
       mesh: null,
-      profile,
       homeX: home.x,
       homeY: home.y,
-      workX,
-      workY,
+      workX: null,
+      workY: null,
       currentX: home.x,
       currentY: home.y,
       targetX: home.x,
@@ -218,19 +181,77 @@ export class CitizenManager {
       prevY: home.y,
       targetType: 'home',
       state: 'home',
+      activeRoutineBlock: null,
       path: [],
       pathIndex: 0,
       progress: 0.0,
-      speed: 0.45 + Math.random() * 0.2, // Calm walk speed: 0.45 to 0.65 cells per second
+      speed: 0.45 + Math.random() * 0.2,
       relaxTimer: 0,
       sidewalkSide: Math.random() > 0.5 ? 1 : -1,
       bobTime: Math.random() * Math.PI * 2,
       smoothOffset: new THREE.Vector3(),
       facingAngle: 0,
     };
+  }
 
-    this.cims.push(cim);
-    return true;
+  // Reconcile transient runtime state with persistent simulation residents without resetting movement.
+  syncResidents() {
+    const validResidents = new Map(
+      this.sim.residents.filter(resident => this.isValidResident(resident)).map(resident => [resident.id, resident])
+    );
+
+    for (let index = this.cims.length - 1; index >= 0; index--) {
+      const cim = this.cims[index];
+      if (!validResidents.has(cim.residentId)) {
+        this.despawnCimMesh(cim);
+        this.cims.splice(index, 1);
+      }
+    }
+
+    const runtimeIds = new Set(this.cims.map(cim => cim.residentId));
+    for (const resident of validResidents.values()) {
+      if (!runtimeIds.has(resident.id)) this.cims.push(this.createRuntimeCitizen(resident));
+    }
+  }
+
+  stageHouseholdArrival(householdId: string) {
+    const household = this.sim.getHousehold(householdId);
+    if (!household || household.status !== 'arriving' || !household.home) return;
+    this.syncResidents();
+
+    const entries: { x: number; y: number }[] = [];
+    for (let x = 0; x < this.gridSize; x++) for (let y = 0; y < this.gridSize; y++) {
+      if (x !== 0 && y !== 0 && x !== this.gridSize - 1 && y !== this.gridSize - 1) continue;
+      const tile = this.sim.grid[x][y];
+      if (tile.type === 'road' || tile.type === 'boardwalk') entries.push({ x, y });
+    }
+    entries.sort((a, b) => a.x - b.x || a.y - b.y);
+
+    let selectedPath: { x: number; y: number }[] | null = null;
+    for (const entry of entries) {
+      const path = this.findWalkwayPath(entry, household.home);
+      if (path && (!selectedPath || path.length < selectedPath.length)) selectedPath = path;
+    }
+
+    for (const residentId of household.residentIds) {
+      const cim = this.getCitizen(residentId);
+      if (!cim) continue;
+      if (!selectedPath) {
+        this.despawnCimMesh(cim);
+        cim.path = [];
+        cim.pathIndex = 0;
+        cim.progress = 0;
+        cim.state = 'awaiting_arrival_access';
+        cim.activeRoutineBlock = null;
+        continue;
+      }
+      cim.currentX = selectedPath[0].x;
+      cim.currentY = selectedPath[0].y;
+      cim.prevX = selectedPath[0].x;
+      cim.prevY = selectedPath[0].y;
+      cim.activeRoutineBlock = null;
+      this.startWalkingOnPath(cim, selectedPath, 'arriving_home', 'home');
+    }
   }
 
   // BFS pathfinding on walkable tiles (road, boardwalk, park) plus the source/target building nodes
@@ -320,7 +341,11 @@ export class CitizenManager {
   instantiateCimMesh(cim: CitizenState) {
     if (cim.mesh) return;
 
-    cim.mesh = this.renderer.assets.createCitizenMesh();
+    const resident = this.sim.getResident(cim.residentId);
+    if (!resident) return;
+
+    cim.mesh = this.renderer.assets.createCitizenMesh(resident.appearanceSeed);
+    cim.mesh.userData.residentId = resident.id;
     const pos = this.getTile3DPos(cim.currentX, cim.currentY);
     cim.mesh.position.copy(pos);
     cim.mesh.scale.set(0.001, 0.001, 0.001); // start small to scale up (pop effect)
@@ -337,89 +362,151 @@ export class CitizenManager {
 
   // Main update loop
   update(deltaTime: number) {
+    this.syncResidents();
     if (this.sim.speed === 0) return;
-
-    this.updateMaxCims();
-
-    // 1. Maintain citizen count
-    if (this.cims.length < this.maxCims && Math.random() > 0.8) {
-      this.spawnCim();
+    this.arrivalRetrySeconds -= deltaTime;
+    if (this.arrivalRetrySeconds <= 0) {
+      this.arrivalRetrySeconds = 5;
+      for (const household of this.sim.households) {
+        if (household.status !== 'arriving') continue;
+        const isWalkingIn = household.residentIds.some(id => this.getCitizen(id)?.state === 'arriving_home');
+        if (!isWalkingIn) this.stageHouseholdArrival(household.id);
+      }
     }
-    // Remove citizens if the population declines
-    while (this.cims.length > this.maxCims && this.cims.length > 0) {
-      const idx = Math.floor(Math.random() * this.cims.length);
-      this.despawnCimMesh(this.cims[idx]);
-      this.cims.splice(idx, 1);
-    }
-
     const timeStep = deltaTime * this.sim.speed;
-    const hours = this.sim.timeOfDay;
-    const isNightTime = hours >= 19.5 || hours < 7.0;
-
     for (let i = this.cims.length - 1; i >= 0; i--) {
       const cim = this.cims[i];
+      const resident = this.sim.getResident(cim.residentId);
+      if (!resident) continue;
 
-      // Validate home and work site still exist
-      const homeTile = this.sim.grid[cim.homeX][cim.homeY];
-      if (homeTile.type !== 'residential' || homeTile.level === 0) {
-        // Find new home or delete
-        const residences = this.getZonedTiles('residential');
-        if (residences.length > 0) {
-          const newHome = residences[Math.floor(Math.random() * residences.length)];
-          cim.homeX = newHome.x;
-          cim.homeY = newHome.y;
-        } else {
-          this.despawnCimMesh(cim);
-          this.cims.splice(i, 1);
-          continue;
-        }
+      // Arrival is presentation-only and takes priority over routine scheduling.
+      if (cim.state === 'arriving_home') {
+        this.updateWalking(cim, timeStep);
+        continue;
+      }
+      if (cim.state === 'awaiting_arrival_access') continue;
+
+      const active = this.resolveRoutineBlock(resident.routine, this.sim.timeOfDay);
+      const blockId = active ? `${active.index}:${active.block.activity}:${active.block.startHour}:${active.block.endHour}` : 'home-fallback';
+      if (cim.activeRoutineBlock !== blockId) {
+        cim.activeRoutineBlock = blockId;
+        this.beginRoutineActivity(cim, active?.block.activity ?? 'home');
       }
 
-      if (cim.workX !== null && cim.workY !== null) {
-        const workTile = this.sim.grid[cim.workX][cim.workY];
-        if ((workTile.type !== 'commercial' && workTile.type !== 'industrial') || workTile.level === 0) {
-          cim.workX = null;
-          cim.workY = null;
-          cim.profile.job = 'Unemployed';
-          if (cim.state === 'working' || cim.state === 'walking_to_work') {
-            this.sendCimHome(cim);
-          }
-        }
-      }
-
-      // Update states
       switch (cim.state) {
-        case 'home':
-          // Day starts: exit home and go somewhere
-          if (!isNightTime && Math.random() > 0.985) {
-            this.decideDayActivity(cim);
-          }
-          break;
-
-        case 'working':
-          cim.relaxTimer -= timeStep;
-          // Night time or shift ended: walk home
-          if (cim.relaxTimer <= 0 || isNightTime) {
-            this.sendCimHome(cim);
-          }
-          break;
-
-        case 'relaxing_at_park':
-        case 'strolling_on_boardwalk':
-          cim.relaxTimer -= timeStep;
-          if (cim.relaxTimer <= 0 || isNightTime) {
-            this.sendCimHome(cim);
-          }
-          break;
-
-        // Walking states
-        case 'walking_to_work':
+        case 'walking_to_work': // Compatibility for runtime citizens created before schedules were introduced.
+        case 'walking_to_garden':
         case 'walking_to_park':
         case 'walking_to_boardwalk':
         case 'walking_home':
           this.updateWalking(cim, timeStep);
           break;
       }
+    }
+  }
+
+  private resolveRoutineBlock(routine: RoutineBlock[], timeOfDay: number): { block: RoutineBlock; index: number } | null {
+    const hour = ((timeOfDay % 24) + 24) % 24;
+    let selected: { block: RoutineBlock; index: number; elapsed: number } | null = null;
+    for (let index = 0; index < routine.length; index++) {
+      const block = routine[index];
+      const duration = block.endHour - block.startHour > 0
+        ? block.endHour - block.startHour
+        : block.endHour - block.startHour + 24;
+      const elapsed = (hour - block.startHour + 24) % 24;
+      if (duration > 0 && elapsed < duration && (!selected || elapsed < selected.elapsed || (elapsed === selected.elapsed && index < selected.index))) {
+        selected = { block, index, elapsed };
+      }
+    }
+    return selected ? { block: selected.block, index: selected.index } : null;
+  }
+
+  private beginRoutineActivity(cim: CitizenState, activity: RoutineActivity) {
+    const destination = this.resolveRoutineDestination(cim, activity);
+    if (!destination) {
+      this.sendCimHome(cim);
+      return;
+    }
+
+    if (cim.currentX === destination.x && cim.currentY === destination.y) {
+      this.enterRoutineActivity(cim, activity);
+      return;
+    }
+
+    const path = this.findWalkwayPath({ x: cim.currentX, y: cim.currentY }, destination);
+    if (!path) {
+      this.sendCimHome(cim);
+      return;
+    }
+
+    const walkState: Record<RoutineActivity, CitizenState['state']> = {
+      home: 'walking_home',
+      work: 'walking_to_work',
+      garden: 'walking_to_garden',
+      park: 'walking_to_park',
+      boardwalk: 'walking_to_boardwalk',
+    };
+    this.startWalkingOnPath(cim, path, walkState[activity], activity);
+  }
+
+  private resolveRoutineDestination(cim: CitizenState, activity: RoutineActivity): { x: number; y: number } | null {
+    if (activity === 'home') return { x: cim.homeX, y: cim.homeY };
+    if (activity === 'work') {
+      const resident = this.sim.getResident(cim.residentId);
+      const place = resident?.workplacePlaceId ? this.sim.findPlace(resident.workplacePlaceId) : undefined;
+      return place?.constructionStatus === 'complete' && place.operatingStatus !== 'closed'
+        ? { x: place.x, y: place.y } : { x: cim.homeX, y: cim.homeY };
+    }
+
+    // A fulfilled personal garden request takes precedence over the general green-space fallback.
+    if (activity === 'garden') {
+      const hope = this.sim.getHopeForResident(cim.residentId);
+      const target = hope?.status === 'fulfilled' ? hope.targetTile : undefined;
+      if (target) {
+        const tile = this.sim.grid[target.x]?.[target.y];
+        const path = tile?.type === 'park' && !tile.abandoned
+          ? this.findWalkwayPath({ x: cim.currentX, y: cim.currentY }, target)
+          : null;
+        if (path) return { x: target.x, y: target.y };
+      }
+    }
+
+    // Gardens otherwise use reachable park tiles as community green spaces.
+    const destinationType: TileType = activity === 'boardwalk' ? 'boardwalk' : 'park';
+    const candidates = this.getZonedTiles(destinationType)
+      .sort((a, b) => (Math.abs(cim.currentX - a.x) + Math.abs(cim.currentY - a.y))
+        - (Math.abs(cim.currentX - b.x) + Math.abs(cim.currentY - b.y)) || a.x - b.x || a.y - b.y);
+    let best: { tile: TileState; pathLength: number } | null = null;
+    for (const tile of candidates) {
+      const path = this.findWalkwayPath({ x: cim.currentX, y: cim.currentY }, { x: tile.x, y: tile.y });
+      if (path && (!best || path.length < best.pathLength
+        || (path.length === best.pathLength && (tile.x < best.tile.x || (tile.x === best.tile.x && tile.y < best.tile.y))))) {
+        best = { tile, pathLength: path.length };
+      }
+    }
+    return best ? { x: best.tile.x, y: best.tile.y } : null;
+  }
+
+  private enterRoutineActivity(cim: CitizenState, activity: RoutineActivity) {
+    if (activity === 'home') {
+      this.despawnCimMesh(cim);
+      cim.state = 'home';
+    } else if (activity === 'work') {
+      cim.state = 'working';
+      this.instantiateCimMesh(cim);
+      this.resetLegRotations(cim);
+    } else if (activity === 'garden') {
+      cim.state = 'gardening_in_community_green_space';
+      this.instantiateCimMesh(cim);
+      this.resetLegRotations(cim);
+    } else if (activity === 'park') {
+      cim.state = 'relaxing_at_park';
+      this.instantiateCimMesh(cim);
+      this.resetLegRotations(cim);
+    } else {
+      cim.state = 'strolling_on_boardwalk';
+      this.instantiateCimMesh(cim);
+      this.resetLegRotations(cim);
     }
   }
 
@@ -451,42 +538,14 @@ export class CitizenManager {
     this.instantiateCimMesh(cim);
   }
 
-  // Decides what a citizen does during the day
-  decideDayActivity(cim: CitizenState) {
-    // 1. Work site target (if employed)
-    if (cim.workX !== null && cim.workY !== null && Math.random() > 0.4) {
-      const path = this.findWalkwayPath({ x: cim.homeX, y: cim.homeY }, { x: cim.workX, y: cim.workY });
-      if (path) {
-        this.startWalkingOnPath(cim, path, 'walking_to_work', 'work');
-        return;
-      }
-    }
 
-    // 2. Park site target
-    const parks = this.getZonedTiles('park');
-    if (parks.length > 0 && Math.random() > 0.5) {
-      const park = parks[Math.floor(Math.random() * parks.length)];
-      const path = this.findWalkwayPath({ x: cim.homeX, y: cim.homeY }, { x: park.x, y: park.y });
-      if (path) {
-        this.startWalkingOnPath(cim, path, 'walking_to_park', 'park');
-        return;
-      }
-    }
-
-    // 3. Boardwalk site target
-    const boardwalks = this.getZonedTiles('boardwalk');
-    if (boardwalks.length > 0) {
-      const bw = boardwalks[Math.floor(Math.random() * boardwalks.length)];
-      const path = this.findWalkwayPath({ x: cim.homeX, y: cim.homeY }, { x: bw.x, y: bw.y });
-      if (path) {
-        this.startWalkingOnPath(cim, path, 'walking_to_boardwalk', 'boardwalk');
-        return;
-      }
-    }
-  }
 
   // Sends the citizen back home
   sendCimHome(cim: CitizenState) {
+    if (cim.currentX === cim.homeX && cim.currentY === cim.homeY) {
+      this.enterRoutineActivity(cim, 'home');
+      return;
+    }
     const path = this.findWalkwayPath({ x: cim.currentX, y: cim.currentY }, { x: cim.homeX, y: cim.homeY });
     if (path) {
       this.startWalkingOnPath(cim, path, 'walking_home', 'home');
@@ -678,23 +737,24 @@ export class CitizenManager {
     cim.path = [];
     cim.pathIndex = 0;
 
-    if (cim.state === 'walking_to_work') {
-      // Enter workplace: hide mesh
+    if (cim.state === 'arriving_home') {
+      const resident = this.sim.getResident(cim.residentId);
+      if (resident) this.sim.completeHouseholdArrival(resident.householdId);
+      this.enterRoutineActivity(cim, 'home');
+      // Resume the saved routine on the next update, after the arrival presentation finishes.
+      cim.activeRoutineBlock = null;
+    } else if (cim.state === 'walking_to_work') {
+      // Preserve the legacy runtime state safely; schedules replace it on the next block change.
       this.despawnCimMesh(cim);
       cim.state = 'working';
-      cim.relaxTimer = 4.0 + Math.random() * 6.0; // 4 to 10 seconds of shift work
+    } else if (cim.state === 'walking_to_garden') {
+      this.enterRoutineActivity(cim, 'garden');
     } else if (cim.state === 'walking_to_park') {
-      cim.state = 'relaxing_at_park';
-      cim.relaxTimer = 8.0 + Math.random() * 12.0; // 8 to 20 seconds relaxing in park
-      // Reset legs
-      this.resetLegRotations(cim);
+      this.enterRoutineActivity(cim, 'park');
     } else if (cim.state === 'walking_to_boardwalk') {
-      cim.state = 'strolling_on_boardwalk';
-      cim.relaxTimer = 6.0 + Math.random() * 10.0;
-      this.resetLegRotations(cim);
+      this.enterRoutineActivity(cim, 'boardwalk');
     } else if (cim.state === 'walking_home') {
-      this.despawnCimMesh(cim);
-      cim.state = 'home';
+      this.enterRoutineActivity(cim, 'home');
     }
   }
 
@@ -712,7 +772,7 @@ export class CitizenManager {
   // Demolish event handler to check road network changes
   handleRoadDemolish(x: number, y: number) {
     for (const cim of this.cims) {
-      if (cim.state.startsWith('walking')) {
+      if (cim.state.startsWith('walking') || cim.state === 'arriving_home') {
         const containsTile = cim.path.some(p => p.x === x && p.y === y);
         if (containsTile) {
           // Re-route or send home

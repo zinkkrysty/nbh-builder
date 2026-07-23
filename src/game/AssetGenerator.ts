@@ -4007,15 +4007,20 @@ export class AssetGenerator {
   }
 
   // 11. Procedural Low-Poly Citizen Mesh
-  createCitizenMesh(): THREE.Group {
+  createCitizenMesh(appearanceSeed: number): THREE.Group {
     const group = new THREE.Group();
+    // Keep visual choices stable across mesh recreation and save/load.
+    let seed = (Number.isFinite(appearanceSeed) ? appearanceSeed : 0) >>> 0;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
 
-    // Randomize colors/styles
     const skinMats = [this.materials.citizenSkinLight, this.materials.citizenSkinDark];
-    const skinMat = skinMats[Math.floor(Math.random() * skinMats.length)];
+    const skinMat = skinMats[Math.floor(random() * skinMats.length)];
 
     const hairMats = [this.materials.citizenHairBrown, this.materials.citizenHairBlack, this.materials.citizenHairBlonde];
-    const hairMat = hairMats[Math.floor(Math.random() * hairMats.length)];
+    const hairMat = hairMats[Math.floor(random() * hairMats.length)];
 
     const shirtMats = [
       this.materials.carRed,
@@ -4025,7 +4030,7 @@ export class AssetGenerator {
       this.materials.carOrange,
       this.materials.carWhite
     ];
-    const shirtMat = shirtMats[Math.floor(Math.random() * shirtMats.length)];
+    const shirtMat = shirtMats[Math.floor(random() * shirtMats.length)];
     const pantsMat = this.materials.citizenJeans;
 
     // Torso (sweater)
@@ -4065,8 +4070,8 @@ export class AssetGenerator {
     hair.castShadow = true;
     group.add(hair);
 
-    // Backpack (randomly)
-    if (Math.random() > 0.6) {
+    // Backpack
+    if (random() > 0.6) {
       const packGeo = this.getGeometry('citizen_backpack', () => new THREE.BoxGeometry(0.08, 0.12, 0.04));
       const pack = new THREE.Mesh(packGeo, this.materials.trunk); // reuse wood trunk brown for leather backpack
       pack.position.set(0, 0.18, -0.06);

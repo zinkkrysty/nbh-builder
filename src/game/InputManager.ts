@@ -32,6 +32,8 @@ export class InputManager {
   onBuild: (x: number, y: number, tool: TileType | 'bulldoze' | 'raise' | 'lower') => void = () => {};
   onBuildLine: (cells: { x: number; y: number }[], tool: TileType) => void = () => {};
   onSelect: (x: number, y: number) => void = () => {};
+  onSelectResident: (residentId: string) => void = () => {};
+  selectableCitizenMeshesProvider: () => THREE.Object3D[] = () => [];
   onHover: (x: number, y: number, coordsList?: { x: number; y: number }[]) => void = () => {};
 
   constructor(rendererElement: HTMLCanvasElement, camera: THREE.OrthographicCamera, scene: THREE.Scene) {
@@ -138,13 +140,28 @@ export class InputManager {
     window.addEventListener('mouseup', this.onMouseUp.bind(this));
   }
 
-  // Map mouse coordinate to grid (X, Y)
-  getIntersectionCoords(e: MouseEvent): { x: number; y: number } | null {
+  private setRayFromMouseEvent(e: MouseEvent) {
     const rect = this.rendererElement.getBoundingClientRect();
     this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
     this.raycaster.setFromCamera(this.mouse, this.camera);
+  }
+
+  private getHitResidentId(): string | null {
+    const hits = this.raycaster.intersectObjects(this.selectableCitizenMeshesProvider(), true);
+    for (const hit of hits) {
+      let object: THREE.Object3D | null = hit.object;
+      while (object) {
+        const residentId = object.userData.residentId;
+        if (typeof residentId === 'string') return residentId;
+        object = object.parent;
+      }
+    }
+    return null;
+  }
+
+  // Map the current ray to grid coordinates (X, Y)
+  getIntersectionCoords(): { x: number; y: number } | null {
 
     if (!this.sim) {
       // Raycast against the ground grid plane if sim not loaded
@@ -266,7 +283,8 @@ export class InputManager {
   }
 
   onMouseMove(e: MouseEvent) {
-    const coords = this.getIntersectionCoords(e);
+    this.setRayFromMouseEvent(e);
+    const coords = this.getIntersectionCoords();
 
     if (coords) {
       this.hoveredCell = coords;
@@ -304,7 +322,17 @@ export class InputManager {
   onMouseDown(e: MouseEvent) {
     if (e.button !== 0) return; // Only process left click
 
-    const coords = this.getIntersectionCoords(e);
+    this.setRayFromMouseEvent(e);
+
+    if (this.activeTool === 'select') {
+      const residentId = this.getHitResidentId();
+      if (residentId) {
+        this.onSelectResident(residentId);
+        return;
+      }
+    }
+
+    const coords = this.getIntersectionCoords();
     if (coords) {
       if (this.activeTool === 'select') {
         this.onSelect(coords.x, coords.y);

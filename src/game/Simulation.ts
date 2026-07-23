@@ -10,7 +10,128 @@ export type TileType =
   | 'water_body'
   | 'boardwalk';
 
-export const CURRENT_SAVE_VERSION = 1;
+import type { PlaceArchetype, PlaceTag } from './PlaceCatalog';
+import { getPlace } from './PlaceCatalog';
+
+export const CURRENT_SAVE_VERSION = 7;
+export const CONSTRUCTION_TICKS = 12;
+
+// A shared garden must be within eight pedestrian-grid tiles of its owner's home.
+export const SHARED_GARDEN_RADIUS = 8;
+
+export interface TilePosition {
+  x: number;
+  y: number;
+}
+
+export type HouseholdStatus = 'settled' | 'arriving' | 'unhoused';
+
+export type RoutineActivity = 'home' | 'work' | 'garden' | 'park' | 'boardwalk';
+
+export interface RoutineBlock {
+  activity: RoutineActivity;
+  startHour: number;
+  endHour: number;
+}
+
+export interface ResidentState {
+  id: string;
+  householdId: string;
+  firstName: string;
+  lastName: string;
+  age: number;
+  occupation: string;
+  home: TilePosition | null;
+  appearanceSeed: number;
+  routine: RoutineBlock[];
+  workplacePlaceId?: string;
+}
+
+export interface HouseholdState {
+  id: string;
+  surname: string;
+  residentIds: string[];
+  home: TilePosition | null;
+  status: HouseholdStatus;
+  arrivalDay: number;
+  matchSnapshot?: { placeId: string; acceptedDay: number; matchedFactors: string[]; softConflicts: string[] };
+}
+
+export interface HouseholdApplicationMember {
+  firstName: string;
+  age: number;
+  occupation: string;
+  appearanceSeed: number;
+  authoredRole?: 'shared_garden_requester';
+}
+
+export interface HouseholdApplication {
+  id: string;
+  source?: 'guaranteed_shortlist' | 'interest';
+  shortlistId?: string;
+  surname: string;
+  introduction: string;
+  reasonForMoving: string;
+  members: readonly HouseholdApplicationMember[];
+  physicalRequirements?: string[];
+  lifestyleRequirements?: string[];
+  preferences?: PlaceTag[];
+  contributionTags?: PlaceTag[];
+  createdDay?: number;
+  expiresDay?: number;
+  status?: 'available' | 'deferred';
+  deferredUntilDay?: number;
+  suggestedHomePlaceId?: string;
+  fitSummary?: string;
+}
+
+export interface PopularityState {
+  score: number;
+  reputation: number;
+  momentum: number;
+  applicationInterest: number;
+  lastApplicationDay: number;
+  guaranteedShortlistExpiresDay?: number;
+}
+
+export interface HomeCompatibility {
+  placeId: string;
+  position: TilePosition;
+  score: number;
+  matchedFactors: string[];
+  softConflicts: string[];
+}
+
+export const APPLICATION_INTEREST_THRESHOLD = 100;
+export const MIN_APPLICATION_INTERVAL_DAYS = 3;
+export const APPLICATION_EXPIRY_DAYS = 14;
+
+export interface MemoryState {
+  id: string;
+  type: 'arrival' | 'hope_fulfilled';
+  day: number;
+  title: string;
+  description: string;
+  residentIds: string[];
+  householdIds: string[];
+  tile?: TilePosition;
+}
+
+export type HopeStatus = 'active' | 'fulfilled';
+
+export interface HopeState {
+  id: string;
+  type: 'shared_garden';
+  ownerResidentId: string;
+  householdId: string;
+  status: HopeStatus;
+  createdDay: number;
+  fulfilledDay?: number;
+  targetTile?: TilePosition;
+  // The placement sequence prevents parks built before the request, including on
+  // the same simulation day, from satisfying it.
+  createdPlacementSequence: number;
+}
 
 export interface TileState {
   x: number;
@@ -24,8 +145,28 @@ export interface TileState {
   maxOccupancy: number;
   happiness: number;      // 0 to 100
   abandoned: boolean;
+  householdId?: string;  // Only valid for developed residential tiles
   bridge?: boolean;       // Indicates road is built over water
   elevation: number;      // Height level (0 to 4)
+  placedSequence: number; // 0 for pre-v5 tiles; increments for each later placement
+  // A place keeps its identity even if its presentation uses an old RCI tile type.
+  placeId?: string;
+  name?: string;
+  archetype?: PlaceArchetype;
+  tags?: PlaceTag[];
+  constructionStatus?: 'planned' | 'building' | 'complete';
+  constructionProgress?: number;
+  constructionBlockers?: string[];
+  constructionCost?: number;
+  reopening?: boolean;
+  residentCapacity?: number;
+  reservedHouseholdId?: string;
+  founderResidentId?: string;
+  workerIds?: string[];
+  workerCapacity?: number;
+  operatingStatus?: 'opening' | 'open' | 'struggling' | 'closed';
+  viability?: number;
+  strugglingSinceDay?: number;
 }
 
 export class Simulation {
@@ -39,10 +180,21 @@ export class Simulation {
   employed = 0;
   overallHappiness = 100;
 
-  // Demands scale from -100 to 100
-  demandR = 50;
-  demandC = 30;
-  demandI = 20;
+  // Persistent household data. This deliberately remains separate from aggregate occupancy.
+  residents: ResidentState[] = [];
+  households: HouseholdState[] = [];
+  nextResidentId = 1;
+  nextHouseholdId = 1;
+  memories: MemoryState[] = [];
+  nextMemoryId = 1;
+  hopes: HopeState[] = [];
+  nextHopeId = 1;
+  nextPlacementSequence = 1;
+  nextPlaceId = 1;
+  applications: HouseholdApplication[] = [];
+  nextApplicationId = 1;
+  popularity: PopularityState = { score: 50, reputation: 50, momentum: 50, applicationInterest: 0, lastApplicationDay: 1 };
+  picnicStatus: 'not_started' | 'gathering' | 'complete' | 'cancelled' = 'not_started';
 
   dayCount = 1;
   timeOfDay = 8.0;        // Start at 8:00 AM
@@ -87,6 +239,7 @@ export class Simulation {
     this.seed = Math.floor(Math.random() * 1000000);
     this.grid = [];
     this.initializeGrid();
+    this.initializeApplications();
   }
 
   initializeGrid() {
@@ -122,10 +275,421 @@ export class Simulation {
           happiness: 100,
           abandoned: false,
           elevation,
+          placedSequence: 0,
         };
       }
     }
     this.rebuildTileTypeCaches();
+  }
+
+  private static readonly FIRST_NAMES = ['Alex', 'Casey', 'Jordan', 'Morgan', 'Riley', 'Sam'];
+  private static readonly SURNAMES = ['Bennett', 'Carter', 'Diaz', 'Kim', 'Patel', 'Walker'];
+  private static readonly OCCUPATIONS = ['Teacher', 'Designer', 'Technician', 'Cook', 'Student', 'Retired'];
+  getResident(id: string): ResidentState | undefined {
+    return this.residents.find(resident => resident.id === id);
+  }
+
+  getHousehold(id: string): HouseholdState | undefined {
+    return this.households.find(household => household.id === id);
+  }
+
+  getAvailableApplications(): readonly HouseholdApplication[] {
+    return this.applications.filter(application => application.status !== 'deferred' || (application.deferredUntilDay ?? 0) <= this.dayCount);
+  }
+
+  getActiveApplications(): readonly HouseholdApplication[] {
+    return this.applications;
+  }
+
+  initializeApplications() {
+    this.applications = Array.from({ length: 3 }, (_, index) => {
+      const application = this.generateApplication();
+      application.source = 'guaranteed_shortlist';
+      application.shortlistId = 'first-neighbors';
+      application.expiresDay = undefined;
+      application.preferences = index === 0 ? ['quiet'] : index === 1 ? ['family'] : ['garden', 'nature'];
+      if (index === 2 && application.members[0]) application.members[0].authoredRole = 'shared_garden_requester';
+      return application;
+    });
+    this.popularity.lastApplicationDay = this.dayCount;
+  }
+
+  private generateApplication(): HouseholdApplication {
+    const seed = this.deterministicValue(this.nextApplicationId * 19 + this.dayCount);
+    const size = 1 + (seed % 4);
+    const members = Array.from({ length: size }, (_, index) => {
+      const memberSeed = this.deterministicValue(seed + index + 1);
+      const age = index === size - 1 && size > 2 ? 10 + memberSeed % 8 : 23 + memberSeed % 45;
+      return {
+        firstName: Simulation.FIRST_NAMES[memberSeed % Simulation.FIRST_NAMES.length],
+        age,
+        occupation: age < 16 ? 'Student' : Simulation.OCCUPATIONS[memberSeed % Simulation.OCCUPATIONS.length],
+        appearanceSeed: memberSeed,
+      };
+    });
+    const surname = Simulation.SURNAMES[seed % Simulation.SURNAMES.length];
+    return { id: `application-${this.nextApplicationId++}`, source: 'interest', surname, introduction: `The ${surname} household is looking for a place to contribute.`, reasonForMoving: 'They heard this neighborhood is taking shape with care.', members, physicalRequirements: [`capacity_${size}`, 'utilities', 'access'], lifestyleRequirements: [], preferences: seed % 2 ? ['nature'] : ['food'], contributionTags: seed % 2 ? ['craft'] : ['food'], createdDay: this.dayCount, expiresDay: this.dayCount + APPLICATION_EXPIRY_DAYS, status: 'available' };
+  }
+
+  getCompatibleHomes(application: HouseholdApplication): HomeCompatibility[] {
+    const homes = this.grid.flat().filter(tile => tile.type === 'residential' && tile.constructionStatus === 'complete' && !tile.abandoned && !tile.householdId && !tile.reservedHouseholdId);
+    return homes.flatMap(home => {
+      const reasons: string[] = [];
+      if ((home.residentCapacity ?? 0) < application.members.length) return [];
+      if (!home.powered || !home.watered) return [];
+      if (!this.hasRoadAccess(home)) return [];
+      reasons.push(`Fits ${application.members.length} neighbors`, 'Utilities and access ready');
+      let score = 50;
+      const softConflicts: string[] = [];
+      for (const tag of application.preferences ?? []) {
+        if (home.tags?.includes(tag) || this.grid.flat().some(tile => tile.constructionStatus === 'complete' && tile.tags?.includes(tag) && Math.abs(tile.x - home.x) + Math.abs(tile.y - home.y) <= 8)) {
+          score += 15; reasons.push(`Matches ${tag} preference`);
+        } else { softConflicts.push(`Would like more ${tag} nearby`); }
+      }
+      return [{ placeId: home.placeId!, position: { x: home.x, y: home.y }, score, matchedFactors: reasons, softConflicts }];
+    }).sort((a, b) => b.score - a.score || a.placeId.localeCompare(b.placeId));
+  }
+
+  /** The actionable reasons a completed home cannot currently receive a household. */
+  getHomeReadinessIssues(tile: TileState): string[] {
+    const issues: string[] = [];
+    if (tile.type !== 'residential' || tile.constructionStatus !== 'complete') issues.push('Finish construction first');
+    if (tile.abandoned) issues.push('Restore this home first');
+    if (tile.householdId || tile.reservedHouseholdId) issues.push('This home is already assigned');
+    if (!tile.powered) issues.push('Connect power');
+    if (!tile.watered) issues.push('Connect water');
+    if (!this.hasRoadAccess(tile)) issues.push('Connect a road route to the map edge');
+    return issues;
+  }
+
+  /** Explains why a particular application may or may not be welcomed into a home. */
+  getApplicationCompatibilityIssues(application: HouseholdApplication, tile: TileState): string[] {
+    const issues = this.getHomeReadinessIssues(tile);
+    if ((tile.residentCapacity ?? 0) < application.members.length) {
+      issues.unshift(`Needs room for ${application.members.length} neighbors; this home fits ${tile.residentCapacity ?? 0}`);
+    }
+    return issues;
+  }
+
+  deferApplication(id: string): boolean {
+    const application = this.applications.find(candidate => candidate.id === id);
+    if (!application) return false;
+    application.status = 'deferred';
+    application.deferredUntilDay = this.dayCount + 3;
+    return true;
+  }
+
+  private updateApplicationsForDay() {
+    for (const application of this.applications) if (application.status === 'deferred' && (application.deferredUntilDay ?? 0) <= this.dayCount) application.status = 'available';
+    this.applications = this.applications.filter(application => !application.expiresDay || application.expiresDay >= this.dayCount);
+    const shortlist = this.applications.filter(application => application.source === 'guaranteed_shortlist');
+    if (!this.popularity.guaranteedShortlistExpiresDay && shortlist.some(application => this.getCompatibleHomes(application).length > 0)) {
+      const deadline = this.dayCount + APPLICATION_EXPIRY_DAYS;
+      this.popularity.guaranteedShortlistExpiresDay = deadline;
+      shortlist.forEach(application => { application.expiresDay = deadline; });
+    }
+    this.popularity.score = Math.round(this.popularity.reputation * .6 + this.popularity.momentum * .4);
+    this.popularity.applicationInterest = Math.min(APPLICATION_INTEREST_THRESHOLD * 2, this.popularity.applicationInterest + 8 + this.popularity.score * .12);
+    if (this.applications.length < 5 && this.popularity.applicationInterest >= APPLICATION_INTEREST_THRESHOLD && this.dayCount - this.popularity.lastApplicationDay >= MIN_APPLICATION_INTERVAL_DAYS) {
+      this.applications.push(this.generateApplication());
+      this.popularity.applicationInterest -= APPLICATION_INTEREST_THRESHOLD;
+      this.popularity.lastApplicationDay = this.dayCount;
+      this.onNotification('A new household application has arrived.', 'success');
+    }
+  }
+
+  private updateGardenPicnic() {
+    if (this.picnicStatus !== 'not_started') return;
+    const garden = this.grid.flat().find(tile => tile.archetype === 'community_garden' && tile.constructionStatus === 'complete');
+    const households = this.households.filter(household => household.status === 'settled' && household.home && garden && this.isSharedGardenTargetReachable(household.home, garden));
+    if (!garden || households.length < 2) return;
+    this.picnicStatus = 'gathering';
+    this.onNotification(`Garden picnic gathering at ${garden.name}.`, 'info');
+    this.picnicStatus = 'complete';
+    this.popularity.applicationInterest = Math.min(APPLICATION_INTEREST_THRESHOLD * 2, this.popularity.applicationInterest + 25);
+    this.popularity.reputation = Math.min(100, this.popularity.reputation + 4);
+    this.memories.push({ id: `memory-${this.nextMemoryId++}`, type: 'hope_fulfilled', day: this.dayCount, title: 'Garden picnic', description: `Neighbors gathered at ${garden.name}.`, residentIds: households.flatMap(h => h.residentIds), householdIds: households.map(h => h.id), tile: { x: garden.x, y: garden.y } });
+    this.onNotification(`The garden picnic was a success at ${garden.name}.`, 'success');
+  }
+
+  resetResidentData() {
+    this.residents = [];
+    this.households = [];
+    this.nextResidentId = 1;
+    this.nextHouseholdId = 1;
+    this.memories = [];
+    this.nextMemoryId = 1;
+    this.hopes = [];
+    this.nextHopeId = 1;
+    this.nextPlacementSequence = 1;
+    for (const row of this.grid) {
+      for (const tile of row) delete tile.householdId;
+    }
+  }
+
+  private positionIsValid(position: TilePosition | null): boolean {
+    return position === null || (Number.isInteger(position.x) && Number.isInteger(position.y)
+      && position.x >= 0 && position.x < this.gridSize && position.y >= 0 && position.y < this.gridSize);
+  }
+
+  private unhousehold(household: HouseholdState) {
+    household.status = 'unhoused';
+    household.home = null;
+    for (const residentId of household.residentIds) {
+      const resident = this.getResident(residentId);
+      if (resident) resident.home = null;
+    }
+  }
+
+  clearHouseholdHome(householdId: string) {
+    const household = this.getHousehold(householdId);
+    if (!household) return;
+    if (household.home && this.positionIsValid(household.home)) {
+      const tile = this.grid[household.home.x][household.home.y];
+      if (tile.householdId === householdId) delete tile.householdId;
+    }
+    this.unhousehold(household);
+  }
+
+  private deterministicValue(salt: number): number {
+    const value = Math.sin(this.seed * 12.9898 + salt * 78.233) * 43758.5453;
+    return Math.floor((value - Math.floor(value)) * 0x7fffffff);
+  }
+
+  private defaultRoutine(appearanceSeed: number): RoutineBlock[] {
+    // This only depends on persistent appearance data, so new and migrated residents
+    // receive the same routine without relying on runtime random state.
+    const morningActivity: RoutineActivity = appearanceSeed % 2 === 0 ? 'garden' : 'park';
+    const afternoonActivity: RoutineActivity = appearanceSeed % 3 === 0 ? 'boardwalk' : (morningActivity === 'garden' ? 'park' : 'garden');
+    return [
+      { activity: 'home', startHour: 0, endHour: 7 },
+      { activity: morningActivity, startHour: 7, endHour: 10 },
+      { activity: 'work', startHour: 10, endHour: 16 },
+      { activity: afternoonActivity, startHour: 16, endHour: 19 },
+      { activity: 'home', startHour: 19, endHour: 24 },
+    ];
+  }
+
+  private isValidRoutine(value: unknown): value is RoutineBlock[] {
+    if (!Array.isArray(value) || value.length === 0) return false;
+    return value.every(block => {
+      if (!block || typeof block !== 'object') return false;
+      const routineBlock = block as RoutineBlock;
+      return (routineBlock.activity === 'home' || routineBlock.activity === 'work' || routineBlock.activity === 'garden'
+        || routineBlock.activity === 'park' || routineBlock.activity === 'boardwalk')
+        && Number.isFinite(routineBlock.startHour) && routineBlock.startHour >= 0 && routineBlock.startHour <= 24
+        && Number.isFinite(routineBlock.endHour) && routineBlock.endHour >= 0 && routineBlock.endHour <= 24
+        && routineBlock.startHour !== routineBlock.endHour
+        && (routineBlock.endHour - routineBlock.startHour > 0
+          ? routineBlock.endHour - routineBlock.startHour
+          : routineBlock.endHour - routineBlock.startHour + 24) > 0;
+    });
+  }
+
+  createHousehold(memberCount: number, home: TilePosition | null = null, deterministicSalt?: number): HouseholdState {
+    const requestedCount = Number.isFinite(memberCount) ? Math.floor(memberCount) : 1;
+    const count = Math.max(1, Math.min(4, requestedCount));
+    const salt = deterministicSalt ?? Math.floor(Math.random() * 0x7fffffff);
+    const surname = Simulation.SURNAMES[this.deterministicValue(salt) % Simulation.SURNAMES.length];
+    const household: HouseholdState = {
+      id: `household-${this.nextHouseholdId++}`,
+      surname,
+      residentIds: [],
+      home: null,
+      status: 'unhoused',
+      arrivalDay: this.dayCount,
+    };
+    this.households.push(household);
+    for (let index = 0; index < count; index++) {
+      const value = this.deterministicValue(salt + index + 1);
+      const resident: ResidentState = {
+        id: `resident-${this.nextResidentId++}`,
+        householdId: household.id,
+        firstName: Simulation.FIRST_NAMES[value % Simulation.FIRST_NAMES.length],
+        lastName: surname,
+        age: 18 + (value % 63),
+        occupation: Simulation.OCCUPATIONS[Math.floor(value / 7) % Simulation.OCCUPATIONS.length],
+        home: null,
+        appearanceSeed: value,
+        routine: this.defaultRoutine(value),
+      };
+      household.residentIds.push(resident.id);
+      this.residents.push(resident);
+    }
+    if (home) this.settleHousehold(household, home);
+    return household;
+  }
+
+  private settleHousehold(household: HouseholdState, home: TilePosition) {
+    if (!this.positionIsValid(home)) return false;
+    const tile = this.grid[home.x][home.y];
+    if (tile.type !== 'residential' || tile.constructionStatus !== 'complete' || tile.abandoned || (tile.householdId && tile.householdId !== household.id)) return false;
+    household.home = { x: home.x, y: home.y };
+    household.status = 'settled';
+    tile.householdId = household.id;
+    for (const residentId of household.residentIds) {
+      const resident = this.getResident(residentId);
+      if (resident) resident.home = { x: home.x, y: home.y };
+    }
+    return true;
+  }
+
+  private clearTileHousehold(tile: TileState) {
+    if (tile.householdId) this.clearHouseholdHome(tile.householdId);
+    if (tile.reservedHouseholdId) {
+      const household = this.getHousehold(tile.reservedHouseholdId);
+      if (household) this.unhousehold(household);
+    }
+    delete tile.householdId;
+    delete tile.reservedHouseholdId;
+  }
+
+  getActiveHopes(): readonly HopeState[] {
+    return this.hopes.filter(hope => hope.status === 'active');
+  }
+
+  getHopeForResident(residentId: string): HopeState | undefined {
+    return this.hopes.find(hope => hope.ownerResidentId === residentId);
+  }
+
+  getGardenName(hope: HopeState): string {
+    return `${this.getHousehold(hope.householdId)?.surname ?? 'Neighborhood'} Community Garden`;
+  }
+
+  private createSharedGardenHope(owner: ResidentState, household: HouseholdState) {
+    // This first authored hope is globally unique, even if an application is later reused.
+    if (this.hopes.some(hope => hope.type === 'shared_garden') || this.getHopeForResident(owner.id)) return;
+    this.hopes.push({
+      id: `hope-${this.nextHopeId++}`,
+      type: 'shared_garden',
+      ownerResidentId: owner.id,
+      householdId: household.id,
+      status: 'active',
+      createdDay: this.dayCount,
+      createdPlacementSequence: this.nextPlacementSequence - 1,
+    });
+  }
+
+  private recordArrival(household: HouseholdState) {
+    const residentIds = [...household.residentIds];
+    this.memories.push({
+      id: `memory-${this.nextMemoryId++}`,
+      type: 'arrival',
+      day: this.dayCount,
+      title: `Welcome, ${household.surname} household!`,
+      description: `The ${household.surname} household settled at (${household.home!.x}, ${household.home!.y}).`,
+      residentIds,
+      householdIds: [household.id],
+    });
+  }
+
+  inviteHousehold(applicationId: string, home: TilePosition): HouseholdState | null {
+    const application = this.applications.find(candidate => candidate.id === applicationId);
+    if (!application || application.status !== 'available' || !this.positionIsValid(home)) return null;
+    const tile = this.grid[home.x][home.y];
+    if (tile.type !== 'residential' || tile.constructionStatus !== 'complete' || tile.abandoned || tile.householdId || tile.reservedHouseholdId || !tile.powered || !tile.watered
+      || application.members.length > (tile.residentCapacity ?? 0)) return null;
+    if (!this.getCompatibleHomes(application).some(candidate => candidate.placeId === tile.placeId)) return null;
+
+    const household: HouseholdState = {
+      id: `household-${this.nextHouseholdId++}`,
+      surname: application.surname,
+      residentIds: [],
+      home: { x: home.x, y: home.y },
+      status: 'arriving',
+      arrivalDay: this.dayCount,
+      matchSnapshot: (() => { const fit = this.getCompatibleHomes(application).find(candidate => candidate.placeId === tile.placeId); return fit ? { placeId: fit.placeId, acceptedDay: this.dayCount, matchedFactors: fit.matchedFactors, softConflicts: fit.softConflicts } : undefined; })(),
+    };
+    const residents: ResidentState[] = application.members.map(member => ({
+      id: `resident-${this.nextResidentId++}`,
+      householdId: household.id,
+      firstName: member.firstName,
+      lastName: application.surname,
+      age: member.age,
+      occupation: member.occupation,
+      home: { x: home.x, y: home.y },
+      appearanceSeed: member.appearanceSeed,
+      routine: this.defaultRoutine(member.appearanceSeed),
+    }));
+    household.residentIds = residents.map(resident => resident.id);
+    this.households.push(household);
+    this.residents.push(...residents);
+    tile.reservedHouseholdId = household.id;
+    this.applications = this.applications.filter(candidate => candidate.id !== applicationId);
+    for (let index = 0; index < application.members.length; index++) {
+      if (application.members[index].authoredRole === 'shared_garden_requester') {
+        this.createSharedGardenHope(residents[index], household);
+      }
+    }
+    this.onTileUpdate(tile);
+    return household;
+  }
+
+  completeHouseholdArrival(householdId: string): boolean {
+    const household = this.getHousehold(householdId);
+    if (!household || household.status !== 'arriving' || !household.home) return false;
+    const tile = this.grid[household.home.x][household.home.y];
+    if (tile.reservedHouseholdId !== household.id || !this.hasRoadAccess(tile)) return false;
+    tile.reservedHouseholdId = undefined;
+    tile.householdId = household.id;
+    household.status = 'settled';
+    this.recordArrival(household);
+    this.recalculateAuthoritativeTotals();
+    this.onTileUpdate(tile);
+    return true;
+  }
+
+  private isSharedGardenTargetReachable(home: TilePosition, target: TilePosition): boolean {
+    const queue: TilePosition[] = [{ ...home }];
+    const visited = new Uint8Array(this.gridSize * this.gridSize);
+    visited[home.y * this.gridSize + home.x] = 1;
+    let head = 0;
+    while (head < queue.length) {
+      const current = queue[head++];
+      if (current.x === target.x && current.y === target.y) return true;
+      for (const next of [{ x: current.x + 1, y: current.y }, { x: current.x - 1, y: current.y }, { x: current.x, y: current.y + 1 }, { x: current.x, y: current.y - 1 }]) {
+        if (next.x < 0 || next.x >= this.gridSize || next.y < 0 || next.y >= this.gridSize) continue;
+        const index = next.y * this.gridSize + next.x;
+        if (visited[index]) continue;
+        const tile = this.grid[next.x][next.y];
+        if (next.x !== target.x || next.y !== target.y) {
+          if (tile.type !== 'road' && tile.type !== 'boardwalk' && tile.type !== 'park') continue;
+        }
+        visited[index] = 1;
+        queue.push(next);
+      }
+    }
+    return false;
+  }
+
+  evaluateSharedGardenHopes() {
+    for (const hope of this.hopes) {
+      if (hope.status !== 'active') continue;
+      const owner = this.getResident(hope.ownerResidentId);
+      const household = this.getHousehold(hope.householdId);
+      if (!owner || !household || owner.householdId !== household.id || !owner.home || household.status !== 'settled') continue;
+      const target = this.tileCaches.park?.find(tile => tile.archetype === 'community_garden' && tile.constructionStatus === 'complete' && tile.placedSequence > hope.createdPlacementSequence
+        && !tile.abandoned
+        && Math.abs(tile.x - owner.home!.x) + Math.abs(tile.y - owner.home!.y) <= SHARED_GARDEN_RADIUS
+        && this.isSharedGardenTargetReachable(owner.home!, tile));
+      if (!target) continue;
+      hope.status = 'fulfilled';
+      hope.fulfilledDay = this.dayCount;
+      hope.targetTile = { x: target.x, y: target.y };
+      this.memories.push({
+        id: `memory-${this.nextMemoryId++}`,
+        type: 'hope_fulfilled',
+        day: this.dayCount,
+        title: `${this.getGardenName(hope)} opened`,
+        description: `${owner.firstName} ${owner.lastName}'s shared-garden hope was fulfilled at (${target.x}, ${target.y}).`,
+        residentIds: [owner.id],
+        householdIds: [household.id],
+        tile: { x: target.x, y: target.y },
+      });
+      this.onNotification(`${this.getGardenName(hope)} is ready for the neighborhood!`, 'success');
+      this.popularity.reputation = Math.min(100, this.popularity.reputation + 5);
+      this.popularity.momentum = Math.min(100, this.popularity.momentum + 8);
+    }
   }
 
   setSpeed(s: number) {
@@ -153,6 +717,137 @@ export class Simulation {
     }
   }
 
+  getBuildCostForArchetype(archetype: PlaceArchetype): number {
+    return getPlace(archetype).cost;
+  }
+
+  private defaultArchetypeFor(type: TileType): PlaceArchetype | undefined {
+    if (type === 'residential') return 'cozy_cottage';
+    if (type === 'commercial') return 'bakery';
+    if (type === 'industrial') return 'pottery_workshop';
+    if (type === 'park') return 'community_park';
+    return undefined;
+  }
+
+  private placeName(archetype: PlaceArchetype): string {
+    const place = getPlace(archetype);
+    return `${place.nameWords[0]} ${place.nameWords[1]}`;
+  }
+
+  buildPlace(x: number, y: number, archetype: PlaceArchetype, founderResidentId?: string): boolean {
+    if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
+    const tile = this.grid[x][y];
+    const place = getPlace(archetype);
+    if (tile.type !== 'empty' || this.money < place.cost) return false;
+    this.money -= place.cost;
+    tile.type = place.tileType;
+    tile.level = place.meshLevel;
+    tile.progress = 0;
+    tile.occupancy = 0;
+    tile.maxOccupancy = place.residentCapacity ?? place.workerCapacity ?? 0;
+    tile.happiness = 100;
+    tile.abandoned = false;
+    tile.bridge = false;
+    tile.placedSequence = this.nextPlacementSequence++;
+    tile.placeId = `place-${this.nextPlaceId++}`;
+    tile.name = this.placeName(archetype);
+    tile.archetype = archetype;
+    tile.tags = [...place.tags];
+    tile.constructionStatus = 'planned';
+    tile.constructionProgress = 0;
+    tile.constructionBlockers = [];
+    tile.constructionCost = place.cost;
+    tile.reopening = false;
+    tile.residentCapacity = place.residentCapacity;
+    tile.reservedHouseholdId = undefined;
+    tile.householdId = undefined;
+    tile.founderResidentId = founderResidentId;
+    tile.workerIds = [];
+    tile.workerCapacity = place.workerCapacity;
+    tile.operatingStatus = place.workerCapacity ? 'opening' : undefined;
+    tile.viability = place.workerCapacity ? 0 : undefined;
+    tile.strugglingSinceDay = undefined;
+    this.updateUtilities();
+    this.onTileUpdate(tile);
+    return true;
+  }
+
+  renamePlace(placeId: string, name: string): boolean {
+    const tile = this.findPlace(placeId);
+    if (!tile || !name.trim()) return false;
+    tile.name = name.trim().slice(0, 48);
+    this.onTileUpdate(tile);
+    return true;
+  }
+
+  findPlace(placeId: string): TileState | undefined {
+    return this.grid.flat().find(tile => tile.placeId === placeId);
+  }
+
+  isHomeReadyForMatching(tile: TileState): boolean {
+    return this.getHomeReadinessIssues(tile).length === 0;
+  }
+
+  /** The infrastructure that must be available before a project can break ground. */
+  getConstructionReadinessIssues(tile: TileState): string[] {
+    const issues: string[] = [];
+    if (!this.hasRoadAccess(tile)) issues.push('Connect a road route to the map edge');
+
+    // Utility projects provide the network's first connection, while parks are
+    // intentionally light-touch public spaces. Homes and workplaces require both.
+    const needsUtilities = tile.type === 'residential' || tile.type === 'commercial' || tile.type === 'industrial';
+    if (needsUtilities && !tile.powered) issues.push('Connect power');
+    if (needsUtilities && !tile.watered) issues.push('Connect water');
+    return issues;
+  }
+
+  cancelConstruction(x: number, y: number): boolean {
+    const tile = this.grid[x]?.[y];
+    if (!tile || !tile.placeId || (tile.constructionStatus !== 'planned' && tile.constructionStatus !== 'building')) return false;
+    const refund = Math.round((tile.constructionCost ?? 0) * 0.8);
+    this.money += refund;
+    if (tile.reopening) {
+      tile.constructionStatus = 'complete';
+      tile.constructionProgress = 100;
+      tile.progress = 100;
+      tile.constructionCost = undefined;
+      tile.reopening = false;
+      tile.operatingStatus = 'closed';
+      this.onTileUpdate(tile);
+      this.onNotification(`Reopening cancelled. $${refund} returned; ${tile.name ?? 'the place'} remains closed.`, 'info');
+      return true;
+    }
+    this.clearTileHousehold(tile);
+    Object.assign(tile, {
+      type: 'empty' as TileType, level: 0, progress: 0, occupancy: 0, maxOccupancy: 0,
+      happiness: 100, abandoned: false, bridge: false, placeId: undefined, name: undefined,
+      archetype: undefined, tags: undefined, constructionStatus: undefined, constructionProgress: undefined, constructionBlockers: undefined,
+      constructionCost: undefined, reopening: undefined, residentCapacity: undefined, reservedHouseholdId: undefined,
+      founderResidentId: undefined, workerIds: undefined, workerCapacity: undefined,
+      operatingStatus: undefined, viability: undefined, strugglingSinceDay: undefined,
+    });
+    this.updateUtilities();
+    this.onTileUpdate(tile);
+    this.onNotification(`Project cancelled. $${refund} returned; the initial commitment remains spent.`, 'info');
+    return true;
+  }
+
+  beginReopening(x: number, y: number): boolean {
+    const tile = this.grid[x]?.[y];
+    if (!tile?.placeId || tile.operatingStatus !== 'closed' || !tile.archetype) return false;
+    const cost = getPlace(tile.archetype).cost;
+    if (this.money < cost) return false;
+    this.money -= cost;
+    tile.constructionStatus = 'planned';
+    tile.constructionProgress = 0;
+    tile.constructionBlockers = [];
+    tile.constructionCost = cost;
+    tile.reopening = true;
+    this.updateUtilities();
+    this.onTileUpdate(tile);
+    return true;
+  }
+
   // Cost to demolish
   getDemolishCost(): number {
     return 5;
@@ -175,6 +870,8 @@ export class Simulation {
 
   build(x: number, y: number, type: TileType): boolean {
     if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
+    const archetype = this.defaultArchetypeFor(type);
+    if (archetype) return this.buildPlace(x, y, archetype);
     const tile = this.grid[x][y];
 
     // Water bodies and boardwalks can only be placed at sea level (elevation 0)
@@ -192,6 +889,7 @@ export class Simulation {
           return false;
         }
         this.money -= cost;
+        this.clearTileHousehold(tile);
         tile.type = 'road';
         tile.bridge = true;
         tile.level = 0;
@@ -202,6 +900,7 @@ export class Simulation {
         tile.maxOccupancy = 0;
         tile.happiness = 100;
         tile.abandoned = false;
+        tile.placedSequence = this.nextPlacementSequence++;
 
         this.updateUtilities();
         this.onTileUpdate(tile);
@@ -225,6 +924,7 @@ export class Simulation {
           return false;
         }
         this.money -= cost;
+        this.clearTileHousehold(tile);
         tile.type = 'boardwalk';
         tile.level = 0;
         tile.progress = 0;
@@ -235,6 +935,7 @@ export class Simulation {
         tile.happiness = 100;
         tile.abandoned = false;
         tile.bridge = false;
+        tile.placedSequence = this.nextPlacementSequence++;
 
         this.updateUtilities();
         this.onTileUpdate(tile);
@@ -264,6 +965,7 @@ export class Simulation {
     }
 
     this.money -= cost;
+    this.clearTileHousehold(tile);
     tile.type = type;
     tile.level = 0;
     tile.progress = 0;
@@ -274,6 +976,7 @@ export class Simulation {
     tile.happiness = 100;
     tile.abandoned = false;
     tile.bridge = false;
+    tile.placedSequence = this.nextPlacementSequence++;
 
     this.updateUtilities();
     this.onTileUpdate(tile);
@@ -334,6 +1037,7 @@ export class Simulation {
     this.money -= cost;
     for (const cell of validCells) {
       const tile = this.grid[cell.x][cell.y];
+      this.clearTileHousehold(tile);
       if (type === 'road' && tile.type === 'water_body') {
         tile.type = 'road';
         tile.bridge = true;
@@ -349,6 +1053,7 @@ export class Simulation {
       tile.maxOccupancy = 0;
       tile.happiness = 100;
       tile.abandoned = false;
+      tile.placedSequence = this.nextPlacementSequence++;
     }
 
     this.updateUtilities();
@@ -366,6 +1071,9 @@ export class Simulation {
     const tile = this.grid[x][y];
 
     if (tile.type === 'empty') return false;
+    if (tile.constructionStatus === 'planned' || tile.constructionStatus === 'building') {
+      return this.cancelConstruction(x, y);
+    }
 
     const cost = this.getDemolishCost();
     if (this.money < cost) {
@@ -374,6 +1082,10 @@ export class Simulation {
     }
 
     this.money -= cost;
+    this.clearTileHousehold(tile);
+    for (const resident of this.residents) {
+      if (resident.workplacePlaceId === tile.placeId) delete resident.workplacePlaceId;
+    }
     if (tile.bridge) {
       tile.type = 'water_body';
       tile.bridge = false;
@@ -388,6 +1100,22 @@ export class Simulation {
     tile.maxOccupancy = 0;
     tile.happiness = 100;
     tile.abandoned = false;
+    tile.placeId = undefined;
+    tile.name = undefined;
+    tile.archetype = undefined;
+    tile.tags = undefined;
+    tile.constructionStatus = undefined;
+    tile.constructionProgress = undefined;
+    tile.constructionBlockers = undefined;
+    tile.constructionCost = undefined;
+    tile.residentCapacity = undefined;
+    tile.reservedHouseholdId = undefined;
+    tile.founderResidentId = undefined;
+    tile.workerIds = undefined;
+    tile.workerCapacity = undefined;
+    tile.operatingStatus = undefined;
+    tile.viability = undefined;
+    tile.strugglingSinceDay = undefined;
 
     this.updateUtilities();
     this.onTileUpdate(tile);
@@ -461,7 +1189,7 @@ export class Simulation {
               const conducts = neighborTile.type === 'road' || 
                                neighborTile.type === 'power' ||
                                neighborTile.type === 'water' ||
-                               (neighborTile.type !== 'empty' && neighborTile.type !== 'park' && neighborTile.level > 0);
+                               (neighborTile.type !== 'empty' && neighborTile.type !== 'park' && neighborTile.constructionStatus === 'complete');
 
               if (conducts) {
                 neighborTile[propKey] = true;
@@ -495,27 +1223,199 @@ export class Simulation {
         }
       }
     }
+    this.refreshConstructionReadiness();
+    this.evaluateSharedGardenHopes();
+  }
+
+  private refreshConstructionReadiness() {
+    for (const row of this.grid) for (const tile of row) {
+      if (tile.constructionStatus !== 'planned' && tile.constructionStatus !== 'building') continue;
+      const blockers = this.getConstructionReadinessIssues(tile);
+      const blockersChanged = blockers.length !== (tile.constructionBlockers?.length ?? 0)
+        || blockers.some((blocker, index) => blocker !== tile.constructionBlockers?.[index]);
+      if (blockersChanged) tile.constructionBlockers = blockers;
+      const paused = blockers.length > 0 && tile.constructionStatus === 'building';
+      if (paused) tile.constructionStatus = 'planned';
+      if (blockersChanged || paused) this.onTileUpdate(tile);
+    }
+  }
+
+  private advanceConstruction() {
+    this.refreshConstructionReadiness();
+    for (const row of this.grid) for (const tile of row) {
+      if (tile.constructionStatus !== 'planned' && tile.constructionStatus !== 'building') continue;
+      if ((tile.constructionBlockers?.length ?? 0) > 0) continue;
+      tile.constructionStatus = 'building';
+      tile.constructionProgress = Math.min(100, (tile.constructionProgress ?? 0) + (100 / CONSTRUCTION_TICKS) * this.speed);
+      tile.progress = tile.constructionProgress;
+      if (tile.constructionProgress < 100) {
+        this.onTileUpdate(tile);
+        continue;
+      }
+      tile.constructionProgress = 100;
+      tile.progress = 100;
+      tile.constructionStatus = 'complete';
+      if (tile.workerCapacity) {
+        tile.operatingStatus = 'opening';
+        tile.viability = 0;
+      }
+      this.onNotification(`${tile.name ?? 'A new place'} is complete.`, 'success');
+      this.onTileUpdate(tile);
+    }
+    this.updateUtilities();
+  }
+
+  private isWorkingAge(resident: ResidentState) {
+    return resident.age >= 16 && resident.age < 76;
+  }
+
+  private hasRoadAccess(tile: TileState): boolean {
+    const starts = [{ x: tile.x + 1, y: tile.y }, { x: tile.x - 1, y: tile.y }, { x: tile.x, y: tile.y + 1 }, { x: tile.x, y: tile.y - 1 }]
+      .filter(point => {
+        const candidate = this.grid[point.x]?.[point.y];
+        return candidate?.type === 'road' || candidate?.type === 'boardwalk';
+      });
+    const queue = [...starts];
+    const visited = new Set(starts.map(point => `${point.x},${point.y}`));
+    while (queue.length) {
+      const current = queue.shift()!;
+      if (current.x === 0 || current.y === 0 || current.x === this.gridSize - 1 || current.y === this.gridSize - 1) return true;
+      for (const next of [{ x: current.x + 1, y: current.y }, { x: current.x - 1, y: current.y }, { x: current.x, y: current.y + 1 }, { x: current.x, y: current.y - 1 }]) {
+        const key = `${next.x},${next.y}`;
+        const candidate = this.grid[next.x]?.[next.y];
+        if (!visited.has(key) && (candidate?.type === 'road' || candidate?.type === 'boardwalk')) {
+          visited.add(key);
+          queue.push(next);
+        }
+      }
+    }
+    return false;
+  }
+
+  private isSettledResident(resident: ResidentState): boolean {
+    return this.getHousehold(resident.householdId)?.status === 'settled';
+  }
+
+  private assignWorkers() {
+    const employed = new Set(this.residents
+      .filter(resident => this.isSettledResident(resident) && !!resident.workplacePlaceId)
+      .map(resident => resident.id));
+    const workplaces = this.grid.flat().filter(tile => tile.constructionStatus === 'complete' && !!tile.workerCapacity && tile.operatingStatus !== 'closed');
+    for (const place of workplaces) {
+      const valid = (place.workerIds ?? []).filter(id => {
+        const resident = this.getResident(id);
+        return !!resident && this.isSettledResident(resident) && resident.workplacePlaceId === place.placeId && this.isWorkingAge(resident);
+      });
+      place.workerIds = valid;
+      for (const resident of this.residents) if (resident.workplacePlaceId === place.placeId && !valid.includes(resident.id)) delete resident.workplacePlaceId;
+      if (place.founderResidentId && place.workerIds.length < (place.workerCapacity ?? 0)) {
+        const founder = this.getResident(place.founderResidentId);
+        if (founder && this.isSettledResident(founder) && this.isWorkingAge(founder) && !founder.workplacePlaceId) {
+          place.workerIds.push(founder.id);
+          founder.workplacePlaceId = place.placeId;
+          employed.add(founder.id);
+        }
+      }
+      const preferredOccupation: Partial<Record<PlaceArchetype, string>> = {
+        bakery: 'Baker', cafe: 'Cook', florist: 'Florist', grocer: 'Grocer', bookshop: 'Librarian',
+        repair_shop: 'Technician', pottery_workshop: 'Potter', carpenter_workshop: 'Carpenter',
+        bike_workshop: 'Mechanic', maker_space: 'Designer', production_depot: 'Technician', community_studio: 'Designer',
+      };
+      const preference = place.archetype ? preferredOccupation[place.archetype] : undefined;
+      const available = this.residents
+        .filter(resident => this.isSettledResident(resident) && this.isWorkingAge(resident) && !employed.has(resident.id))
+        .sort((a, b) => Number(b.occupation.includes(preference ?? '')) - Number(a.occupation.includes(preference ?? '')));
+      for (const resident of available) {
+        if (place.workerIds.length >= (place.workerCapacity ?? 0)) break;
+        place.workerIds.push(resident.id);
+        resident.workplacePlaceId = place.placeId;
+        employed.add(resident.id);
+      }
+    }
+  }
+
+  private evaluateBusinesses() {
+    this.assignWorkers();
+    const settledHouseholds = this.households.filter(household => household.status === 'settled').length;
+    for (const tile of this.grid.flat()) {
+      if (!tile.workerCapacity || tile.constructionStatus !== 'complete') continue;
+      if (tile.operatingStatus === 'closed') continue;
+      if (!tile.powered || !tile.watered || !this.hasRoadAccess(tile)) {
+        tile.viability = 0;
+      } else {
+        const workerFactor = Math.min(1, (tile.workerIds?.length ?? 0) / tile.workerCapacity);
+        const customerFactor = Math.min(1, settledHouseholds / Math.max(1, tile.workerCapacity));
+        tile.viability = workerFactor === 0 ? 0 : Math.round((workerFactor * 50 + customerFactor * 50));
+      }
+      if ((tile.viability ?? 0) >= 45) {
+        tile.operatingStatus = 'open';
+        tile.strugglingSinceDay = undefined;
+      } else {
+        if (!tile.strugglingSinceDay) {
+          tile.strugglingSinceDay = this.dayCount;
+          this.onNotification(`${tile.name ?? 'A local place'} is struggling: it needs workers, customers, and access.`, 'warning');
+        }
+        tile.operatingStatus = 'struggling';
+        if (this.dayCount - tile.strugglingSinceDay >= 7) {
+          tile.operatingStatus = 'closed';
+          for (const id of tile.workerIds ?? []) {
+            const resident = this.getResident(id);
+            if (resident && resident.workplacePlaceId === tile.placeId) delete resident.workplacePlaceId;
+          }
+          tile.workerIds = [];
+          this.onNotification(`${tile.name ?? 'A local place'} has closed after a sustained struggle.`, 'warning');
+        }
+      }
+      this.onTileUpdate(tile);
+    }
+    this.recalculateAuthoritativeTotals();
+  }
+
+  recalculateAuthoritativeTotals() {
+    this.population = this.residents.filter(resident => this.getHousehold(resident.householdId)?.status === 'settled').length;
+    const operating = this.grid.flat().filter(tile => tile.constructionStatus === 'complete' && !!tile.workerCapacity && tile.operatingStatus !== 'closed');
+    this.jobs = operating.reduce((total, tile) => total + (tile.workerCapacity ?? 0), 0);
+    this.employed = operating.reduce((total, tile) => total + (tile.workerIds?.filter(id => {
+      const resident = this.getResident(id);
+      return !!resident && this.isSettledResident(resident) && resident.workplacePlaceId === tile.placeId;
+    }).length ?? 0), 0);
+    for (const tile of this.grid.flat()) {
+      if (tile.type === 'residential') {
+        const household = tile.householdId ? this.getHousehold(tile.householdId) : undefined;
+        tile.occupancy = household?.status === 'settled' ? household.residentIds.length : 0;
+        tile.maxOccupancy = tile.residentCapacity ?? tile.maxOccupancy;
+      } else if (tile.workerCapacity) {
+        tile.occupancy = tile.workerIds?.length ?? 0;
+        tile.maxOccupancy = tile.workerCapacity;
+      }
+    }
   }
 
   // Simulation tick (called every 2 seconds by Game loop)
   tick() {
     if (this.speed === 0) return;
-
-    let needsUtilityUpdate = false;
-
-    // 1. Update Time & Days
-    // Tick speed factors
     const hoursPerTick = 0.5 * this.speed;
     this.timeOfDay += hoursPerTick;
+    let newDay = false;
     if (this.timeOfDay >= 24) {
       this.timeOfDay = 0;
       this.dayCount++;
-      // Weekly checks
+      newDay = true;
       if (this.dayCount % 7 === 1) {
         this.processWeeklyEconomy();
       }
     }
 
+    this.advanceConstruction();
+    this.recalculateAuthoritativeTotals();
+    if (newDay) {
+      this.evaluateBusinesses();
+      this.updateApplicationsForDay();
+      this.updateGardenPicnic();
+    }
+    return;
+
+    /* Retired RCI growth loop retained in source history only.
     // 2. Perform Grid Simulation Ticks
     let totalRLevel = 0;
     let totalCLevel = 0;
@@ -548,6 +1448,7 @@ export class Simulation {
             tile.level = Math.max(0, tile.level - 1);
             needsUtilityUpdate = true;
             if (tile.level === 0) {
+              if (tile.type === 'residential') this.clearTileHousehold(tile);
               tile.abandoned = true;
               tile.occupancy = 0;
               this.onNotification(`A building at (${tile.x}, ${tile.y}) has been abandoned due to lack of utilities!`, 'warning');
@@ -618,6 +1519,7 @@ export class Simulation {
             if (tile.progress >= 100) {
               tile.progress = 30; // 30% progress buffer on upgrade for hysteresis stability
               tile.level++;
+
               needsUtilityUpdate = true;
               this.onTileUpdate(tile);
             }
@@ -626,6 +1528,7 @@ export class Simulation {
             if (tile.progress <= 0) {
               tile.progress = 70; // 70% progress buffer on downgrade for hysteresis stability
               tile.level--;
+              if (tile.level === 0 && tile.type === 'residential') this.clearTileHousehold(tile);
               needsUtilityUpdate = true;
               this.onTileUpdate(tile);
             }
@@ -695,6 +1598,9 @@ export class Simulation {
     }
   }
 
+    */
+  }
+
   // Search adjacent tiles (5-tile radius) for parks
   hasParkNearby(x: number, y: number): boolean {
     const radius = 5;
@@ -727,6 +1633,25 @@ export class Simulation {
 
   // Weekly economic report process
   processWeeklyEconomy() {
+    const completed = this.grid.flat().filter(tile => tile.constructionStatus === 'complete');
+    const maintenanceTotal = completed.reduce((total, tile) => total + this.getMaintenanceCost(tile.type, tile.level), 0);
+    const residential = this.residents.filter(resident => this.getHousehold(resident.householdId)?.status === 'settled').length;
+    const employedAt = (tile: TileState) => tile.workerIds?.filter(id => {
+      const resident = this.getResident(id);
+      return !!resident && this.isSettledResident(resident) && resident.workplacePlaceId === tile.placeId;
+    }).length ?? 0;
+    const commercialWorkers = completed.filter(tile => tile.type === 'commercial' && tile.operatingStatus !== 'closed')
+      .reduce((total, tile) => total + employedAt(tile), 0);
+    const workshopWorkers = completed.filter(tile => tile.type === 'industrial' && tile.operatingStatus !== 'closed')
+      .reduce((total, tile) => total + employedAt(tile), 0);
+    const scale = this.taxRate / 0.12;
+    this.weeklyTaxes = Math.round(residential * 10 * scale + commercialWorkers * 15 * scale + workshopWorkers * 12 * scale);
+    this.weeklyMaintenance = maintenanceTotal;
+    this.weeklyNetIncome = this.weeklyTaxes - maintenanceTotal;
+    this.money += this.weeklyNetIncome;
+    this.onNotification(`Weekly Financial Report: ${this.weeklyNetIncome >= 0 ? 'Net Profit' : 'Net Deficit'} ${this.weeklyNetIncome >= 0 ? '+' : '-'}$${Math.abs(this.weeklyNetIncome)}.`, this.weeklyNetIncome >= 0 ? 'success' : 'danger');
+    return;
+    /* Retired occupancy/happiness tax calculation.
     let maintenanceTotal = 0;
     let taxesCollected = 0;
 
@@ -765,6 +1690,9 @@ export class Simulation {
     }
   }
 
+    */
+  }
+
   saveState(): string {
     const state = {
       version: CURRENT_SAVE_VERSION,
@@ -775,11 +1703,22 @@ export class Simulation {
       jobs: this.jobs,
       employed: this.employed,
       overallHappiness: this.overallHappiness,
-      demandR: this.demandR,
-      demandC: this.demandC,
-      demandI: this.demandI,
       dayCount: this.dayCount,
       timeOfDay: this.timeOfDay,
+      nextResidentId: this.nextResidentId,
+      nextHouseholdId: this.nextHouseholdId,
+      memories: this.memories,
+      nextMemoryId: this.nextMemoryId,
+      hopes: this.hopes,
+      nextHopeId: this.nextHopeId,
+      nextPlacementSequence: this.nextPlacementSequence,
+      nextPlaceId: this.nextPlaceId,
+      applications: this.applications,
+      nextApplicationId: this.nextApplicationId,
+      popularity: this.popularity,
+      picnicStatus: this.picnicStatus,
+      residents: this.residents,
+      households: this.households,
       grid: this.grid.map(row => row.map(tile => ({
         x: tile.x,
         y: tile.y,
@@ -790,32 +1729,241 @@ export class Simulation {
         maxOccupancy: tile.maxOccupancy,
         happiness: tile.happiness,
         abandoned: tile.abandoned,
+        householdId: tile.householdId,
         bridge: tile.bridge,
         elevation: tile.elevation || 0,
+        placedSequence: tile.placedSequence,
+        placeId: tile.placeId,
+        name: tile.name,
+        archetype: tile.archetype,
+        tags: tile.tags,
+        constructionStatus: tile.constructionStatus,
+        constructionProgress: tile.constructionProgress,
+        constructionCost: tile.constructionCost,
+        reopening: tile.reopening,
+        residentCapacity: tile.residentCapacity,
+        reservedHouseholdId: tile.reservedHouseholdId,
+        founderResidentId: tile.founderResidentId,
+        workerIds: tile.workerIds,
+        workerCapacity: tile.workerCapacity,
+        operatingStatus: tile.operatingStatus,
+        viability: tile.viability,
+        strugglingSinceDay: tile.strugglingSinceDay,
       }))),
     };
     return JSON.stringify(state);
   }
 
+  private validLoadedPosition(value: unknown): value is TilePosition | null {
+    if (value === null) return true;
+    if (!value || typeof value !== 'object') return false;
+    const position = value as TilePosition;
+    return Number.isInteger(position.x) && Number.isInteger(position.y)
+      && position.x >= 0 && position.x < this.gridSize && position.y >= 0 && position.y < this.gridSize;
+  }
+
+  private validateLoadedEntities(state: any, requireRoutine: boolean): boolean {
+    if (!Array.isArray(state.residents) || !Array.isArray(state.households)
+      || !Number.isInteger(state.nextResidentId) || state.nextResidentId < 1
+      || !Number.isInteger(state.nextHouseholdId) || state.nextHouseholdId < 1) return false;
+    const residentIds = new Set<string>();
+    const householdIds = new Set<string>();
+    let highestResident = 0;
+    let highestHousehold = 0;
+    for (const household of state.households) {
+      if (!household || typeof household.id !== 'string' || !/^household-\d+$/.test(household.id)
+        || householdIds.has(household.id) || typeof household.surname !== 'string'
+        || !Array.isArray(household.residentIds) || !this.validLoadedPosition(household.home)
+        || (household.status !== 'settled' && household.status !== 'arriving' && household.status !== 'unhoused')
+        || !Number.isInteger(household.arrivalDay)) return false;
+      householdIds.add(household.id);
+      highestHousehold = Math.max(highestHousehold, Number(household.id.slice(10)));
+      if (household.residentIds.some((id: unknown) => typeof id !== 'string')) return false;
+    }
+    for (const resident of state.residents) {
+      if (!resident || typeof resident.id !== 'string' || !/^resident-\d+$/.test(resident.id)
+        || residentIds.has(resident.id) || typeof resident.householdId !== 'string'
+        || !householdIds.has(resident.householdId) || typeof resident.firstName !== 'string'
+        || typeof resident.lastName !== 'string' || !Number.isInteger(resident.age) || resident.age < 0
+        || typeof resident.occupation !== 'string' || !this.validLoadedPosition(resident.home)
+        || !Number.isInteger(resident.appearanceSeed)
+        || (requireRoutine && !this.isValidRoutine(resident.routine))) return false;
+      residentIds.add(resident.id);
+      highestResident = Math.max(highestResident, Number(resident.id.slice(9)));
+    }
+    return state.nextResidentId > highestResident && state.nextHouseholdId > highestHousehold;
+  }
+
+  private validateLoadedMemories(state: any): boolean {
+    if (!Array.isArray(state.memories) || !Number.isInteger(state.nextMemoryId) || state.nextMemoryId < 1) return false;
+    const residentIds = new Set<string>(state.residents.map((resident: ResidentState) => resident.id));
+    const householdIds = new Set<string>(state.households.map((household: HouseholdState) => household.id));
+    const memoryIds = new Set<string>();
+    let highestMemory = 0;
+    for (const memory of state.memories) {
+      if (!memory || typeof memory.id !== 'string' || !/^memory-\d+$/.test(memory.id) || memoryIds.has(memory.id)
+        || (memory.type !== 'arrival' && memory.type !== 'hope_fulfilled') || !Number.isInteger(memory.day)
+        || typeof memory.title !== 'string' || typeof memory.description !== 'string'
+        || !Array.isArray(memory.residentIds) || !Array.isArray(memory.householdIds)
+        || memory.residentIds.some((id: unknown) => typeof id !== 'string' || !residentIds.has(id))
+        || memory.householdIds.some((id: unknown) => typeof id !== 'string' || !householdIds.has(id))
+        || (memory.tile !== undefined && !this.validLoadedPosition(memory.tile))
+        || (memory.type === 'hope_fulfilled' && (!this.validLoadedPosition(memory.tile) || memory.tile === null))) return false;
+      memoryIds.add(memory.id);
+      highestMemory = Math.max(highestMemory, Number(memory.id.slice(7)));
+    }
+    return state.nextMemoryId > highestMemory;
+  }
+
+  private validateLoadedHopes(state: any): boolean {
+    if (!Array.isArray(state.hopes) || !Number.isInteger(state.nextHopeId) || state.nextHopeId < 1
+      || !Number.isInteger(state.nextPlacementSequence) || state.nextPlacementSequence < 1) return false;
+    const residents = new Map(state.residents.map((resident: ResidentState) => [resident.id, resident]));
+    const households = new Set(state.households.map((household: HouseholdState) => household.id));
+    const ids = new Set<string>();
+    let highestHope = 0;
+    let highestPlacement = 0;
+    let highestPlace = 0;
+    const placeIds = new Set<string>();
+    for (const row of state.grid) for (const tile of row) {
+      if (!Number.isInteger(tile.placedSequence) || tile.placedSequence < 0) return false;
+      highestPlacement = Math.max(highestPlacement, tile.placedSequence);
+      if (tile.placeId !== undefined) {
+        if (typeof tile.placeId !== 'string' || !/^place-\d+$/.test(tile.placeId) || placeIds.has(tile.placeId)) return false;
+        placeIds.add(tile.placeId);
+        highestPlace = Math.max(highestPlace, Number(tile.placeId.slice(6)));
+      }
+    }
+    for (const hope of state.hopes) {
+      const owner = hope && residents.get(hope.ownerResidentId);
+      if (!hope || typeof hope.id !== 'string' || !/^hope-\d+$/.test(hope.id) || ids.has(hope.id)
+        || hope.type !== 'shared_garden' || (hope.status !== 'active' && hope.status !== 'fulfilled')
+        || !Number.isInteger(hope.createdDay) || hope.createdDay < 1
+        || !Number.isInteger(hope.createdPlacementSequence) || hope.createdPlacementSequence < 0
+        || !owner || !households.has(hope.householdId) || owner.householdId !== hope.householdId) return false;
+      if (hope.status === 'active' && (hope.fulfilledDay !== undefined || hope.targetTile !== undefined)) return false;
+      if (hope.status === 'fulfilled' && (!Number.isInteger(hope.fulfilledDay) || hope.fulfilledDay < hope.createdDay
+        || !this.validLoadedPosition(hope.targetTile) || hope.targetTile === null)) return false;
+      ids.add(hope.id);
+      highestHope = Math.max(highestHope, Number(hope.id.slice(5)));
+    }
+    return state.nextHopeId > highestHope && state.nextPlacementSequence > highestPlacement
+      && Number.isInteger(state.nextPlaceId) && state.nextPlaceId > highestPlace;
+  }
+
+  private reconcileHopes() {
+    this.hopes = this.hopes.filter(hope => {
+      const owner = this.getResident(hope.ownerResidentId);
+      const household = this.getHousehold(hope.householdId);
+      return !!owner && !!household && owner.householdId === household.id;
+    });
+  }
+
+  private reconcileHouseholds(): boolean {
+    for (const resident of this.residents) {
+      if (!this.isValidRoutine(resident.routine)) resident.routine = this.defaultRoutine(resident.appearanceSeed);
+    }
+
+    const residents = new Map(this.residents.map(resident => [resident.id, resident]));
+    const households = new Map(this.households.map(household => [household.id, household]));
+    if (residents.size !== this.residents.length || households.size !== this.households.length) return false;
+
+    for (const row of this.grid) for (const tile of row) {
+      if (tile.type !== 'residential' || tile.level <= 0 || tile.abandoned || !tile.householdId || !households.has(tile.householdId)) {
+        delete tile.householdId;
+      }
+      if (tile.type !== 'residential' || tile.constructionStatus !== 'complete' || tile.abandoned || !tile.reservedHouseholdId || !households.has(tile.reservedHouseholdId)) {
+        delete tile.reservedHouseholdId;
+      }
+    }
+    for (const household of this.households) {
+      household.residentIds = [...new Set(household.residentIds.filter(id => residents.get(id)?.householdId === household.id))];
+    }
+    for (const resident of this.residents) {
+      const household = households.get(resident.householdId);
+      if (!household) return false;
+      if (!household.residentIds.includes(resident.id)) household.residentIds.push(resident.id);
+    }
+
+    const claimedHomes = new Set<string>();
+    for (const household of this.households) {
+      const home = household.home;
+      const validHome = (household.status === 'settled' || household.status === 'arriving') && home !== null && this.positionIsValid(home)
+        && this.grid[home.x][home.y].type === 'residential' && this.grid[home.x][home.y].level > 0
+        && !this.grid[home.x][home.y].abandoned
+        && (household.status === 'settled'
+          ? (!this.grid[home.x][home.y].householdId || this.grid[home.x][home.y].householdId === household.id)
+          : (!this.grid[home.x][home.y].reservedHouseholdId || this.grid[home.x][home.y].reservedHouseholdId === household.id));
+      const key = home ? `${home.x},${home.y}` : '';
+      if (!validHome || claimedHomes.has(key)) {
+        this.unhousehold(household);
+        continue;
+      }
+      claimedHomes.add(key);
+      const tile = this.grid[home.x][home.y];
+      if (household.status === 'settled') tile.householdId = household.id;
+      else tile.reservedHouseholdId = household.id;
+      for (const residentId of household.residentIds) residents.get(residentId)!.home = { x: home.x, y: home.y };
+    }
+    for (const row of this.grid) for (const tile of row) {
+      const household = tile.householdId ? households.get(tile.householdId) : undefined;
+      if (!household || household.status !== 'settled' || !household.home
+        || household.home.x !== tile.x || household.home.y !== tile.y) delete tile.householdId;
+      const arriving = tile.reservedHouseholdId ? households.get(tile.reservedHouseholdId) : undefined;
+      if (!arriving || arriving.status !== 'arriving' || !arriving.home
+        || arriving.home.x !== tile.x || arriving.home.y !== tile.y) delete tile.reservedHouseholdId;
+    }
+
+    return this.hasHouseholdIntegrity();
+  }
+
+  private hasHouseholdIntegrity(): boolean {
+    const households = new Map(this.households.map(household => [household.id, household]));
+    const highestResident = Math.max(0, ...this.residents.map(resident => Number(resident.id.slice(9))));
+    const highestHousehold = Math.max(0, ...this.households.map(household => Number(household.id.slice(10))));
+    if (!Number.isInteger(this.nextResidentId) || !Number.isInteger(this.nextHouseholdId)
+      || this.nextResidentId <= highestResident || this.nextHouseholdId <= highestHousehold) return false;
+    const residentCounts = new Map<string, number>();
+    for (const household of this.households) {
+      if (household.status === 'unhoused') {
+        if (household.home !== null) return false;
+      } else if (!household.home || !this.positionIsValid(household.home)) return false;
+      for (const residentId of household.residentIds) residentCounts.set(residentId, (residentCounts.get(residentId) ?? 0) + 1);
+    }
+    for (const resident of this.residents) {
+      const household = households.get(resident.householdId);
+      if (!household || residentCounts.get(resident.id) !== 1 || !household.residentIds.includes(resident.id)) return false;
+      if (household.status === 'unhoused') {
+        if (resident.home !== null) return false;
+      } else if (!household.home || !resident.home || resident.home.x !== household.home.x || resident.home.y !== household.home.y) return false;
+    }
+    for (const row of this.grid) for (const tile of row) {
+      if (!tile.householdId) continue;
+      const household = households.get(tile.householdId);
+      if (!household || tile.type !== 'residential' || tile.level <= 0 || tile.abandoned
+        || household.status !== 'settled' || !household.home || household.home.x !== tile.x || household.home.y !== tile.y) return false;
+    }
+    return true;
+  }
+
   loadState(jsonString: string): boolean {
     try {
       const state = JSON.parse(jsonString);
-      if (!state || !state.grid || !Array.isArray(state.grid)) return false;
-
+      if (!state || !Array.isArray(state.grid)) return false;
       const version = state.version !== undefined ? state.version : 0;
-      if (version > CURRENT_SAVE_VERSION) {
-        this.onNotification(`Failed to load: save file is from a newer version (v${version}) of the game.`, 'danger');
+      if (!Number.isInteger(version) || version !== CURRENT_SAVE_VERSION) {
+        this.onNotification(version > CURRENT_SAVE_VERSION
+          ? `Failed to load: save file is from a newer version (v${version}) of the game.`
+          : 'This save uses the retired zoning simulation and cannot be loaded. Start a new neighborhood after confirming the reset.', 'danger');
         return false;
       }
-
-      // Validate grid dimensions and cell presence before mutating any simulation state
       if (state.grid.length < this.gridSize) return false;
       for (let x = 0; x < this.gridSize; x++) {
-        if (!state.grid[x] || !Array.isArray(state.grid[x]) || state.grid[x].length < this.gridSize) return false;
-        for (let y = 0; y < this.gridSize; y++) {
-          if (!state.grid[x][y]) return false;
-        }
+        if (!Array.isArray(state.grid[x]) || state.grid[x].length < this.gridSize) return false;
+        for (let y = 0; y < this.gridSize; y++) if (!state.grid[x][y]) return false;
       }
+      if (!this.validateLoadedEntities(state, true) || !this.validateLoadedMemories(state) || !this.validateLoadedHopes(state)) return false;
+      if (!Array.isArray(state.applications) || !Number.isInteger(state.nextApplicationId) || !state.popularity) return false;
 
       this.seed = state.seed !== undefined ? state.seed : Math.floor(Math.random() * 1000000);
       this.money = state.money;
@@ -824,32 +1972,83 @@ export class Simulation {
       this.jobs = state.jobs;
       this.employed = state.employed;
       this.overallHappiness = state.overallHappiness;
-      this.demandR = state.demandR;
-      this.demandC = state.demandC;
-      this.demandI = state.demandI;
       this.dayCount = state.dayCount;
       this.timeOfDay = state.timeOfDay;
-
-      for (let x = 0; x < this.gridSize; x++) {
-        for (let y = 0; y < this.gridSize; y++) {
-          const loadedTile = state.grid[x][y];
-          const tile = this.grid[x][y];
-
-          tile.type = loadedTile.type;
-          tile.level = loadedTile.level;
-          tile.progress = loadedTile.progress;
-          tile.powered = false;
-          tile.watered = false;
-          tile.occupancy = loadedTile.occupancy;
-          tile.maxOccupancy = loadedTile.maxOccupancy;
-          tile.happiness = loadedTile.happiness;
-          tile.abandoned = loadedTile.abandoned || false;
-          tile.bridge = loadedTile.bridge || false;
-          tile.elevation = loadedTile.elevation !== undefined ? loadedTile.elevation : 0;
-        }
+      for (let x = 0; x < this.gridSize; x++) for (let y = 0; y < this.gridSize; y++) {
+        const loadedTile = state.grid[x][y];
+        const tile = this.grid[x][y];
+        tile.type = loadedTile.type;
+        tile.level = loadedTile.level;
+        tile.progress = loadedTile.progress;
+        tile.powered = false;
+        tile.watered = false;
+        tile.occupancy = loadedTile.occupancy;
+        tile.maxOccupancy = loadedTile.maxOccupancy;
+        tile.happiness = loadedTile.happiness;
+        tile.abandoned = loadedTile.abandoned || false;
+        tile.householdId = typeof loadedTile.householdId === 'string' ? loadedTile.householdId : undefined;
+        tile.bridge = loadedTile.bridge || false;
+        tile.elevation = loadedTile.elevation !== undefined ? loadedTile.elevation : 0;
+        tile.placedSequence = version >= 5 ? loadedTile.placedSequence : 0;
+        tile.placeId = typeof loadedTile.placeId === 'string' ? loadedTile.placeId : undefined;
+        tile.name = typeof loadedTile.name === 'string' ? loadedTile.name : undefined;
+        tile.archetype = loadedTile.archetype;
+        tile.tags = Array.isArray(loadedTile.tags) ? loadedTile.tags : undefined;
+        tile.constructionStatus = loadedTile.constructionStatus;
+        tile.constructionProgress = Number.isFinite(loadedTile.constructionProgress) ? loadedTile.constructionProgress : undefined;
+        tile.constructionCost = Number.isFinite(loadedTile.constructionCost) ? loadedTile.constructionCost : undefined;
+        tile.reopening = loadedTile.reopening === true;
+        tile.residentCapacity = Number.isFinite(loadedTile.residentCapacity) ? loadedTile.residentCapacity : undefined;
+        tile.reservedHouseholdId = typeof loadedTile.reservedHouseholdId === 'string' ? loadedTile.reservedHouseholdId : undefined;
+        tile.founderResidentId = typeof loadedTile.founderResidentId === 'string' ? loadedTile.founderResidentId : undefined;
+        tile.workerIds = Array.isArray(loadedTile.workerIds) ? loadedTile.workerIds.filter((id: unknown) => typeof id === 'string') : undefined;
+        tile.workerCapacity = Number.isFinite(loadedTile.workerCapacity) ? loadedTile.workerCapacity : undefined;
+        tile.operatingStatus = loadedTile.operatingStatus;
+        tile.viability = Number.isFinite(loadedTile.viability) ? loadedTile.viability : undefined;
+        tile.strugglingSinceDay = Number.isFinite(loadedTile.strugglingSinceDay) ? loadedTile.strugglingSinceDay : undefined;
       }
-
+      {
+        this.residents = state.residents.map((resident: ResidentState) => ({
+          ...resident,
+          occupation: resident.age < 16 ? 'Student' : resident.occupation,
+          home: resident.home && { ...resident.home },
+          routine: this.isValidRoutine(resident.routine)
+            ? resident.routine.map(block => ({ ...block }))
+            : this.defaultRoutine(resident.appearanceSeed),
+        }));
+        this.households = state.households.map((household: HouseholdState) => ({ ...household, residentIds: [...household.residentIds], home: household.home && { ...household.home } }));
+        this.nextResidentId = state.nextResidentId;
+        this.nextHouseholdId = state.nextHouseholdId;
+        this.memories = state.memories.map((memory: MemoryState) => ({
+          ...memory,
+          residentIds: [...memory.residentIds],
+          householdIds: [...memory.householdIds],
+        }));
+        this.nextMemoryId = state.nextMemoryId;
+        this.hopes = state.hopes.map((hope: HopeState) => ({ ...hope, targetTile: hope.targetTile && { ...hope.targetTile } }));
+        this.nextHopeId = state.nextHopeId;
+        this.nextPlacementSequence = state.nextPlacementSequence;
+        this.nextPlaceId = state.nextPlaceId;
+        this.applications = state.applications.map((application: HouseholdApplication) => ({
+          ...application,
+          members: application.members.map(member => ({
+            ...member,
+            occupation: member.age < 16 ? 'Student' : member.occupation,
+          })),
+          physicalRequirements: application.physicalRequirements && [...application.physicalRequirements],
+          lifestyleRequirements: application.lifestyleRequirements && [...application.lifestyleRequirements],
+          preferences: application.preferences && [...application.preferences],
+          contributionTags: application.contributionTags && [...application.contributionTags],
+        }));
+        this.nextApplicationId = state.nextApplicationId;
+        this.popularity = state.popularity;
+        this.picnicStatus = state.picnicStatus === 'gathering' || state.picnicStatus === 'complete' || state.picnicStatus === 'cancelled' ? state.picnicStatus : 'not_started';
+      }
+      if (!this.reconcileHouseholds()) return false;
+      this.reconcileHopes();
       this.updateUtilities();
+      this.evaluateSharedGardenHopes();
+      this.recalculateAuthoritativeTotals();
       return true;
     } catch (e) {
       console.error(e);
