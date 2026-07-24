@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Simulation, TileState, TileType, ResidentState, RoutineActivity, RoutineBlock } from './Simulation';
 import { Renderer } from './Renderer';
+import { CitizenRenderPool } from './CitizenRenderPool';
 
 export interface CitizenState {
   residentId: string;
@@ -18,14 +19,17 @@ export interface CitizenState {
   targetType: 'work' | 'garden' | 'park' | 'boardwalk' | 'home';
   state: 'home' | 'awaiting_arrival_access' | 'arriving_home' | 'walking_to_work' | 'working' | 'walking_to_garden' | 'gardening_in_community_green_space' | 'walking_to_park' | 'relaxing_at_park' | 'walking_to_boardwalk' | 'strolling_on_boardwalk' | 'walking_home';
   activeRoutineBlock: string | null;
+  pendingRoutineActivity: RoutineActivity | null;
+  routineOffsetHours: number;
   path: { x: number; y: number }[];
   pathIndex: number;
+  // Preserves the exact sidewalk point when a completed segment begins a new route.
+  routeStartOffset: THREE.Vector3 | null;
   progress: number; // 0 to 1 between path nodes
   speed: number;    // cells per second
   relaxTimer: number; // seconds
   sidewalkSide: number; // -1 (left) or 1 (right)
   bobTime: number;
-  smoothOffset: THREE.Vector3; // persistent smoothed lateral offset (never reset)
   facingAngle: number; // current smoothed rotation angle
 }
 
@@ -34,16 +38,16 @@ export class CitizenManager {
   renderer: Renderer;
   cims: CitizenState[] = [];
   private arrivalRetrySeconds = 0;
+  private visualPool: CitizenRenderPool;
+  private visualPoolCapacity = 512;
+  private readonly hitGeometry = new THREE.SphereGeometry(0.28, 8, 6);
+  private readonly hitMaterial = new THREE.MeshBasicMaterial({ visible: false });
 
   // Grid references
   gridSize = 50;
   gridOffset = 25;
 
   // Reusable scratch vectors to avoid frame allocation overhead (GC)
-  tempStart3D = new THREE.Vector3();
-  tempTarget3D = new THREE.Vector3();
-  tempDir = new THREE.Vector3();
-  tempPerp = new THREE.Vector3();
   tempRawOffset = new THREE.Vector3();
   tempCurrentOffset = new THREE.Vector3();
   tempPos = new THREE.Vector3();
@@ -54,6 +58,7 @@ export class CitizenManager {
   constructor(sim: Simulation, renderer: Renderer) {
     this.sim = sim;
     this.renderer = renderer;
+    this.visualPool = new CitizenRenderPool(renderer.scene, this.visualPoolCapacity);
   }
 
 
@@ -182,16 +187,28 @@ export class CitizenManager {
       targetType: 'home',
       state: 'home',
       activeRoutineBlock: null,
+      pendingRoutineActivity: null,
+      routineOffsetHours: this.getRoutineOffsetHours(resident),
       path: [],
       pathIndex: 0,
+      routeStartOffset: null,
       progress: 0.0,
       speed: 0.45 + Math.random() * 0.2,
       relaxTimer: 0,
       sidewalkSide: Math.random() > 0.5 ? 1 : -1,
       bobTime: Math.random() * Math.PI * 2,
-      smoothOffset: new THREE.Vector3(),
       facingAngle: 0,
     };
+  }
+
+  // Spread routine transitions over an hour while keeping each resident's
+  // schedule stable across runtime recreations and reloads.
+  private getRoutineOffsetHours(resident: ResidentState): number {
+    let hash = resident.appearanceSeed >>> 0;
+    for (let index = 0; index < resident.id.length; index++) {
+      hash = Math.imul(hash ^ resident.id.charCodeAt(index), 16777619) >>> 0;
+    }
+    return (hash / 0xFFFFFFFF - 0.5) * 1.0;
   }
 
   // Reconcile transient runtime state with persistent simulation residents without resetting movement.
@@ -344,12 +361,44 @@ export class CitizenManager {
     const resident = this.sim.getResident(cim.residentId);
     if (!resident) return;
 
-    cim.mesh = this.renderer.assets.createCitizenMesh(resident.appearanceSeed);
+    this.ensureVisualPoolCapacity();
+    cim.mesh = new THREE.Group();
     cim.mesh.userData.residentId = resident.id;
+    const hitTarget = new THREE.Mesh(this.hitGeometry, this.hitMaterial);
+    hitTarget.userData.residentId = resident.id;
+    cim.mesh.add(hitTarget);
     const pos = this.getTile3DPos(cim.currentX, cim.currentY);
     cim.mesh.position.copy(pos);
-    cim.mesh.scale.set(0.001, 0.001, 0.001); // start small to scale up (pop effect)
     this.renderer.scene.add(cim.mesh);
+    this.visualPool.registerResident(resident.id, resident.appearanceSeed);
+    this.visualPool.setResidentTransform(resident.id, pos, cim.facingAngle, 0.28, false);
+  }
+
+  // Grow the shared instance buffers before registering another visible resident.
+  // A city is not capped at 512 residents, and many schedules can overlap.
+  private ensureVisualPoolCapacity() {
+    const visibleResidents = this.cims.filter(cim => cim.mesh).length;
+    if (visibleResidents < this.visualPoolCapacity) return;
+
+    const previousPool = this.visualPool;
+    this.visualPoolCapacity *= 2;
+    this.visualPool = new CitizenRenderPool(this.renderer.scene, this.visualPoolCapacity);
+
+    for (const visibleCim of this.cims) {
+      if (!visibleCim.mesh) continue;
+      const visibleResident = this.sim.getResident(visibleCim.residentId);
+      if (!visibleResident) continue;
+      this.visualPool.registerResident(visibleResident.id, visibleResident.appearanceSeed);
+      const walking = visibleCim.state.startsWith('walking') || visibleCim.state === 'arriving_home';
+      this.visualPool.setResidentTransform(
+        visibleResident.id,
+        visibleCim.mesh.position,
+        visibleCim.mesh.rotation.y,
+        0.28,
+        walking
+      );
+    }
+    previousPool.dispose();
   }
 
   // Despawn/remove mesh safely
@@ -358,12 +407,16 @@ export class CitizenManager {
       this.renderer.scene.remove(cim.mesh);
       cim.mesh = null;
     }
+    this.visualPool.unregisterResident(cim.residentId);
   }
 
   // Main update loop
   update(deltaTime: number) {
     this.syncResidents();
-    if (this.sim.speed === 0) return;
+    if (this.sim.speed === 0) {
+      this.visualPool.update(0);
+      return;
+    }
     this.arrivalRetrySeconds -= deltaTime;
     if (this.arrivalRetrySeconds <= 0) {
       this.arrivalRetrySeconds = 5;
@@ -386,11 +439,11 @@ export class CitizenManager {
       }
       if (cim.state === 'awaiting_arrival_access') continue;
 
-      const active = this.resolveRoutineBlock(resident.routine, this.sim.timeOfDay);
+      const active = this.resolveRoutineBlock(resident.routine, this.sim.timeOfDay + cim.routineOffsetHours);
       const blockId = active ? `${active.index}:${active.block.activity}:${active.block.startHour}:${active.block.endHour}` : 'home-fallback';
       if (cim.activeRoutineBlock !== blockId) {
         cim.activeRoutineBlock = blockId;
-        this.beginRoutineActivity(cim, active?.block.activity ?? 'home');
+        this.requestRoutineActivity(cim, active?.block.activity ?? 'home');
       }
 
       switch (cim.state) {
@@ -403,6 +456,7 @@ export class CitizenManager {
           break;
       }
     }
+    this.visualPool.update(timeStep);
   }
 
   private resolveRoutineBlock(routine: RoutineBlock[], timeOfDay: number): { block: RoutineBlock; index: number } | null {
@@ -421,21 +475,33 @@ export class CitizenManager {
     return selected ? { block: selected.block, index: selected.index } : null;
   }
 
-  private beginRoutineActivity(cim: CitizenState, activity: RoutineActivity) {
+  private requestRoutineActivity(cim: CitizenState, activity: RoutineActivity) {
+    if (cim.state.startsWith('walking')) {
+      // Do not replace a route while its visible position lies between nodes.
+      // The most recent schedule change wins if another block starts first.
+      cim.pendingRoutineActivity = activity;
+      return;
+    }
+    cim.pendingRoutineActivity = null;
+    this.beginRoutineActivity(cim, activity);
+  }
+
+  private beginRoutineActivity(cim: CitizenState, activity: RoutineActivity, routeStartOffset: THREE.Vector3 | null = null) {
     const destination = this.resolveRoutineDestination(cim, activity);
     if (!destination) {
-      this.sendCimHome(cim);
+      this.sendCimHome(cim, routeStartOffset);
       return;
     }
 
     if (cim.currentX === destination.x && cim.currentY === destination.y) {
+      cim.routeStartOffset = null;
       this.enterRoutineActivity(cim, activity);
       return;
     }
 
     const path = this.findWalkwayPath({ x: cim.currentX, y: cim.currentY }, destination);
     if (!path) {
-      this.sendCimHome(cim);
+      this.sendCimHome(cim, routeStartOffset);
       return;
     }
 
@@ -446,7 +512,7 @@ export class CitizenManager {
       park: 'walking_to_park',
       boardwalk: 'walking_to_boardwalk',
     };
-    this.startWalkingOnPath(cim, path, walkState[activity], activity);
+    this.startWalkingOnPath(cim, path, walkState[activity], activity, routeStartOffset);
   }
 
   private resolveRoutineDestination(cim: CitizenState, activity: RoutineActivity): { x: number; y: number } | null {
@@ -511,8 +577,15 @@ export class CitizenManager {
   }
 
   // Helper to start a cim walking along a path
-  private startWalkingOnPath(cim: CitizenState, path: { x: number; y: number }[], walkState: CitizenState['state'], targetType: CitizenState['targetType']) {
+  private startWalkingOnPath(
+    cim: CitizenState,
+    path: { x: number; y: number }[],
+    walkState: CitizenState['state'],
+    targetType: CitizenState['targetType'],
+    routeStartOffset: THREE.Vector3 | null = null
+  ) {
     cim.path = path;
+    cim.routeStartOffset = routeStartOffset;
     cim.progress = 0.0;
 
     if (path.length >= 2) {
@@ -533,42 +606,109 @@ export class CitizenManager {
 
     cim.state = walkState;
     cim.targetType = targetType;
-    // NOTE: smoothOffset and facingAngle are intentionally NOT reset —
-    // they persist across path changes to prevent position/rotation pops
+    // Keep facingAngle across path changes so reroutes do not pop rotation.
     this.instantiateCimMesh(cim);
   }
 
 
 
   // Sends the citizen back home
-  sendCimHome(cim: CitizenState) {
+  sendCimHome(cim: CitizenState, routeStartOffset: THREE.Vector3 | null = null) {
     if (cim.currentX === cim.homeX && cim.currentY === cim.homeY) {
+      cim.routeStartOffset = null;
       this.enterRoutineActivity(cim, 'home');
       return;
     }
     const path = this.findWalkwayPath({ x: cim.currentX, y: cim.currentY }, { x: cim.homeX, y: cim.homeY });
     if (path) {
-      this.startWalkingOnPath(cim, path, 'walking_home', 'home');
+      this.startWalkingOnPath(cim, path, 'walking_home', 'home', routeStartOffset);
     } else {
       // Teleport home as safety fallback
       this.despawnCimMesh(cim);
       cim.currentX = cim.homeX;
       cim.currentY = cim.homeY;
+      cim.routeStartOffset = null;
       cim.state = 'home';
     }
   }
 
-  // Compute the raw lateral offset for a given tile type and direction
-  private computeTileOffset(tileX: number, tileY: number, perp: THREE.Vector3, cim: CitizenState, out: THREE.Vector3): THREE.Vector3 {
+  // Compute the lateral offset at a path vertex. Road vertices use the exact
+  // intersection of the incoming and outgoing sidewalk lines, so an inside
+  // corner turns early and an outside corner continues around the full corner.
+  // Keeping one sidewalk side for the route also means a citizen never changes
+  // sides in the middle of the road.
+  private computePathVertexOffset(cim: CitizenState, pathIndex: number, out: THREE.Vector3): THREE.Vector3 {
     out.set(0, 0, 0);
-    const tile = this.sim.grid[tileX][tileY];
+    const point = cim.path[pathIndex];
+    if (!point) return out;
+    if (pathIndex === 0 && cim.routeStartOffset) return out.copy(cim.routeStartOffset);
+
+    const tile = this.sim.grid[point.x][point.y];
     if (tile.type === 'road') {
-      out.addScaledVector(perp, cim.sidewalkSide * 0.85);
+      const previous = pathIndex > 0 ? cim.path[pathIndex - 1] : null;
+      const next = pathIndex + 1 < cim.path.length ? cim.path[pathIndex + 1] : null;
+
+      let incomingX = 0;
+      let incomingZ = 0;
+      let outgoingX = 0;
+      let outgoingZ = 0;
+
+      if (previous) {
+        const dx = point.x - previous.x;
+        const dz = point.y - previous.y;
+        const length = Math.hypot(dx, dz);
+        if (length > 0.0001) {
+          incomingX = dx / length;
+          incomingZ = dz / length;
+        }
+      }
+      if (next) {
+        const dx = next.x - point.x;
+        const dz = next.y - point.y;
+        const length = Math.hypot(dx, dz);
+        if (length > 0.0001) {
+          outgoingX = dx / length;
+          outgoingZ = dz / length;
+        }
+      }
+
+      const hasIncoming = incomingX !== 0 || incomingZ !== 0;
+      const hasOutgoing = outgoingX !== 0 || outgoingZ !== 0;
+      const sidewalkOffset = cim.sidewalkSide * 0.85;
+
+      if (hasIncoming && hasOutgoing) {
+        const directionDot = incomingX * outgoingX + incomingZ * outgoingZ;
+        if (Math.abs(directionDot) < 0.001) {
+          // Orthogonal turn: the sum of the two perpendiculars is the miter
+          // where both offset sidewalk lines meet.
+          out.x = (-incomingZ - outgoingZ) * sidewalkOffset;
+          out.z = (incomingX + outgoingX) * sidewalkOffset;
+        } else {
+          // Straight paths (and defensive U-turn handling) use the incoming
+          // sidewalk line without doubling its offset.
+          out.x = -incomingZ * sidewalkOffset;
+          out.z = incomingX * sidewalkOffset;
+        }
+      } else {
+        const directionX = hasOutgoing ? outgoingX : incomingX;
+        const directionZ = hasOutgoing ? outgoingZ : incomingZ;
+        out.x = -directionZ * sidewalkOffset;
+        out.z = directionX * sidewalkOffset;
+      }
     } else if (tile.type === 'boardwalk') {
-      this.calculateBoardwalkWoodOffset(tileX, tileY, out);
+      this.calculateBoardwalkWoodOffset(point.x, point.y, out);
     } else if (tile.type === 'park') {
+      const previous = pathIndex > 0 ? cim.path[pathIndex - 1] : null;
+      const next = pathIndex + 1 < cim.path.length ? cim.path[pathIndex + 1] : null;
+      const neighbor = next ?? previous;
+      if (!neighbor) return out;
+      const directionX = next ? next.x - point.x : point.x - neighbor.x;
+      const directionZ = next ? next.y - point.y : point.y - neighbor.y;
+      const length = Math.hypot(directionX, directionZ);
+      if (length <= 0.0001) return out;
       const wiggle = Math.sin(cim.bobTime * 2) * 0.15;
-      out.addScaledVector(perp, wiggle);
+      out.x = -(directionZ / length) * wiggle;
+      out.z = (directionX / length) * wiggle;
     }
     return out;
   }
@@ -579,12 +719,6 @@ export class CitizenManager {
       this.instantiateCimMesh(cim);
     }
     const mesh = cim.mesh!;
-
-    // Visual scale-up pop-in animation
-    if (mesh.scale.x < 0.9) {
-      const s = Math.min(0.9, mesh.scale.x + timeStep * 4.0);
-      mesh.scale.set(s, s, s);
-    }
 
     // Advance path progress
     cim.progress += cim.speed * timeStep;
@@ -606,43 +740,19 @@ export class CitizenManager {
       height = boundaryHeight + (targetHeight - boundaryHeight) * t;
     }
 
-    // Direction vectors — safe even when prevX==targetX (handled by path init skipping start node)
-    const start3D = this.tempStart3D.set(
-      (cim.prevX - this.gridOffset) * 2,
-      startHeight,
-      (cim.prevY - this.gridOffset) * 2
-    );
-    const target3D = this.tempTarget3D.set(
-      (cim.targetX - this.gridOffset) * 2,
-      targetHeight,
-      (cim.targetY - this.gridOffset) * 2
-    );
-
-    const dir = this.tempDir.subVectors(target3D, start3D);
-    const dirLenSq = dir.lengthSq();
-    if (dirLenSq > 0.0001) {
-      dir.normalize();
-    }
-    
-    // Perpendicular vector for sidewalk offset
-    const perp = this.tempPerp.set(-dir.z, 0, dir.x);
-
-    // Compute offsets for BOTH tiles and interpolate based on progress
-    // This prevents the hard snap that occurred when switching tile type at progress=0.5
+    // Each logical path node has one stable visual position. Interpolating
+    // between those positions follows the offset sidewalk polyline exactly,
+    // including the shared miter point at a corner.
     const prevTileOffset = this.tempRawOffset;
-    this.computeTileOffset(cim.prevX, cim.prevY, perp, cim, prevTileOffset);
-    
+    this.computePathVertexOffset(cim, cim.pathIndex - 1, prevTileOffset);
+
     const targetTileOffset = this.tempCurrentOffset;
-    this.computeTileOffset(cim.targetX, cim.targetY, perp, cim, targetTileOffset);
-
-    // Blend between the two tile offsets across the full 0→1 range using smoothstep
-    const blendT = clampedProgress * clampedProgress * (3 - 2 * clampedProgress); // smoothstep
-    const desiredOffset = this.tempBoardwalkOffset.lerpVectors(prevTileOffset, targetTileOffset, blendT);
-
-    // Exponential smoothing: smoothOffset asymptotically approaches desiredOffset
-    // This provides continuous, natural-looking transitions with no window artifacts
-    const smoothRate = 1.0 - Math.exp(-8.0 * timeStep); // ~8 Hz time constant
-    cim.smoothOffset.lerp(desiredOffset, smoothRate);
+    this.computePathVertexOffset(cim, cim.pathIndex, targetTileOffset);
+    const interpolatedOffset = this.tempBoardwalkOffset.lerpVectors(
+      prevTileOffset,
+      targetTileOffset,
+      clampedProgress
+    );
 
     // Calculate final position
     const pos = this.tempPos.set(
@@ -650,7 +760,7 @@ export class CitizenManager {
       height,
       (cim.prevY - this.gridOffset) * 2 + ((cim.targetY - cim.prevY) * 2) * clampedProgress
     );
-    pos.add(cim.smoothOffset);
+    pos.add(interpolatedOffset);
 
     // Height offset based on current tile type (interpolated)
     const prevTileType = this.sim.grid[cim.prevX][cim.prevY].type;
@@ -661,34 +771,26 @@ export class CitizenManager {
 
     mesh.position.copy(pos);
 
-    // Smooth rotation facing target direction (shortest-arc angular interpolation)
-    if (dirLenSq > 0.0001) {
-      const targetAngle = Math.atan2(dir.x, dir.z);
+    // Face along the visual sidewalk segment, including any building/park
+    // transition that is not parallel to the grid-center path.
+    const visualDirX = (cim.targetX - cim.prevX) * 2 + targetTileOffset.x - prevTileOffset.x;
+    const visualDirZ = (cim.targetY - cim.prevY) * 2 + targetTileOffset.z - prevTileOffset.z;
+    if (visualDirX * visualDirX + visualDirZ * visualDirZ > 0.0001) {
+      const targetAngle = Math.atan2(visualDirX, visualDirZ);
       // Compute shortest angular delta
       let delta = targetAngle - cim.facingAngle;
       // Wrap to [-PI, PI]
       delta = delta - Math.round(delta / (Math.PI * 2)) * (Math.PI * 2);
       // Exponential smooth
+      const smoothRate = 1.0 - Math.exp(-8.0 * timeStep);
       cim.facingAngle += delta * smoothRate;
       mesh.rotation.y = cim.facingAngle;
     }
 
-    // Walking leg swing and body bobbing animation
+    // Walking is rendered by the instanced visual pool; this proxy only carries
+    // position, facing, and selection metadata for the rest of the game.
     cim.bobTime += timeStep * 11.0;
-    
-    const legL = mesh.getObjectByName('leg_left') as THREE.Mesh;
-    const legR = mesh.getObjectByName('leg_right') as THREE.Mesh;
-    const torso = mesh.children[0] as THREE.Mesh;
-
-    if (legL && legR) {
-      legL.rotation.x = Math.sin(cim.bobTime) * 0.6;
-      legR.rotation.x = -Math.sin(cim.bobTime) * 0.6;
-    }
-    
-    if (torso) {
-      // Bob up and down slightly
-      torso.position.y = 0.18 + Math.abs(Math.sin(cim.bobTime)) * 0.02;
-    }
+    this.visualPool.setResidentTransform(cim.residentId, mesh.position, mesh.rotation.y, 0.28, true);
 
     // Reach path node — carry over excess progress instead of discarding it
     if (cim.progress >= 1.0) {
@@ -699,6 +801,22 @@ export class CitizenManager {
       cim.currentY = cim.targetY;
 
       cim.pathIndex++;
+      cim.routeStartOffset = null;
+
+      if (cim.pendingRoutineActivity) {
+        const pendingActivity = cim.pendingRoutineActivity;
+        cim.pendingRoutineActivity = null;
+        cim.progress = 0.0;
+        const currentCenterX = (cim.currentX - this.gridOffset) * 2;
+        const currentCenterZ = (cim.currentY - this.gridOffset) * 2;
+        const routeStartOffset = new THREE.Vector3(
+          mesh.position.x - currentCenterX,
+          0,
+          mesh.position.z - currentCenterZ
+        );
+        this.beginRoutineActivity(cim, pendingActivity, routeStartOffset);
+        return;
+      }
 
       if (cim.pathIndex >= cim.path.length) {
         // Arrived at destination!
@@ -760,12 +878,7 @@ export class CitizenManager {
 
   resetLegRotations(cim: CitizenState) {
     if (cim.mesh) {
-      const legL = cim.mesh.getObjectByName('leg_left');
-      const legR = cim.mesh.getObjectByName('leg_right');
-      if (legL) legL.rotation.x = 0;
-      if (legR) legR.rotation.x = 0;
-      const torso = cim.mesh.children[0];
-      if (torso) torso.position.y = 0.18;
+      this.visualPool.setResidentTransform(cim.residentId, cim.mesh.position, cim.mesh.rotation.y, 0.28, false);
     }
   }
 

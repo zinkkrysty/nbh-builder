@@ -46,6 +46,7 @@ When evaluating work, the key question is not “does this make the simulation m
     *   **Gentle Economy**: Balance weekly tax revenue from settled residents and workplace staff against maintenance costs for roads, utilities, parks, and boardwalks.
 *   **Procedural Audio Soundscape**: Synthesizes custom triangle-wave lofi jazz chord loops (`Fmaj7` - `Em7` - `Dm7` - `Cmaj7`), wind noise, vinyl record crackling, echoing pentatonic chime melodies, and build/bulldoze sound effects in real-time using the **Web Audio API**. Music and SFX preferences persist between sessions.
 *   **Procedural Traffic & Pedestrians**: Colorful low-poly cars steer through junctions and switch on headlights at night, while residents walk scheduled routes between home, gardens, parks, and boardwalks—with readable intent like "Walking to a garden."
+*   **Instanced Resident Rendering**: Each resident's appearance is generated deterministically from a persisted seed and drawn through shared instanced primitive pools, so hundreds of distinct, recognizable neighbors stay within a fixed draw-call budget (see `docs/adr/0001-procedural-resident-characters.md`).
 *   **Terrain Sculpting**: Raise and lower land across five elevation levels to shape hills, waterfronts, and terraces; build boardwalks over water and bridges across it.
 *   **Save/Load & Auto-Save**: Versioned saves (currently v7) with migrations preserve tiles, residents, households, applications, popularity, and memories in browser `localStorage`.
 *   **Buttery Smooth Pan/Zoom/Rotate Controls**: Glide around the map with inertia/momentum using WASD/Arrow keys or right-click drags.
@@ -128,7 +129,8 @@ nabocity/
         ├── PlaceCatalog.ts # Catalog: buildable place archetypes with costs and capacities
         ├── Renderer.ts     # Three.js: scene, shadows, camera lerps, day/night cycles
         ├── InputManager.ts # Raycasting: snaps, clicks, drag-to-build, terrain tools
-        ├── CitizenManager.ts # Residents: meshes, schedules, destination-based routines
+        ├── CitizenManager.ts # Residents: schedules, destination-based routines, selection targets
+        ├── CitizenRenderPool.ts # Resident visuals: instanced primitive pools, seeded appearance recipes (see docs/adr/0001)
         ├── AssetGenerator.ts # Meshes: low-poly models & emissive lights
         ├── TrafficManager.ts # Cars: steering paths & lane offsets
         └── SoundManager.ts # Synthesizers: lofi chords, chimes, SFX, persisted settings

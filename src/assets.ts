@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { AssetGenerator } from './game/AssetGenerator';
+import { CitizenRenderPool } from './game/CitizenRenderPool';
+import { createPrototypeResident } from './prototype/ResidentAppearance';
 
 const assets = new AssetGenerator();
 
@@ -9,7 +11,7 @@ const cells: {
   rowName: string;
   colName: string;
   level: number;
-  type: 'residential' | 'commercial' | 'industrial' | 'park' | 'tree' | 'turbine' | 'watertower' | 'road' | 'car' | 'water_body' | 'boardwalk' | 'bridge' | 'empty';
+  type: 'residential' | 'commercial' | 'industrial' | 'park' | 'tree' | 'turbine' | 'watertower' | 'road' | 'car' | 'water_body' | 'boardwalk' | 'bridge' | 'citizen' | 'empty';
   label: string;
   seedX: number;
   seedY: number;
@@ -48,7 +50,12 @@ const cells: {
   // Row 6: Waterfront & Geography
   { id: 18, rowName: 'Waterfront', colName: 'Level 1', level: 1, type: 'water_body', label: 'Natural Water', seedX: 0, seedY: 0, isSeedDependent: true },
   { id: 19, rowName: 'Waterfront', colName: 'Level 2', level: 1, type: 'boardwalk', label: 'Cozy Boardwalk', seedX: 0, seedY: 0, isSeedDependent: true },
-  { id: 20, rowName: 'Waterfront', colName: 'Level 3', level: 1, type: 'bridge', label: 'Road Bridge', seedX: 0, seedY: 0, isSeedDependent: false }
+  { id: 20, rowName: 'Waterfront', colName: 'Level 3', level: 1, type: 'bridge', label: 'Road Bridge', seedX: 0, seedY: 0, isSeedDependent: false },
+
+  // Row 7: Residents
+  { id: 21, rowName: 'Residents', colName: 'Level 1', level: 1, type: 'citizen', label: 'Procedural Resident', seedX: 240, seedY: 621, isSeedDependent: true },
+  { id: 22, rowName: 'Residents', colName: 'Level 2', level: 1, type: 'empty', label: 'N/A', seedX: 0, seedY: 0, isSeedDependent: false },
+  { id: 23, rowName: 'Residents', colName: 'Level 3', level: 1, type: 'empty', label: 'N/A', seedX: 0, seedY: 0, isSeedDependent: false }
 ];
 
 // Background offscreen WebGL renderer for generating static image previews
@@ -158,6 +165,20 @@ function createAssetMesh(cell: typeof cells[0]): THREE.Group {
 // Generate base64 screenshot image for cell card
 function generateCellImage(cell: typeof cells[0]): string {
   if (cell.type === 'empty') return '';
+
+  if (cell.type === 'citizen') {
+    const preview = new CitizenRenderPool(bgScene, 1);
+    const seed = ((cell.seedX << 16) ^ cell.seedY) >>> 0;
+    preview.registerResident('catalog-resident', seed);
+    preview.setResidentTransform('catalog-resident', new THREE.Vector3(0, 0, 0), 0.35, 0.78, false);
+    bgCamera.position.set(2.1, 1.55, 2.1);
+    bgCamera.lookAt(0, 0.55, 0);
+    preview.update(0);
+    bgRenderer.render(bgScene, bgCamera);
+    const url = bgRenderer.domElement.toDataURL('image/png');
+    preview.dispose();
+    return url;
+  }
 
   const mesh = createAssetMesh(cell);
   bgScene.add(mesh);
@@ -280,6 +301,8 @@ let modalCamera: THREE.PerspectiveCamera;
 let modalGroup: THREE.Group;
 let modalAmbient: THREE.AmbientLight;
 let modalDirLight: THREE.DirectionalLight;
+let modalCitizenPreview: CitizenRenderPool | null = null;
+let citizenAnimationEnabled = true;
 let isNightMode = false;
 let animationId = 0;
 
@@ -369,6 +392,7 @@ function updateCameraPosition() {
   let targetY = 0.35;
   if (activeCell) {
     if (activeCell.type === 'turbine') targetY = 0.9;
+    else if (activeCell.type === 'citizen') targetY = 0.62;
     else if (activeCell.type === 'car' || activeCell.type === 'road') targetY = 0.1;
     else if (activeCell.type === 'water_body' || activeCell.type === 'boardwalk' || activeCell.type === 'bridge') targetY = -0.1;
   }
@@ -378,6 +402,7 @@ function updateCameraPosition() {
 
 function renderModalLoop() {
   if (!modalRenderer || !activeCell) return;
+  modalCitizenPreview?.update(citizenAnimationEnabled ? 1 / 60 : 0);
   modalRenderer.render(modalScene, modalCamera);
   animationId = requestAnimationFrame(renderModalLoop);
 }
@@ -389,7 +414,7 @@ function openInteractiveModal(cell: typeof cells[0]) {
   // Modal titles
   document.getElementById('modal-house-title')!.textContent = cell.label;
   document.getElementById('modal-house-subtitle')!.textContent = cell.isSeedDependent 
-    ? `Seed: (${cell.seedX}, ${cell.seedY})` 
+    ? cell.type === 'citizen' ? `Seed: (${cell.seedX}, ${cell.seedY}) · Walking preview` : `Seed: (${cell.seedX}, ${cell.seedY})`
     : `Category: ${cell.rowName} (Static Model)`;
   
   // Fill sidebar details
@@ -400,17 +425,36 @@ function openInteractiveModal(cell: typeof cells[0]) {
   // Toggle seed button visibility
   const regenBtn = document.getElementById('modal-regen-btn') as HTMLButtonElement;
   regenBtn.style.display = cell.isSeedDependent ? 'block' : 'none';
+  const residentControls = document.getElementById('resident-preview-controls') as HTMLElement;
+  const residentDetails = document.getElementById('resident-details') as HTMLElement;
+  residentControls.style.display = cell.type === 'citizen' ? 'block' : 'none';
+  residentDetails.style.display = cell.type === 'citizen' ? 'block' : 'none';
+  if (cell.type === 'citizen') {
+    const animationButton = document.getElementById('resident-animation-btn') as HTMLButtonElement;
+    animationButton.textContent = citizenAnimationEnabled ? '⏸ Pause Walking' : '▶ Resume Walking';
+    animationButton.setAttribute('aria-pressed', String(citizenAnimationEnabled));
+  }
 
   // Render modal mesh
+  modalCitizenPreview?.dispose();
+  modalCitizenPreview = null;
   modalGroup.clear();
-  const mesh = createAssetMesh(cell);
-  modalGroup.add(mesh);
+  if (cell.type === 'citizen') {
+    const seed = ((cell.seedX << 16) ^ cell.seedY) >>> 0;
+    modalCitizenPreview = new CitizenRenderPool(modalGroup, 1);
+    modalCitizenPreview.registerResident('catalog-resident', seed);
+    modalCitizenPreview.setResidentTransform('catalog-resident', new THREE.Vector3(0, 0, 0), 0, 1.05, citizenAnimationEnabled);
+    updateResidentDetails(seed);
+  } else {
+    const mesh = createAssetMesh(cell);
+    modalGroup.add(mesh);
+  }
 
   // Dynamic Details based on asset type
   const rowWall = document.getElementById('row-info-wall-mat') as HTMLElement;
   const rowFound = document.getElementById('row-info-found-mat') as HTMLElement;
 
-  if (cell.isSeedDependent) {
+  if (cell.isSeedDependent && cell.type !== 'citizen') {
     rowWall.style.display = 'flex';
     rowFound.style.display = 'flex';
 
@@ -450,6 +494,8 @@ function openInteractiveModal(cell: typeof cells[0]) {
     cameraZoom = 4.2;
   } else if (cell.type === 'water_body' || cell.type === 'bridge') {
     cameraZoom = 3.0;
+  } else if (cell.type === 'citizen') {
+    cameraZoom = 2.8;
   } else {
     cameraZoom = 3.6;
   }
@@ -460,9 +506,25 @@ function openInteractiveModal(cell: typeof cells[0]) {
   renderModalLoop();
 }
 
+function updateResidentDetails(seed: number): void {
+  const resident = createPrototypeResident(seed, 0);
+  const { appearance } = resident;
+  const build = appearance.body.height > 1.03 ? 'tall' : appearance.body.height < 0.97 ? 'compact' : 'balanced';
+  const traits = [appearance.face.glasses ? 'glasses' : 'no glasses', appearance.face.moustache ? 'moustache' : 'clean-shaven']
+    .join(' · ');
+  document.getElementById('resident-seed-value')!.textContent = `#${seed.toString(16).padStart(8, '0')}`;
+  document.getElementById('resident-presentation')!.textContent = appearance.presentation;
+  document.getElementById('resident-build')!.textContent = build;
+  document.getElementById('resident-hair')!.textContent = `${appearance.hair.color} ${appearance.hair.style}`;
+  document.getElementById('resident-outfit')!.textContent = appearance.outfit.family;
+  document.getElementById('resident-traits')!.textContent = traits;
+}
+
 function closeInteractiveModal() {
   modalOverlay.classList.remove('active');
   cancelAnimationFrame(animationId);
+  modalCitizenPreview?.dispose();
+  modalCitizenPreview = null;
   activeCell = null;
 }
 
@@ -512,9 +574,7 @@ document.getElementById('cel-standard-btn')!.onclick = () => {
   document.getElementById('cel-toon-btn')!.classList.remove('active');
   
   if (activeCell) {
-    modalGroup.clear();
-    const mesh = createAssetMesh(activeCell);
-    modalGroup.add(mesh);
+    openInteractiveModal(activeCell);
   }
   buildHTMLGrid();
 };
@@ -525,9 +585,7 @@ document.getElementById('cel-toon-btn')!.onclick = () => {
   document.getElementById('cel-toon-btn')!.classList.add('active');
   
   if (activeCell) {
-    modalGroup.clear();
-    const mesh = createAssetMesh(activeCell);
-    modalGroup.add(mesh);
+    openInteractiveModal(activeCell);
   }
   buildHTMLGrid();
 };
@@ -540,9 +598,21 @@ document.getElementById('modal-reset-btn')!.onclick = () => {
     else if (activeCell.type === 'car' || activeCell.type === 'road') cameraZoom = 2.4;
     else if (activeCell.type === 'boardwalk') cameraZoom = 4.2;
     else if (activeCell.type === 'water_body' || activeCell.type === 'bridge') cameraZoom = 3.0;
+    else if (activeCell.type === 'citizen') cameraZoom = 2.8;
     else cameraZoom = 3.6;
   }
   updateCameraPosition();
+};
+
+document.getElementById('resident-animation-btn')!.onclick = () => {
+  if (!activeCell || activeCell.type !== 'citizen' || !modalCitizenPreview) return;
+  citizenAnimationEnabled = !citizenAnimationEnabled;
+  const seed = ((activeCell.seedX << 16) ^ activeCell.seedY) >>> 0;
+  modalCitizenPreview.setResidentTransform('catalog-resident', new THREE.Vector3(0, 0, 0), 0, 1.05, citizenAnimationEnabled);
+  const button = document.getElementById('resident-animation-btn') as HTMLButtonElement;
+  button.textContent = citizenAnimationEnabled ? '⏸ Pause Walking' : '▶ Resume Walking';
+  button.setAttribute('aria-pressed', String(citizenAnimationEnabled));
+  updateResidentDetails(seed);
 };
 
 document.getElementById('modal-regen-btn')!.onclick = () => {
