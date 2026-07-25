@@ -393,6 +393,11 @@ export class Renderer {
 
     // 1. Ground Tiles (Grass)
     const groundGeo = this.assets.createGroundGeometry();
+    const edgeFlagsAttr = new THREE.InstancedBufferAttribute(new Float32Array(size * size * 4), 4);
+    const cornerFlagsAttr = new THREE.InstancedBufferAttribute(new Float32Array(size * size * 4), 4);
+    groundGeo.setAttribute('aEdgeFlags', edgeFlagsAttr);
+    groundGeo.setAttribute('aCornerFlags', cornerFlagsAttr);
+
     const groundMat = this.assets.materials.grass;
     this.groundMesh = new THREE.InstancedMesh(groundGeo, groundMat, size * size);
     this.groundMesh.castShadow = true;
@@ -412,9 +417,16 @@ export class Renderer {
 
         dummy.position.set(xPos, yPos, zPos);
         dummy.updateMatrix();
-        this.groundMesh.setMatrixAt(index++, dummy.matrix);
+        this.groundMesh.setMatrixAt(index, dummy.matrix);
+
+        const { edges, corners } = this.computeEdgeFlags(x, z);
+        edgeFlagsAttr.setXYZW(index, edges[0], edges[1], edges[2], edges[3]);
+        cornerFlagsAttr.setXYZW(index, corners[0], corners[1], corners[2], corners[3]);
+        index++;
       }
     }
+    edgeFlagsAttr.needsUpdate = true;
+    cornerFlagsAttr.needsUpdate = true;
     this.scene.add(this.groundMesh);
 
     // 2. Scattered Forest Trees (around borders or randomly as environment details) using InstancedMesh
@@ -857,6 +869,98 @@ export class Renderer {
     return false;
   }
 
+  computeEdgeFlags(x: number, z: number): {
+    edges: [number, number, number, number];
+    corners: [number, number, number, number];
+  } {
+    const sim = this.sim;
+    if (!sim) return { edges: [0, 0, 0, 0], corners: [0, 0, 0, 0] };
+    const size = 50;
+    if (x < 0 || x >= size || z < 0 || z >= size) {
+      return { edges: [0, 0, 0, 0], corners: [0, 0, 0, 0] };
+    }
+
+    const isRoadTile = (tx: number, tz: number): boolean => {
+      if (tx < 0 || tx >= size || tz < 0 || tz >= size) return false;
+      const t = sim.grid[tx][tz];
+      return t.type === 'road' || t.type === 'boardwalk' || t.bridge === true || this.isSlopedRoad(tx, tz);
+    };
+
+    const tile = sim.grid[x][z];
+    const isWaterOrBridge = tile.type === 'water_body' || tile.bridge === true || this.isSlopedRoad(x, z);
+    if (isWaterOrBridge) {
+      return { edges: [0, 0, 0, 0], corners: [0, 0, 0, 0] };
+    }
+
+    const isBoundaryExposed = (x1: number, z1: number, x2: number, z2: number): boolean => {
+      const in1 = x1 >= 0 && x1 < size && z1 >= 0 && z1 < size;
+      const in2 = x2 >= 0 && x2 < size && z2 >= 0 && z2 < size;
+      if (!in1 && !in2) return false;
+      if (!in1) return (sim.grid[x2][z2].elevation || 0) > 0;
+      if (!in2) return (sim.grid[x1][z1].elevation || 0) > 0;
+
+      // Only the edge where the road slopes down is flat
+      if (this.isSlopedRoad(x1, z1) || this.isSlopedRoad(x2, z2)) {
+        return false;
+      }
+
+      const t1 = sim.grid[x1][z1];
+      const t2 = sim.grid[x2][z2];
+
+      const w1 = t1.type === 'water_body' || t1.bridge === true;
+      const w2 = t2.type === 'water_body' || t2.bridge === true;
+
+      if (w1 !== w2) return true;
+      if (w1 && w2) return false;
+      return (t1.elevation || 0) !== (t2.elevation || 0);
+    };
+
+    const N = isBoundaryExposed(x, z, x, z - 1) ? 1 : 0;
+    const E = isBoundaryExposed(x, z, x + 1, z) ? 1 : 0;
+    const S = isBoundaryExposed(x, z, x, z + 1) ? 1 : 0;
+    const W = isBoundaryExposed(x, z, x - 1, z) ? 1 : 0;
+
+    const isCornerExposed = (gx: number, gz: number): number => {
+      // Anchor corners touching road/ramp boundaries to 0.0 so corner grass triangles don't poke into roads
+      if (isRoadTile(gx - 1, gz - 1) || isRoadTile(gx, gz - 1) || isRoadTile(gx - 1, gz) || isRoadTile(gx, gz)) {
+        return 0.0;
+      }
+      const b1 = isBoundaryExposed(gx - 1, gz - 1, gx, gz - 1);
+      const b2 = isBoundaryExposed(gx, gz - 1, gx, gz);
+      const b3 = isBoundaryExposed(gx - 1, gz, gx, gz);
+      const b4 = isBoundaryExposed(gx - 1, gz - 1, gx - 1, gz);
+      return (b1 || b2 || b3 || b4) ? 1.0 : 0.0;
+    };
+
+    const NW = isCornerExposed(x, z);
+    const NE = isCornerExposed(x + 1, z);
+    const SE = isCornerExposed(x + 1, z + 1);
+    const SW = isCornerExposed(x, z + 1);
+
+    return {
+      edges: [N, E, S, W],
+      corners: [NW, NE, SE, SW]
+    };
+  }
+
+  private updateGroundEdgeFlagsForTile(x: number, z: number) {
+    if (!this.sim || !this.groundMesh) return;
+    const size = 50;
+    if (x < 0 || x >= size || z < 0 || z >= size) return;
+    const index = x * size + z;
+    const { edges, corners } = this.computeEdgeFlags(x, z);
+    const eAttr = this.groundMesh.geometry.getAttribute('aEdgeFlags') as THREE.InstancedBufferAttribute;
+    const cAttr = this.groundMesh.geometry.getAttribute('aCornerFlags') as THREE.InstancedBufferAttribute;
+    if (eAttr) {
+      eAttr.setXYZW(index, edges[0], edges[1], edges[2], edges[3]);
+      eAttr.needsUpdate = true;
+    }
+    if (cAttr) {
+      cAttr.setXYZW(index, corners[0], corners[1], corners[2], corners[3]);
+      cAttr.needsUpdate = true;
+    }
+  }
+
   updateGroundInstance(x: number, y: number) {
     if (!this.sim) return;
     const tile = this.sim.grid[x][y];
@@ -879,6 +983,13 @@ export class Renderer {
     this.groundMesh.setMatrixAt(index, dummy.matrix);
     this.groundMesh.instanceMatrix.needsUpdate = true;
 
+    // Update edge and corner flags for tile and surrounding 3x3 block
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        this.updateGroundEdgeFlagsForTile(x + dx, y + dy);
+      }
+    }
+
     this.updateTreesOnTile(x, y);
   }
 
@@ -887,6 +998,8 @@ export class Renderer {
     const gridOffset = 25;
     const dummy = new THREE.Object3D();
     let index = 0;
+    const eAttr = this.groundMesh ? (this.groundMesh.geometry.getAttribute('aEdgeFlags') as THREE.InstancedBufferAttribute) : null;
+    const cAttr = this.groundMesh ? (this.groundMesh.geometry.getAttribute('aCornerFlags') as THREE.InstancedBufferAttribute) : null;
     for (let x = 0; x < size; x++) {
       for (let z = 0; z < size; z++) {
         const tile = this.sim ? this.sim.grid[x][z] : null;
@@ -899,14 +1012,23 @@ export class Renderer {
         
         if (isWaterOrBridge) {
           dummy.position.set(0, -100, 0);
+          if (eAttr) eAttr.setXYZW(index, 0, 0, 0, 0);
+          if (cAttr) cAttr.setXYZW(index, 0, 0, 0, 0);
         } else {
           dummy.position.set(xPos, yPos, zPos);
+          if (eAttr || cAttr) {
+            const { edges, corners } = this.computeEdgeFlags(x, z);
+            if (eAttr) eAttr.setXYZW(index, edges[0], edges[1], edges[2], edges[3]);
+            if (cAttr) cAttr.setXYZW(index, corners[0], corners[1], corners[2], corners[3]);
+          }
         }
         dummy.updateMatrix();
         this.groundMesh.setMatrixAt(index++, dummy.matrix);
       }
     }
     this.groundMesh.instanceMatrix.needsUpdate = true;
+    if (eAttr) eAttr.needsUpdate = true;
+    if (cAttr) cAttr.needsUpdate = true;
   }
 
   // Render individual zoned structures on state changes
@@ -1453,9 +1575,11 @@ export class Renderer {
     });
 
     // Animate water waves (uTime uniform update)
-    const waterMat = this.assets.materials.waterBlue as THREE.MeshStandardMaterial;
-    if (waterMat && waterMat.userData && waterMat.userData.shader) {
-      waterMat.userData.shader.uniforms.uTime.value += timeStep;
+    if (this.assets.standardMaterials.waterBlue?.userData?.uTime) {
+      this.assets.standardMaterials.waterBlue.userData.uTime.value += timeStep;
+    }
+    if (this.assets.toonMaterials.waterBlue?.userData?.uTime) {
+      this.assets.toonMaterials.waterBlue.userData.uTime.value += timeStep;
     }
 
     // 3. Smooth Camera Pan, Zoom, and Rotation Updates. Once the camera has

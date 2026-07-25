@@ -247,6 +247,8 @@ export class AssetGenerator {
         .replace(
           '#include <common>',
           `#include <common>
+           attribute vec4 aEdgeFlags;
+           attribute vec4 aCornerFlags;
            varying vec3 vMyLocalNormal;`
         )
         .replace(
@@ -258,13 +260,48 @@ export class AssetGenerator {
            #else
              vec4 worldPos = modelMatrix * vec4(position, 1.0);
            #endif
-           float factor = smoothstep(-0.05, -0.2, position.y);
-           vec3 displace = vec3(
-             sin(worldPos.y * 3.0 + worldPos.z * 2.0) * cos(worldPos.x * 1.0) * 0.25,
+
+           float edgeWeight = 0.0;
+           #ifdef USE_INSTANCING
+             bool isNorth = position.z < -0.99;
+             bool isSouth = position.z > 0.99;
+             bool isEast  = position.x > 0.99;
+             bool isWest  = position.x < -0.99;
+
+             if (isNorth && isWest) {
+               edgeWeight = aCornerFlags.x; // NW
+             } else if (isNorth && isEast) {
+               edgeWeight = aCornerFlags.y; // NE
+             } else if (isSouth && isEast) {
+               edgeWeight = aCornerFlags.z; // SE
+             } else if (isSouth && isWest) {
+               edgeWeight = aCornerFlags.w; // SW
+             } else if (isNorth) {
+               edgeWeight = aEdgeFlags.x;   // N
+             } else if (isEast) {
+               edgeWeight = aEdgeFlags.y;   // E
+             } else if (isSouth) {
+               edgeWeight = aEdgeFlags.z;   // S
+             } else if (isWest) {
+               edgeWeight = aEdgeFlags.w;   // W
+             }
+           #endif
+
+           vec3 topDisplace = vec3(
+             sin(worldPos.z * 2.5 + worldPos.x * 0.8) * cos(worldPos.x * 1.2) * 0.22,
              0.0,
-             cos(worldPos.x * 3.0 + worldPos.y * 2.0) * sin(worldPos.z * 1.0) * 0.25
+             cos(worldPos.x * 2.5 + worldPos.z * 0.8) * sin(worldPos.z * 1.2) * 0.22
            );
-           transformed.xyz += displace * factor;`
+
+           // Vertical cliff face wobble that vanishes at every tile elevation step (y = k * 0.8)
+           float yWobble = sin(worldPos.y * (3.14159265 / 0.8));
+           vec3 faceWobble = vec3(
+             yWobble * cos(worldPos.x * 1.5 + worldPos.z * 0.5) * 0.12,
+             0.0,
+             yWobble * sin(worldPos.z * 1.5 + worldPos.x * 0.5) * 0.12
+           );
+
+           transformed.xyz += (topDisplace + faceWobble) * edgeWeight;`
         );
 
       shader.fragmentShader = shader.fragmentShader
@@ -462,7 +499,10 @@ export class AssetGenerator {
     registerMat('cement', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x8e929b, roughness: 0.85 }) : new THREE.MeshToonMaterial({ color: 0x8e929b, gradientMap: this.toonGradient }));
 
     const applyWaterOnBeforeCompile = (shader: any, mat: THREE.Material) => {
-      shader.uniforms.uTime = { value: 0 };
+      if (!mat.userData.uTime) {
+        mat.userData.uTime = { value: 0 };
+      }
+      shader.uniforms.uTime = mat.userData.uTime;
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
@@ -473,10 +513,9 @@ export class AssetGenerator {
           '#include <begin_vertex>',
           `#include <begin_vertex>
            vec4 worldPos = modelMatrix * vec4( transformed, 1.0 );
-           float wave = sin(worldPos.x * 1.5 + uTime * 2.0) * cos(worldPos.z * 1.5 + uTime * 2.0) * 0.06;
-           transformed.z += wave;`
+           float wave = (sin(worldPos.x * 1.8 + uTime * 2.0) + cos(worldPos.z * 1.8 + uTime * 1.6)) * 0.018;
+           transformed += normal * wave;`
         );
-      mat.userData.shader = shader;
     };
 
     registerMat('waterBlue', (type) => {
@@ -490,6 +529,7 @@ export class AssetGenerator {
           side: THREE.DoubleSide,
           depthWrite: false,
         });
+        mat.userData.uTime = { value: 0 };
         mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
         return mat;
       } else {
@@ -501,6 +541,7 @@ export class AssetGenerator {
           side: THREE.DoubleSide,
           depthWrite: false,
         });
+        mat.userData.uTime = { value: 0 };
         mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
         return mat;
       }
@@ -672,12 +713,26 @@ export class AssetGenerator {
 
   // 1. Terrain Grass Tile
   createGroundGeometry(): THREE.BufferGeometry {
-    // 2x2 tile size, tall box columns to act as cliffs without gaps
-    return this.getGeometry('ground_geo', () => {
+    // Dense only across the maximum 3.2-unit terrain drop; the final row preserves deep underfill.
+    return this.getGeometry('ground_geo_sub2_nonuniform_vertical', () => {
       const boxHeight = 12.0;
-      const geo = new THREE.BoxGeometry(2, boxHeight, 2, 1, 10, 1);
+      const verticalLevels = [0, -0.4, -0.8, -1.2, -1.6, -2.0, -2.4, -2.8, -3.2, -boxHeight];
+      const verticalSegments = verticalLevels.length - 1;
+      const geo = new THREE.BoxGeometry(2, boxHeight, 2, 2, verticalSegments, 2);
       // Align top of box to y=0
       geo.translate(0, -boxHeight / 2, 0);
+
+      // BoxGeometry creates evenly spaced rows. Remap them so terrain tiers and their
+      // 0.4-unit wobble midpoints have real vertices without subdividing the deep underfill.
+      const positions = geo.getAttribute('position') as THREE.BufferAttribute;
+      const sourceStep = boxHeight / verticalSegments;
+      for (let index = 0; index < positions.count; index++) {
+        const row = Math.round(-positions.getY(index) / sourceStep);
+        positions.setY(index, verticalLevels[Math.max(0, Math.min(verticalSegments, row))]);
+      }
+      positions.needsUpdate = true;
+      geo.computeBoundingBox();
+      geo.computeBoundingSphere();
       return geo;
     });
   }
@@ -1098,20 +1153,58 @@ export class AssetGenerator {
     return group;
   }
 
+  getWaterTopGeometry(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.BufferGeometry {
+    const key = `water_top_exp_${neighbors.N ? 1 : 0}_${neighbors.S ? 1 : 0}_${neighbors.E ? 1 : 0}_${neighbors.W ? 1 : 0}`;
+    return this.getGeometry(key, () => {
+      const minX = neighbors.W ? -1.0 : -1.3;
+      const maxX = neighbors.E ?  1.0 :  1.3;
+      const minY = neighbors.S ? -1.0 : -1.3;
+      const maxY = neighbors.N ?  1.0 :  1.3;
+
+      const width = maxX - minX;
+      const height = maxY - minY;
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+
+      const geo = new THREE.PlaneGeometry(width, height, 8, 8);
+      geo.translate(centerX, centerY, 0);
+      return geo;
+    });
+  }
+
+  getWaterBottomGeometry(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.BufferGeometry {
+    const key = `water_bottom_exp_${neighbors.N ? 1 : 0}_${neighbors.S ? 1 : 0}_${neighbors.E ? 1 : 0}_${neighbors.W ? 1 : 0}`;
+    return this.getGeometry(key, () => {
+      const minX = neighbors.W ? -1.0 : -1.3;
+      const maxX = neighbors.E ?  1.0 :  1.3;
+      const minY = neighbors.S ? -1.0 : -1.3;
+      const maxY = neighbors.N ?  1.0 :  1.3;
+
+      const width = maxX - minX;
+      const height = maxY - minY;
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+
+      const geo = new THREE.PlaneGeometry(width, height, 1, 1);
+      geo.translate(centerX, centerY, 0);
+      return geo;
+    });
+  }
+
   // 3a. Segmented Water Mesh Creator
   createWaterMesh(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.Group {
     const group = new THREE.Group();
 
-    // 1. Top Water surface plane (subdivided 8x8 for wave vertex displacement)
-    const waterGeo = this.getGeometry('water_top_plane_8x8', () => new THREE.PlaneGeometry(2, 2, 8, 8));
+    // 1. Top Water surface plane (expanded towards land sides only to avoid overlapping water plane bands)
+    const waterGeo = this.getWaterTopGeometry(neighbors);
     const water = new THREE.Mesh(waterGeo, this.materials.waterBlue);
     water.rotation.x = -Math.PI / 2;
     water.position.y = -0.04;
     water.receiveShadow = true;
     group.add(water);
 
-    // 2. Bottom Dirt plane (covers the bottom grid hole)
-    const dirtGeo = this.getGeometry('water_bottom_plane', () => new THREE.PlaneGeometry(2, 2));
+    // 2. Bottom Dirt plane (covers bottom grid hole, expanded towards land sides only)
+    const dirtGeo = this.getWaterBottomGeometry(neighbors);
     const dirt = new THREE.Mesh(dirtGeo, this.materials.dirt);
     dirt.rotation.x = -Math.PI / 2;
     dirt.position.y = -0.4;
