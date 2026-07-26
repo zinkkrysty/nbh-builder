@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { Simulation } from './Simulation';
+import { ROAD_LAYOUT, currentStreetscapeSettings } from './RoadLayout';
 
 export class AssetGenerator {
   sim: Simulation | null = null;
@@ -80,12 +81,12 @@ export class AssetGenerator {
         dynamicObjects.push(node);
         return;
       }
-      
+
       if ((node as any).isMesh) {
         const mesh = node as THREE.Mesh;
         const geometry = mesh.geometry;
         const material = mesh.material as THREE.Material;
-        
+
         if (geometry && material) {
           node.updateMatrix();
           let relMatrix = node.matrix.clone();
@@ -95,10 +96,10 @@ export class AssetGenerator {
             relMatrix.premultiply(p.matrix);
             p = p.parent;
           }
-          
+
           const clonedGeo = geometry.clone();
           clonedGeo.applyMatrix4(relMatrix);
-          
+
           if (!materialGroups.has(material)) {
             materialGroups.set(material, { geometries: [] });
           }
@@ -212,9 +213,9 @@ export class AssetGenerator {
         ctx.fillRect(i, 0, 1, 1);
       }
     }
-    
+
     console.log("Cel Shading updateToonGradient called with values:", values, "Canvas size:", canvas.width, "x", canvas.height);
-    
+
     // Force Three.js to destroy WebGL texture and re-upload from scratch to guarantee real-time updates
     this.toonGradient.dispose();
     this.toonGradient.needsUpdate = true;
@@ -376,6 +377,48 @@ export class AssetGenerator {
       }
     });
 
+    registerMat('sidewalk', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({ color: 0xb0a89e, roughness: 0.7 });
+      } else {
+        return new THREE.MeshToonMaterial({ color: 0xb0a89e, gradientMap: this.toonGradient });
+      }
+    });
+
+    registerMat('curb', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({ color: 0xdfd7cd, roughness: 0.5 });
+      } else {
+        return new THREE.MeshToonMaterial({ color: 0xdfd7cd, gradientMap: this.toonGradient });
+      }
+    });
+
+    registerMat('charcoalMetal', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({ color: 0x33373e, roughness: 0.5, metalness: 0.3 });
+      } else {
+        return new THREE.MeshToonMaterial({ color: 0x33373e, gradientMap: this.toonGradient });
+      }
+    });
+
+    registerMat('lampBulb', (type) => {
+      if (type === 'standard') {
+        return new THREE.MeshStandardMaterial({
+          color: 0xfef08a,
+          emissive: 0xfef08a,
+          emissiveIntensity: 0.0,
+          roughness: 0.2,
+        });
+      } else {
+        return new THREE.MeshToonMaterial({
+          color: 0xfef08a,
+          emissive: 0xfef08a,
+          emissiveIntensity: 0.0,
+          gradientMap: this.toonGradient,
+        });
+      }
+    });
+
     // Curated Cozy Palettes definition
     const COZY_PALETTES = [
       { wallColor: 0xa84c3e, roofColor: 0x2d3139, trimColor: 0xf8fafc, brickColor: 0x475569 }, // Nordic Red
@@ -459,7 +502,7 @@ export class AssetGenerator {
 
     // Commercial Colors (modern and sleek)
     registerMat('wallCom', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.4 }) : new THREE.MeshToonMaterial({ color: 0x64748b, gradientMap: this.toonGradient }));
-    
+
     registerMat('glass', (type) => {
       if (type === 'standard') {
         return new THREE.MeshStandardMaterial({
@@ -593,7 +636,7 @@ export class AssetGenerator {
 
     // Traffic Materials
     registerMat('wheel', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x1e293b, gradientMap: this.toonGradient }));
-    
+
     registerMat('headlight', (type) => {
       if (type === 'standard') {
         return new THREE.MeshStandardMaterial({
@@ -629,7 +672,7 @@ export class AssetGenerator {
         });
       }
     });
-    
+
     // Preset car body colors
     registerMat('carRed', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0xe11d48, gradientMap: this.toonGradient }));
     registerMat('carBlue', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.5 }) : new THREE.MeshToonMaterial({ color: 0x2563eb, gradientMap: this.toonGradient }));
@@ -689,6 +732,8 @@ export class AssetGenerator {
     if (tailMatStd) gsapAnimate(tailMatStd, 'emissiveIntensity', isNight ? 1.8 : 0.0, 1.5);
     const fairyMatStd = this.standardMaterials.fairyLight as any;
     if (fairyMatStd) gsapAnimate(fairyMatStd, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
+    const lampMatStd = this.standardMaterials.lampBulb as any;
+    if (lampMatStd) gsapAnimate(lampMatStd, 'emissiveIntensity', isNight ? 2.2 : 0.0, 1.5);
 
     // Animate toon materials
     const winMatToon = this.toonMaterials.window as any;
@@ -699,6 +744,8 @@ export class AssetGenerator {
     if (tailMatToon) gsapAnimate(tailMatToon, 'emissiveIntensity', isNight ? 1.8 : 0.0, 1.5);
     const fairyMatToon = this.toonMaterials.fairyLight as any;
     if (fairyMatToon) gsapAnimate(fairyMatToon, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
+    const lampMatToon = this.toonMaterials.lampBulb as any;
+    if (lampMatToon) gsapAnimate(lampMatToon, 'emissiveIntensity', isNight ? 2.2 : 0.0, 1.5);
   }
 
   // Stable LCG random number generator helper
@@ -818,6 +865,18 @@ export class AssetGenerator {
   ): THREE.Group {
     const group = new THREE.Group();
 
+    // Layout constants
+    const {
+      CARRIAGEWAY_WIDTH,
+      CARRIAGEWAY_THICKNESS,
+      CARRIAGEWAY_SURFACE_Y,
+      CARRIAGEWAY_Y,
+      CARRIAGEWAY_ARM_CENTER_OFFSET,
+      CARRIAGEWAY_ARM_LENGTH,
+      SIDEWALK_WIDTH,
+      SIDEWALK_Y,
+    } = ROAD_LAYOUT;
+
     // 1. Detect if this is a sloped straight road ramp
     let isRamp = false;
     let tiltX = 0;
@@ -856,22 +915,89 @@ export class AssetGenerator {
     }
 
     if (isRamp) {
-      const deckLen = scaleLen * 2.0;
-      // Sloped road base
+      // 100.00% Mathematical Alignment Equations:
+      // scaleLen = sqrt(4.0 + ΔY²) / 2.0 = 1 / cos(theta)
+      // Extended boundary deck length: 2.04 * scaleLen (spans exactly ±1.02m in world space, matching flat tile 2.04m span)
+      const deckLen = scaleLen * 2.04;
+
+      // 1. Sloped Carriageway Asphalt Base
+      const asphaltH = CARRIAGEWAY_THICKNESS * scaleLen;
+      const asphaltTopSurfaceFlat = CARRIAGEWAY_SURFACE_Y;
+      const asphaltPosY = (asphaltTopSurfaceFlat * scaleLen) - (asphaltH / 2);
       const baseGeo = new THREE.BoxGeometry(
-        tiltX !== 0 ? 2 : deckLen, 
-        0.04, 
-        tiltX !== 0 ? deckLen : 2
+        tiltX !== 0 ? CARRIAGEWAY_WIDTH : deckLen,
+        asphaltH,
+        tiltX !== 0 ? deckLen : CARRIAGEWAY_WIDTH
       );
       const base = new THREE.Mesh(baseGeo, this.materials.road);
+      base.position.y = asphaltPosY;
       base.receiveShadow = true;
       group.add(base);
 
-      // Solid concrete abutment retaining wall
+      // 2. Sloped Sidewalks (top surface matches flat sidewalk surface Y = SIDEWALK_Y + swH/2 exactly at boundary)
+      const swW = currentStreetscapeSettings.sidewalkWidth;
+      const swH = currentStreetscapeSettings.sidewalkHeight;
+      const swOff = currentStreetscapeSettings.sidewalkOffset;
+      const quadSize = swW + 0.18;
+      const swBoxH = 0.18 * scaleLen;
+      const swTopSurfaceFlat = SIDEWALK_Y + swH / 2; // Flat top surface elevation
+      const swPosY = (swTopSurfaceFlat * scaleLen) - (swBoxH / 2); // Local center Y position
+
+      const sideGeoL = new THREE.BoxGeometry(
+        tiltX !== 0 ? quadSize : deckLen,
+        swBoxH,
+        tiltX !== 0 ? deckLen : quadSize
+      );
+      const sideL = new THREE.Mesh(sideGeoL, this.materials.sidewalk);
+      const sideR = new THREE.Mesh(sideGeoL, this.materials.sidewalk);
+      if (tiltX !== 0) {
+        sideL.position.set(-swOff, swPosY, 0);
+        sideR.position.set(swOff, swPosY, 0);
+      } else {
+        sideL.position.set(0, swPosY, -swOff);
+        sideR.position.set(0, swPosY, swOff);
+      }
+      sideL.receiveShadow = true;
+      sideR.receiveShadow = true;
+      group.add(sideL);
+      group.add(sideR);
+
+      // 3. Sloped Curbs (top surface matches sidewalk top surface Y = SIDEWALK_Y + swH/2 exactly at boundary)
+      const cW = currentStreetscapeSettings.curbWidth;
+      const curbBoxH = 0.14 * scaleLen;
+      const curbPosY = (swTopSurfaceFlat * scaleLen) - curbBoxH; // Local Y position for ExtrudeGeometry (0 to curbBoxH)
+      const rampCurbMat = this.materials.curb;
+
+      let curbLGeo: THREE.BufferGeometry;
+      let curbRGeo: THREE.BufferGeometry;
+      if (tiltX !== 0) {
+        curbLGeo = this.createBeveledCurbGeometry(cW, curbBoxH, deckLen, '+X');
+        curbRGeo = this.createBeveledCurbGeometry(cW, curbBoxH, deckLen, '-X');
+      } else {
+        curbLGeo = this.createBeveledCurbGeometry(deckLen, curbBoxH, cW, '+Z');
+        curbRGeo = this.createBeveledCurbGeometry(deckLen, curbBoxH, cW, '-Z');
+      }
+      const curbL = new THREE.Mesh(curbLGeo, rampCurbMat);
+      const curbR = new THREE.Mesh(curbRGeo, rampCurbMat);
+      if (tiltX !== 0) {
+        const curbCenter = CARRIAGEWAY_WIDTH / 2 + cW / 2;
+        curbL.position.set(-curbCenter, curbPosY, 0);
+        curbR.position.set(curbCenter, curbPosY, 0);
+      } else {
+        const curbCenter = CARRIAGEWAY_WIDTH / 2 + cW / 2;
+        curbL.position.set(0, curbPosY, -curbCenter);
+        curbR.position.set(0, curbPosY, curbCenter);
+      }
+      curbL.receiveShadow = true;
+      curbR.receiveShadow = true;
+      group.add(curbL);
+      group.add(curbR);
+
+      // Concrete retaining abutment
       const skirtHeight = 1.6;
       const skirtGeo = new THREE.BoxGeometry(
-        tiltX !== 0 ? 1.95 : deckLen, 
-        skirtHeight, 
+        tiltX !== 0 ? 1.95 : deckLen,
+        skirtHeight,
         tiltX !== 0 ? deckLen : 1.95
       );
       const skirt = new THREE.Mesh(skirtGeo, this.materials.cement);
@@ -880,9 +1006,9 @@ export class AssetGenerator {
       skirt.castShadow = true;
       group.add(skirt);
 
-      // Yellow centerline on top of ramp
+      // Yellow centerline 1mm above the sloped carriageway surface.
       const lineMat = this.materials.roadLine;
-      const lineY = 0.021;
+      const lineY = CARRIAGEWAY_SURFACE_Y * scaleLen + 0.001;
       const lineGeo = new THREE.PlaneGeometry(0.06, deckLen);
       const line = new THREE.Mesh(lineGeo, lineMat);
       line.rotation.x = -Math.PI / 2;
@@ -900,31 +1026,177 @@ export class AssetGenerator {
     }
 
     if (isBridge) {
-      // 1. Water underneath (continuous plane mesh)
+      // 1. Water underneath
       group.add(this.createWaterMesh(neighbors));
 
-      // 2. Wood deck (top of deck is at y = 0.08)
-      const deckGeo = new THREE.BoxGeometry(2, 0.08, 2);
+      // 2. Central vehicle wooden deck
+      const deckGeo = new THREE.BoxGeometry(CARRIAGEWAY_WIDTH, 0.08, 2);
       const deck = new THREE.Mesh(deckGeo, this.materials.trunk);
       deck.position.y = 0.04;
       deck.castShadow = true;
       deck.receiveShadow = true;
       group.add(deck);
+
+      // 3. Raised wooden pedestrian walkways
+      const sideDeckGeo = new THREE.BoxGeometry(SIDEWALK_WIDTH, 0.10, 2);
+      const sideDeckL = new THREE.Mesh(sideDeckGeo, this.materials.trunk);
+      sideDeckL.position.set(-0.84, 0.05, 0);
+      sideDeckL.castShadow = true;
+      sideDeckL.receiveShadow = true;
+      group.add(sideDeckL);
+
+      const sideDeckR = new THREE.Mesh(sideDeckGeo, this.materials.trunk);
+      sideDeckR.position.set(0.84, 0.05, 0);
+      sideDeckR.castShadow = true;
+      sideDeckR.receiveShadow = true;
+      group.add(sideDeckR);
     } else {
-      // Main road base
-      const baseGeo = new THREE.BoxGeometry(2, 0.04, 2);
-      const base = new THREE.Mesh(baseGeo, this.materials.road);
-      base.receiveShadow = true;
-      group.add(base);
+      // Standard Cozy Road Surface
+      // 1. Central carriageway core (1.28 x 1.28)
+      const coreGeo = new THREE.BoxGeometry(CARRIAGEWAY_WIDTH, CARRIAGEWAY_THICKNESS, CARRIAGEWAY_WIDTH);
+      const core = new THREE.Mesh(coreGeo, this.materials.road);
+      core.position.y = CARRIAGEWAY_Y;
+      core.receiveShadow = true;
+      group.add(core);
+
+      // 2. Carriageway arms for connected directions
+      const armLength = CARRIAGEWAY_ARM_LENGTH; // spans from 0.64 to 1.0
+      const armGeoV = new THREE.BoxGeometry(CARRIAGEWAY_WIDTH, CARRIAGEWAY_THICKNESS, armLength);
+      const armGeoH = new THREE.BoxGeometry(armLength, CARRIAGEWAY_THICKNESS, CARRIAGEWAY_WIDTH);
+
+      if (N) {
+        const armN = new THREE.Mesh(armGeoV, this.materials.road);
+        armN.position.set(0, CARRIAGEWAY_Y, -CARRIAGEWAY_ARM_CENTER_OFFSET);
+        armN.receiveShadow = true;
+        group.add(armN);
+      }
+      if (S) {
+        const armS = new THREE.Mesh(armGeoV, this.materials.road);
+        armS.position.set(0, CARRIAGEWAY_Y, CARRIAGEWAY_ARM_CENTER_OFFSET);
+        armS.receiveShadow = true;
+        group.add(armS);
+      }
+      if (E) {
+        const armE = new THREE.Mesh(armGeoH, this.materials.road);
+        armE.position.set(CARRIAGEWAY_ARM_CENTER_OFFSET, CARRIAGEWAY_Y, 0);
+        armE.receiveShadow = true;
+        group.add(armE);
+      }
+      if (W) {
+        const armW = new THREE.Mesh(armGeoH, this.materials.road);
+        armW.position.set(-CARRIAGEWAY_ARM_CENTER_OFFSET, CARRIAGEWAY_Y, 0);
+        armW.receiveShadow = true;
+        group.add(armW);
+      }
+
+      // Isolated stub handling
+      if (count === 0) {
+        const stubN = new THREE.Mesh(armGeoV, this.materials.road);
+        stubN.position.set(0, CARRIAGEWAY_Y, -CARRIAGEWAY_ARM_CENTER_OFFSET);
+        const stubS = new THREE.Mesh(armGeoV, this.materials.road);
+        stubS.position.set(0, CARRIAGEWAY_Y, CARRIAGEWAY_ARM_CENTER_OFFSET);
+        stubN.receiveShadow = true;
+        stubS.receiveShadow = true;
+        group.add(stubN);
+        group.add(stubS);
+      }
+
+      // 3. Sidewalks: corner quads and side strips (dynamic settings)
+      const swW = currentStreetscapeSettings.sidewalkWidth;
+      const swH = currentStreetscapeSettings.sidewalkHeight;
+      const swOff = currentStreetscapeSettings.sidewalkOffset;
+      const quadSize = swW + 0.18;
+
+      const swQuadGeo = new THREE.BoxGeometry(quadSize, swH, quadSize);
+      const addSidewalkQuad = (qx: number, qz: number) => {
+        const sw = new THREE.Mesh(swQuadGeo, this.materials.sidewalk);
+        sw.position.set(qx * swOff, SIDEWALK_Y, qz * swOff);
+        sw.receiveShadow = true;
+        group.add(sw);
+      };
+
+      addSidewalkQuad(-1, -1); // NW
+      addSidewalkQuad(1, -1);  // NE
+      addSidewalkQuad(-1, 1);  // SW
+      addSidewalkQuad(1, 1);   // SE
+
+      if (!N) {
+        const swN = new THREE.Mesh(new THREE.BoxGeometry(2.04, swH, quadSize), this.materials.sidewalk);
+        swN.position.set(0, SIDEWALK_Y, -swOff);
+        swN.receiveShadow = true;
+        group.add(swN);
+      }
+      if (!S) {
+        const swS = new THREE.Mesh(new THREE.BoxGeometry(2.04, swH, quadSize), this.materials.sidewalk);
+        swS.position.set(0, SIDEWALK_Y, swOff);
+        swS.receiveShadow = true;
+        group.add(swS);
+      }
+      if (!E) {
+        const swE = new THREE.Mesh(new THREE.BoxGeometry(quadSize, swH, 2.04), this.materials.sidewalk);
+        swE.position.set(swOff, SIDEWALK_Y, 0);
+        swE.receiveShadow = true;
+        group.add(swE);
+      }
+      if (!W) {
+        const swW = new THREE.Mesh(new THREE.BoxGeometry(quadSize, swH, 2.04), this.materials.sidewalk);
+        swW.position.set(-swOff, SIDEWALK_Y, 0);
+        swW.receiveShadow = true;
+        group.add(swW);
+      }
+
+      // 4. Curbs along carriageway boundaries (beveled top-inner edge facing carriageway)
+      const curbMat = this.materials.curb;
+      const curbHeight = currentStreetscapeSettings.curbHeight;
+      const cW = currentStreetscapeSettings.curbWidth;
+      const curbCenter = CARRIAGEWAY_WIDTH / 2 + cW / 2;
+      const sidewalkTopY = SIDEWALK_Y + swH / 2; // Flat sidewalk top surface (0.060m)
+      const curbPosY = sidewalkTopY - curbHeight; // Top of ExtrudeGeometry (0 to curbHeight) aligns 100% flush at sidewalkTopY
+
+      const addCurbSegment = (x: number, z: number, w: number, d: number, facing: '+X' | '-X' | '+Z' | '-Z') => {
+        const curbGeo = this.createBeveledCurbGeometry(w, curbHeight, d, facing);
+        const curb = new THREE.Mesh(curbGeo, curbMat);
+        curb.position.set(x, curbPosY, z);
+        curb.receiveShadow = true;
+        group.add(curb);
+      };
+
+      if (N) {
+        addCurbSegment(-curbCenter, -CARRIAGEWAY_ARM_CENTER_OFFSET, cW, armLength, '+X');
+        addCurbSegment(curbCenter, -CARRIAGEWAY_ARM_CENTER_OFFSET, cW, armLength, '-X');
+      } else {
+        addCurbSegment(0, -curbCenter, CARRIAGEWAY_WIDTH, cW, '+Z');
+      }
+
+      if (S) {
+        addCurbSegment(-curbCenter, CARRIAGEWAY_ARM_CENTER_OFFSET, cW, armLength, '+X');
+        addCurbSegment(curbCenter, CARRIAGEWAY_ARM_CENTER_OFFSET, cW, armLength, '-X');
+      } else {
+        addCurbSegment(0, curbCenter, CARRIAGEWAY_WIDTH, cW, '-Z');
+      }
+
+      if (E) {
+        addCurbSegment(CARRIAGEWAY_ARM_CENTER_OFFSET, -curbCenter, armLength, cW, '+Z');
+        addCurbSegment(CARRIAGEWAY_ARM_CENTER_OFFSET, curbCenter, armLength, cW, '-Z');
+      } else {
+        addCurbSegment(curbCenter, 0, cW, CARRIAGEWAY_WIDTH, '-X');
+      }
+
+      if (W) {
+        addCurbSegment(-CARRIAGEWAY_ARM_CENTER_OFFSET, -curbCenter, armLength, cW, '+Z');
+        addCurbSegment(-CARRIAGEWAY_ARM_CENTER_OFFSET, curbCenter, armLength, cW, '-Z');
+      } else {
+        addCurbSegment(-curbCenter, 0, cW, CARRIAGEWAY_WIDTH, '+X');
+      }
     }
 
-
     const lineMat = this.materials.roadLine;
-    const lineY = isBridge ? 0.081 : 0.021;
+    const lineY = isRamp ? (CARRIAGEWAY_SURFACE_Y * scaleLen + 0.001) : (isBridge ? 0.081 : CARRIAGEWAY_SURFACE_Y + 0.001);
 
     // Helper to add line segment
     const addLine = (w: number, h: number, x: number, z: number, rotY = 0) => {
-      const lineGeo = new THREE.PlaneGeometry(w, h);
+      const lineLen = isRamp ? h * scaleLen : h;
+      const lineGeo = new THREE.PlaneGeometry(w, lineLen);
       const line = new THREE.Mesh(lineGeo, lineMat);
       line.rotation.x = -Math.PI / 2;
       line.rotation.z = rotY;
@@ -932,21 +1204,16 @@ export class AssetGenerator {
       group.add(line);
     };
 
+    // Active crosswalks
+    const activeCrosswalksNS: number[] = []; // Z positions
+    const activeCrosswalksEW: number[] = []; // X positions
 
-
-    // Find crosswalks to be painted on this road tile
-    const activeCrosswalksNS: number[] = []; // Z positions for EW crosswalks
-    const activeCrosswalksEW: number[] = []; // X positions for NS crosswalks
-
-    // Only render crosswalks on road tiles exterior to intersections (count < 3) and not on bridge tiles
     if (count < 3 && !isBridge && this.sim && tileX > 0 && tileX < this.sim.gridSize - 1 && tileY > 0 && tileY < this.sim.gridSize - 1) {
-      // 1. Check if connected neighbors are road intersections
-      if (N && this.isIntersection(tileX, tileY - 1)) activeCrosswalksNS.push(-0.65);
-      if (S && this.isIntersection(tileX, tileY + 1)) activeCrosswalksNS.push(0.65);
-      if (E && this.isIntersection(tileX + 1, tileY)) activeCrosswalksEW.push(0.65);
-      if (W && this.isIntersection(tileX - 1, tileY)) activeCrosswalksEW.push(-0.65);
+      if (N && this.isIntersection(tileX, tileY - 1)) activeCrosswalksNS.push(-0.78);
+      if (S && this.isIntersection(tileX, tileY + 1)) activeCrosswalksNS.push(0.78);
+      if (E && this.isIntersection(tileX + 1, tileY)) activeCrosswalksEW.push(0.78);
+      if (W && this.isIntersection(tileX - 1, tileY)) activeCrosswalksEW.push(-0.78);
 
-      // 2. Check if flanked by boardwalks on both sides, and adjacent to a bridge
       if (activeCrosswalksNS.length === 0 && activeCrosswalksEW.length === 0) {
         const tileN = this.sim.grid[tileX][tileY - 1];
         const tileS = this.sim.grid[tileX][tileY + 1];
@@ -954,24 +1221,15 @@ export class AssetGenerator {
         const tileW = this.sim.grid[tileX - 1][tileY];
 
         if (tileW.type === 'boardwalk' && tileE.type === 'boardwalk') {
-          // Check if North or South neighbor is a bridge
-          if (tileS.type === 'road' && tileS.bridge === true) {
-            activeCrosswalksNS.push(0.65);
-          } else if (tileN.type === 'road' && tileN.bridge === true) {
-            activeCrosswalksNS.push(-0.65);
-          }
+          if (tileS.type === 'road' && tileS.bridge === true) activeCrosswalksNS.push(0.78);
+          else if (tileN.type === 'road' && tileN.bridge === true) activeCrosswalksNS.push(-0.78);
         } else if (tileN.type === 'boardwalk' && tileS.type === 'boardwalk') {
-          // Check if East or West neighbor is a bridge
-          if (tileE.type === 'road' && tileE.bridge === true) {
-            activeCrosswalksEW.push(0.65);
-          } else if (tileW.type === 'road' && tileW.bridge === true) {
-            activeCrosswalksEW.push(-0.65);
-          }
+          if (tileE.type === 'road' && tileE.bridge === true) activeCrosswalksEW.push(0.78);
+          else if (tileW.type === 'road' && tileW.bridge === true) activeCrosswalksEW.push(-0.78);
         }
       }
     }
 
-    // Helper to draw a centerline with gaps at crosswalks
     const addCenterlineWithGaps = (dir: 'NS' | 'EW', crosswalks: number[]) => {
       if (crosswalks.length === 0) {
         if (dir === 'NS') addLine(0.06, 2, 0, 0);
@@ -982,129 +1240,118 @@ export class AssetGenerator {
       const sorted = [...crosswalks].sort((a, b) => a - b);
       let start = -1.0;
       for (const cwVal of sorted) {
-        const cwStart = cwVal - 0.25;
-        const cwEnd = cwVal + 0.25;
+        const cwStart = cwVal - 0.2;
+        const cwEnd = cwVal + 0.2;
         if (cwStart > start) {
           const len = cwStart - start;
-          const center = start + len / 2;
-          if (dir === 'NS') addLine(0.06, len, 0, center);
-          else addLine(0.06, len, center, 0, Math.PI / 2);
+          const mid = (start + cwStart) / 2;
+          if (dir === 'NS') addLine(0.06, len, 0, mid);
+          else addLine(0.06, len, mid, 0, Math.PI / 2);
         }
         start = cwEnd;
       }
       if (start < 1.0) {
         const len = 1.0 - start;
-        const center = start + len / 2;
-        if (dir === 'NS') addLine(0.06, len, 0, center);
-        else addLine(0.06, len, center, 0, Math.PI / 2);
+        const mid = (start + 1.0) / 2;
+        if (dir === 'NS') addLine(0.06, len, 0, mid);
+        else addLine(0.06, len, mid, 0, Math.PI / 2);
       }
     };
 
-    // Render yellow lines based on connectivity and crosswalk gaps (skip for bridges)
-    if (!isBridge) {
-      if (count === 0 || (N && S && !E && !W)) {
-        // Straight North-South
-        addCenterlineWithGaps('NS', activeCrosswalksNS);
-      } else if (E && W && !N && !S) {
-        // Straight East-West
-        addCenterlineWithGaps('EW', activeCrosswalksEW);
-      } else if (count === 1) {
-        // Dead end (respecting crosswalk boundary if applicable)
-        if (N) {
-          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.1, 0, -0.95);
-          else addLine(0.06, 1, 0, -0.5);
-        } else if (S) {
-          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.1, 0, 0.95);
-          else addLine(0.06, 1, 0, 0.5);
-        } else if (E) {
-          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
-          else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
-        } else if (W) {
-          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
-          else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
-        }
-      } else if (count === 2) {
-        // Corner turns
-        if (N && E) {
-          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.1, 0, -0.95);
-          else addLine(0.06, 1, 0, -0.5);
-          
-          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
-          else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
-        } else if (N && W) {
-          if (activeCrosswalksNS.includes(-0.65)) addLine(0.06, 0.1, 0, -0.95);
-          else addLine(0.06, 1, 0, -0.5);
-
-          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
-          else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
-        } else if (S && E) {
-          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.1, 0, 0.95);
-          else addLine(0.06, 1, 0, 0.5);
-
-          if (activeCrosswalksEW.includes(0.65)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
-          else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
-        } else if (S && W) {
-          if (activeCrosswalksNS.includes(0.65)) addLine(0.06, 0.1, 0, 0.95);
-          else addLine(0.06, 1, 0, 0.5);
-
-          if (activeCrosswalksEW.includes(-0.65)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
-          else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
-        }
-      } else if (count >= 3) {
-        // Junction/Crossroad (dot in center, short lines) - no crosswalks rendered inside the intersection
-        const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
-        const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
-        centerDot.position.set(0, lineY, 0);
-        group.add(centerDot);
-
-        if (N) addLine(0.06, 0.5, 0, -0.75);
-        if (S) addLine(0.06, 0.5, 0, 0.75);
-        if (E) addLine(0.06, 0.5, 0.75, 0, Math.PI / 2);
-        if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
+    if (count === 2 && N && S) {
+      addCenterlineWithGaps('NS', activeCrosswalksNS);
+    } else if (count === 2 && E && W) {
+      addCenterlineWithGaps('EW', activeCrosswalksEW);
+    } else if (count === 1) {
+      // A dead-end may face an adjacent intersection. Keep only the edge stub
+      // beyond its crosswalk so the centre line never paints through zebra stripes.
+      if (N) {
+        if (activeCrosswalksNS.includes(-0.78)) addLine(0.06, 0.1, 0, -0.95);
+        else addLine(0.06, 1, 0, -0.5);
       }
-    }
-
-    // Helper to paint pedestrian crosswalk (Zebra stripes, extended all the way across the road width 2.0)
-    const drawCrosswalk = (cx: number, cz: number, orientation: 'NS' | 'EW') => {
-      const stripeMat = this.materials.roadCrosswalk;
-      const stripeGeo = this.getGeometry(
-        orientation === 'EW' ? 'crosswalk_stripe_ew' : 'crosswalk_stripe_ns',
-        () => new THREE.PlaneGeometry(
-          orientation === 'EW' ? 0.08 : 0.35,
-          orientation === 'EW' ? 0.35 : 0.08
-        )
-      );
-
-      const offsets = [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8];
-      for (const off of offsets) {
-        const stripe = new THREE.Mesh(stripeGeo, stripeMat);
-        stripe.rotation.x = -Math.PI / 2;
-        if (orientation === 'EW') {
-          stripe.position.set(cx + off, lineY + 0.001, cz);
-        } else {
-          stripe.position.set(cx, lineY + 0.001, cz + off);
-        }
-        stripe.receiveShadow = true;
-        group.add(stripe);
+      if (S) {
+        if (activeCrosswalksNS.includes(0.78)) addLine(0.06, 0.1, 0, 0.95);
+        else addLine(0.06, 1, 0, 0.5);
       }
-    };
+      if (E) {
+        if (activeCrosswalksEW.includes(0.78)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
+        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+      }
+      if (W) {
+        if (activeCrosswalksEW.includes(-0.78)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
+        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+      }
+    } else if (count === 2) {
+      if (N && E) {
+        if (activeCrosswalksNS.includes(-0.78)) addLine(0.06, 0.1, 0, -0.95);
+        else addLine(0.06, 1, 0, -0.5);
+        if (activeCrosswalksEW.includes(0.78)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
+        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+      } else if (N && W) {
+        if (activeCrosswalksNS.includes(-0.78)) addLine(0.06, 0.1, 0, -0.95);
+        else addLine(0.06, 1, 0, -0.5);
+        if (activeCrosswalksEW.includes(-0.78)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
+        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+      } else if (S && E) {
+        if (activeCrosswalksNS.includes(0.78)) addLine(0.06, 0.1, 0, 0.95);
+        else addLine(0.06, 1, 0, 0.5);
+        if (activeCrosswalksEW.includes(0.78)) addLine(0.06, 0.1, 0.95, 0, Math.PI / 2);
+        else addLine(0.06, 1, 0.5, 0, Math.PI / 2);
+      } else if (S && W) {
+        if (activeCrosswalksNS.includes(0.78)) addLine(0.06, 0.1, 0, 0.95);
+        else addLine(0.06, 1, 0, 0.5);
+        if (activeCrosswalksEW.includes(-0.78)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
+        else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
+      }
+    } else if (count >= 3) {
+      const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
+      const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
+      centerDot.position.set(0, lineY, 0);
+      group.add(centerDot);
 
-    // Draw Crosswalks on this tile
-    for (const zVal of activeCrosswalksNS) {
-      drawCrosswalk(0, zVal, 'EW');
-    }
-    for (const xVal of activeCrosswalksEW) {
-      drawCrosswalk(xVal, 0, 'NS');
+      if (N) addLine(0.06, 0.5, 0, -0.75);
+      if (S) addLine(0.06, 0.5, 0, 0.75);
+      if (E) addLine(0.06, 0.5, 0.75, 0, Math.PI / 2);
+      if (W) addLine(0.06, 0.5, -0.75, 0, Math.PI / 2);
     }
 
-    // Add bridge railings
+    // Paint Zebra Crosswalks (spanning carriageway width)
+    if (currentStreetscapeSettings.showCrosswalks) {
+      const drawCrosswalk = (cx: number, cz: number, orientation: 'NS' | 'EW') => {
+        const stripeMat = this.materials.roadCrosswalk;
+        const stripeGeo = this.getGeometry(
+          orientation === 'EW' ? 'crosswalk_stripe_ew' : 'crosswalk_stripe_ns',
+          () => new THREE.PlaneGeometry(
+            orientation === 'EW' ? 0.08 : 0.28,
+            orientation === 'EW' ? 0.28 : 0.08
+          )
+        );
+
+        const offsets = [-0.48, -0.32, -0.16, 0, 0.16, 0.32, 0.48];
+        for (const off of offsets) {
+          const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+          stripe.rotation.x = -Math.PI / 2;
+          if (orientation === 'EW') {
+            stripe.position.set(cx + off, lineY + 0.001, cz);
+          } else {
+            stripe.position.set(cx, lineY + 0.001, cz + off);
+          }
+          stripe.receiveShadow = true;
+          group.add(stripe);
+        }
+      };
+
+      for (const zVal of activeCrosswalksNS) drawCrosswalk(0, zVal, 'EW');
+      for (const xVal of activeCrosswalksEW) drawCrosswalk(xVal, 0, 'NS');
+    }
+
+    // Bridge Railings (using charcoalMetal)
     if (isBridge) {
-      const railColor = this.materials.trunk;
+      const railColor = this.materials.charcoalMetal;
       const railingHeight = 0.22;
       const railingY = 0.08 + railingHeight / 2;
 
       const addSideRailing = (xOffset: number, zOffset: number, rotY = 0) => {
-        // Horizontal bar
         const barGeo = new THREE.BoxGeometry(2.0, 0.04, 0.04);
         const bar = new THREE.Mesh(barGeo, railColor);
         bar.position.set(xOffset, 0.08 + railingHeight - 0.02, zOffset);
@@ -1112,16 +1359,11 @@ export class AssetGenerator {
         bar.castShadow = true;
         group.add(bar);
 
-        // Vertical posts
         const postGeo = new THREE.BoxGeometry(0.06, railingHeight, 0.06);
-        const offsets = [-0.9, 0, 0.9];
-        for (const off of offsets) {
+        for (const off of [-0.9, 0, 0.9]) {
           const post = new THREE.Mesh(postGeo, railColor);
-          if (rotY === 0) {
-            post.position.set(xOffset + off, railingY, zOffset);
-          } else {
-            post.position.set(xOffset, railingY, zOffset + off);
-          }
+          if (rotY === 0) post.position.set(xOffset + off, railingY, zOffset);
+          else post.position.set(xOffset, railingY, zOffset + off);
           post.castShadow = true;
           group.add(post);
         }
@@ -1135,13 +1377,7 @@ export class AssetGenerator {
         addSideRailing(0, 0.95, 0);
       } else {
         const postGeo = new THREE.BoxGeometry(0.08, railingHeight, 0.08);
-        const corners = [
-          { x: -0.9, z: -0.9 },
-          { x: 0.9, z: -0.9 },
-          { x: -0.9, z: 0.9 },
-          { x: 0.9, z: 0.9 }
-        ];
-        for (const c of corners) {
+        for (const c of [{ x: -0.9, z: -0.9 }, { x: 0.9, z: -0.9 }, { x: -0.9, z: 0.9 }, { x: 0.9, z: 0.9 }]) {
           const post = new THREE.Mesh(postGeo, railColor);
           post.position.set(c.x, railingY, c.z);
           post.castShadow = true;
@@ -1151,6 +1387,63 @@ export class AssetGenerator {
     }
 
     return group;
+  }
+
+  createBeveledCurbGeometry(
+    width: number,
+    height: number,
+    depth: number,
+    facing: '+X' | '-X' | '+Z' | '-Z'
+  ): THREE.BufferGeometry {
+    const bevel = currentStreetscapeSettings.curbBevel;
+    const key = `curb_beveled_${width.toFixed(3)}_${height.toFixed(3)}_${depth.toFixed(3)}_${facing}_${bevel.toFixed(3)}`;
+    return this.getGeometry(key, () => {
+      const shape = new THREE.Shape();
+
+      if (facing === '-X' || facing === '+X') {
+        const halfW = width / 2;
+        shape.moveTo(-halfW, 0);
+        shape.lineTo(halfW, 0);
+        if (facing === '-X') {
+          // Bevel on top-left (-X side facing West)
+          shape.lineTo(halfW, height);
+          shape.lineTo(-halfW + bevel, height);
+          shape.lineTo(-halfW, height - bevel);
+        } else {
+          // Bevel on top-right (+X side facing East)
+          shape.lineTo(halfW, height - bevel);
+          shape.lineTo(halfW - bevel, height);
+          shape.lineTo(-halfW, height);
+        }
+        shape.closePath();
+
+        const geo = new THREE.ExtrudeGeometry(shape, { steps: 1, depth: depth, bevelEnabled: false });
+        geo.translate(0, 0, -depth / 2);
+        return geo;
+      } else {
+        // facing is '-Z' or '+Z' (transverse curb running along X, depth is CURB_WIDTH)
+        const halfD = depth / 2;
+        shape.moveTo(-halfD, 0);
+        shape.lineTo(halfD, 0);
+        if (facing === '-Z') {
+          // Bevel on -Z side (facing North)
+          shape.lineTo(halfD, height);
+          shape.lineTo(-halfD + bevel, height);
+          shape.lineTo(-halfD, height - bevel);
+        } else {
+          // Bevel on +Z side (facing South)
+          shape.lineTo(halfD, height - bevel);
+          shape.lineTo(halfD - bevel, height);
+          shape.lineTo(-halfD, height);
+        }
+        shape.closePath();
+
+        const geo = new THREE.ExtrudeGeometry(shape, { steps: 1, depth: width, bevelEnabled: false });
+        geo.translate(0, 0, -width / 2);
+        geo.rotateY(Math.PI / 2);
+        return geo;
+      }
+    });
   }
 
   getWaterTopGeometry(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.BufferGeometry {
@@ -1401,7 +1694,7 @@ export class AssetGenerator {
     // 3. Render Boardwalk Deck, Planks, and Curbs for each active water side
     for (const side of activeSides) {
       let deckX = 0, deckZ = 0;
-      
+
       if (side === 'N' || side === 'S') {
         deckX = 0;
         deckZ = side === 'N' ? -0.68 : 0.68;
@@ -1409,7 +1702,7 @@ export class AssetGenerator {
         deckX = side === 'E' ? 0.68 : -0.68;
         deckZ = 0;
       }
- 
+
       // Render 11 parallel planks on the deck
       if (side === 'N' || side === 'S') {
         const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.12, 0.04, 0.70));
@@ -1457,7 +1750,7 @@ export class AssetGenerator {
           }
         }
       }
- 
+
       // Wooden Curb Wall (grass-side) and connecting structural beam (water-side)
       let curbGeo!: THREE.BufferGeometry;
       let curbPos = new THREE.Vector3(0, 0.04, 0);
@@ -1650,7 +1943,7 @@ export class AssetGenerator {
           else if (otherPierDir === 'S') targetY += 1;
           else if (otherPierDir === 'E') targetX += 1;
           else if (otherPierDir === 'W') targetX -= 1;
-          
+
           if (targetX === wx && targetY === wy) {
             return true;
           }
@@ -1738,7 +2031,7 @@ export class AssetGenerator {
 
       // 1. Support Beams (Longitudinal)
       const beamGeo = this.getGeometry('pier_beam', () => new THREE.BoxGeometry(0.05, 0.03, 0.9));
-      
+
       const beamL = new THREE.Mesh(beamGeo, this.materials.trunk);
       beamL.position.set(-0.24, 0.015, 1.45);
       beamL.receiveShadow = true;
@@ -1815,7 +2108,7 @@ export class AssetGenerator {
       const boatRoll = rand();
       if (boatRoll < 0.40) {
         const boat = new THREE.Group();
-        
+
         // Curved tapered hull using ExtrudeGeometry
         const hullGeo = this.getGeometry('rowboat_hull_shape_v2', () => {
           const shape = new THREE.Shape();
@@ -1825,7 +2118,7 @@ export class AssetGenerator {
           shape.lineTo(-0.12, -0.4);
           shape.lineTo(-0.18, 0.0);
           shape.quadraticCurveTo(-0.18, 0.22, 0, 0.4);
-          
+
           const extrudeSettings = {
             depth: 0.10,
             bevelEnabled: true,
@@ -1834,7 +2127,7 @@ export class AssetGenerator {
             bevelSize: 0.015,
             bevelThickness: 0.015
           };
-          
+
           const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
           geo.center();
           geo.rotateX(-Math.PI / 2);
@@ -1905,7 +2198,7 @@ export class AssetGenerator {
       const x = Math.cos(angle) * dist;
       const z = Math.sin(angle) * dist;
       const scale = 0.6 + rand() * 0.6;
-      
+
       leaf.position.set(x, -0.035, z); // Sit slightly above the recessed water surface at y = -0.04
       leaf.scale.set(scale, 1.0, scale);
       leaf.rotation.y = rand() * Math.PI;
@@ -1943,7 +2236,7 @@ export class AssetGenerator {
     const count = 3 + Math.floor(rand() * 4);
     for (let i = 0; i < count; i++) {
       const reed = new THREE.Group();
-      
+
       const stem = new THREE.Mesh(stemGeo, stemMat);
       stem.position.y = 0.225;
       stem.castShadow = true;
@@ -1980,7 +2273,7 @@ export class AssetGenerator {
 
     for (let r = 1; r <= rows; r++) {
       const y = spacingY * r + yOffset;
-      
+
       // Front and Back Walls
       for (let c = 1; c <= cols; c++) {
         const x = spacingX * c - size.w / 2;
@@ -2101,7 +2394,7 @@ export class AssetGenerator {
     if (level === 1) {
       // Level 1: Cozy small cottage (Well proportioned: w=1.0, h=0.45, d=0.9)
       const w = 1.0, h = 0.45, d = 0.9;
-      
+
       // Always use open gable roof style with tiles (pyramid hip roof variation removed)
       rand(); // consume roll for sequence sync
       const isGable = true;
@@ -2114,7 +2407,7 @@ export class AssetGenerator {
       let doorX = 0;
       let hasWinL = true;
       let hasWinR = true;
-      
+
       if (doorRoll < 0.3) {
         doorX = -0.22;
         hasWinL = false;
@@ -2122,9 +2415,9 @@ export class AssetGenerator {
         doorX = 0.22;
         hasWinR = false;
       }
-      
+
       addFoundationAndStep(w, d, doorX);
-      
+
       // Walls (Front, Back, and Extruded Left/Right Side Walls with Gable Peaks)
       const t = 0.04; // wall thickness
 
@@ -2234,7 +2527,7 @@ export class AssetGenerator {
       sideShape.holes.push(sideWinPath);
 
       const wallLGeo = this.getGeometry(`res_level1_wallL_${d}_${h}_${isGable}_${t}`, () => new THREE.ExtrudeGeometry(sideShape, { depth: t, bevelEnabled: false }));
-      
+
       const wallL = new THREE.Mesh(wallLGeo, palette.wall);
       wallL.rotation.y = Math.PI / 2;
       wallL.position.set(-w / 2, 0.1, 0); // sits flush between front and back walls
@@ -2918,7 +3211,7 @@ export class AssetGenerator {
         // Main tower block (3 stories)
         const wt1 = 0.85, ht1 = 2.4, dt1 = 1.2;
         const tower1 = new THREE.Group();
-        
+
         const brick1 = new THREE.Mesh(this.getGeometry(`res_geom_13_box_${wt1}_${ht1}_${dt1}`, () => new THREE.BoxGeometry(wt1, ht1, dt1)), palette.brick);
         brick1.position.y = ht1 / 2 + 0.1;
         brick1.castShadow = true;
@@ -3038,7 +3331,7 @@ export class AssetGenerator {
     // Mimic the LCG consumption order of createResidentialMesh exactly
     rand(); // consume palette index
     rand(); // consume foundation roll
-    
+
     if (level === 1) {
       rand(); // consume isGable roll
       const isLeft = rand() > 0.5; // chimney side
@@ -3231,7 +3524,7 @@ export class AssetGenerator {
 
         const chairGeo = this.getGeometry('com_prop_chair', () => new THREE.BoxGeometry(0.1, 0.1, 0.1));
         const chairMat = this.materials.trunk;
-        
+
         const chair1 = new THREE.Mesh(chairGeo, chairMat);
         chair1.position.set(-0.2, 0.05, 0);
         tableGroup.add(chair1);
@@ -3409,7 +3702,7 @@ export class AssetGenerator {
 
         const railPostGeo = this.getGeometry('com_l2_studio_railpost', () => new THREE.BoxGeometry(0.015, 0.16, 0.015));
         const railBarGeo = this.getGeometry(`com_l2_studio_railbar_${d1}`, () => new THREE.BoxGeometry(0.01, 0.015, d1 - 0.08));
-        
+
         for (let i = 0; i < 3; i++) {
           const post = new THREE.Mesh(railPostGeo, this.materials.whiteMetal);
           post.position.set(0, 0.08, -d1 / 2 + 0.08 + i * (d1 - 0.16) / 2);
@@ -3862,7 +4155,7 @@ export class AssetGenerator {
         return geo;
       });
       const blade = new THREE.Mesh(bladeGeo, this.materials.whiteMetal);
-      
+
       const bladeRotator = new THREE.Group();
       bladeRotator.rotation.z = (i * Math.PI * 2) / 3;
       bladeRotator.add(blade);
@@ -4073,7 +4366,7 @@ export class AssetGenerator {
 
     // Headlights/Taillights geometry
     const lightGeo = this.getGeometry('car_light', () => new THREE.BoxGeometry(0.06, 0.04, 0.02));
-    
+
     const headL = new THREE.Mesh(lightGeo, this.materials.headlight);
     headL.position.set(-0.12, 0.16, 0.341);
     group.add(headL);
@@ -4094,7 +4387,7 @@ export class AssetGenerator {
     group.add(tailR);
 
     // Scale down to fit nicely in lanes
-    group.scale.set(0.9, 0.9, 0.9);
+    group.scale.set(ROAD_LAYOUT.CAR_SCALE, ROAD_LAYOUT.CAR_SCALE, ROAD_LAYOUT.CAR_SCALE);
 
     return group;
   }

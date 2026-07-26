@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Simulation, TileState, TileType, ResidentState, RoutineActivity, RoutineBlock } from './Simulation';
 import { Renderer } from './Renderer';
 import { CitizenRenderPool } from './CitizenRenderPool';
+import { ROAD_LAYOUT, currentStreetscapeSettings } from './RoadLayout';
 
 export interface CitizenState {
   residentId: string;
@@ -71,8 +72,10 @@ export class CitizenManager {
   getRoadCenterHeight(x: number, y: number): number {
     const tile = this.sim.grid[x][y];
     const H_C = tile.elevation || 0;
-    if (tile.type !== 'road' || tile.bridge) return H_C * 0.8;
+    if (tile.type !== 'road') return H_C * 0.8;
+    if (tile.bridge) return 0.08;
 
+    let baseHeight = H_C * 0.8;
     const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
     const S = y < this.sim.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
     const E = x < this.sim.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
@@ -86,7 +89,7 @@ export class CitizenManager {
         const y_N = Math.max(H_C, H_N) * 0.8;
         const y_S = Math.max(H_C, H_S) * 0.8;
         if (y_N !== y_S) {
-          return (y_N + y_S) / 2;
+          baseHeight = (y_N + y_S) / 2;
         }
       } else if (E && W && !N && !S) {
         const H_E = this.sim.grid[x + 1][y].elevation || 0;
@@ -94,11 +97,11 @@ export class CitizenManager {
         const y_E = Math.max(H_C, H_E) * 0.8;
         const y_W = Math.max(H_C, H_W) * 0.8;
         if (y_E !== y_W) {
-          return (y_E + y_W) / 2;
+          baseHeight = (y_E + y_W) / 2;
         }
       }
     }
-    return H_C * 0.8;
+    return baseHeight + this.getSidewalkSurfaceHeight();
   }
 
   getTileBoundaryHeight(x1: number, y1: number, x2: number, y2: number): number {
@@ -107,7 +110,11 @@ export class CitizenManager {
     if (tile1.bridge || tile2.bridge) return 0.08;
     const H1 = tile1.elevation || 0;
     const H2 = tile2.elevation || 0;
-    return Math.max(H1, H2) * 0.8;
+    const baseH = Math.max(H1, H2) * 0.8;
+    if (tile1.type === 'road' || tile2.type === 'road') {
+      return baseH + this.getSidewalkSurfaceHeight();
+    }
+    return baseH;
   }
 
   // Get 3D coordinate for a grid coordinate
@@ -118,6 +125,10 @@ export class CitizenManager {
       height,
       (y - this.gridOffset) * 2
     );
+  }
+
+  private getSidewalkSurfaceHeight(): number {
+    return ROAD_LAYOUT.SIDEWALK_Y + currentStreetscapeSettings.sidewalkHeight / 2;
   }
 
 
@@ -674,7 +685,7 @@ export class CitizenManager {
 
       const hasIncoming = incomingX !== 0 || incomingZ !== 0;
       const hasOutgoing = outgoingX !== 0 || outgoingZ !== 0;
-      const sidewalkOffset = cim.sidewalkSide * 0.85;
+      const sidewalkOffset = cim.sidewalkSide * currentStreetscapeSettings.sidewalkOffset;
 
       if (hasIncoming && hasOutgoing) {
         const directionDot = incomingX * outgoingX + incomingZ * outgoingZ;
@@ -762,11 +773,11 @@ export class CitizenManager {
     );
     pos.add(interpolatedOffset);
 
-    // Height offset based on current tile type (interpolated)
+    // Height offset based on non-road tile type (road height already includes SIDEWALK_Y)
     const prevTileType = this.sim.grid[cim.prevX][cim.prevY].type;
     const targetTileType = this.sim.grid[cim.targetX][cim.targetY].type;
-    const prevHeightOff = prevTileType === 'road' ? 0.04 : prevTileType === 'boardwalk' ? 0.08 : prevTileType === 'park' ? 0.03 : 0.02;
-    const targetHeightOff = targetTileType === 'road' ? 0.04 : targetTileType === 'boardwalk' ? 0.08 : targetTileType === 'park' ? 0.03 : 0.02;
+    const prevHeightOff = prevTileType === 'road' ? 0.0 : prevTileType === 'boardwalk' ? 0.08 : prevTileType === 'park' ? 0.03 : 0.02;
+    const targetHeightOff = targetTileType === 'road' ? 0.0 : targetTileType === 'boardwalk' ? 0.08 : targetTileType === 'park' ? 0.03 : 0.02;
     pos.y += prevHeightOff + (targetHeightOff - prevHeightOff) * clampedProgress;
 
     mesh.position.copy(pos);

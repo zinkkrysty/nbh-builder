@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Simulation, TileState } from './Simulation';
 import { Renderer } from './Renderer';
+import { ROAD_LAYOUT } from './RoadLayout';
 
 interface CarState {
   id: number;
@@ -56,8 +57,10 @@ export class TrafficManager {
   getRoadCenterHeight(x: number, y: number): number {
     const tile = this.sim.grid[x][y];
     const H_C = tile.elevation || 0;
-    if (tile.type !== 'road' || tile.bridge) return H_C * 0.8;
+    if (tile.type !== 'road') return H_C * 0.8;
+    if (tile.bridge) return 0.08;
 
+    let baseHeight = H_C * 0.8;
     const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
     const S = y < this.sim.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
     const E = x < this.sim.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
@@ -71,7 +74,7 @@ export class TrafficManager {
         const y_N = Math.max(H_C, H_N) * 0.8;
         const y_S = Math.max(H_C, H_S) * 0.8;
         if (y_N !== y_S) {
-          return (y_N + y_S) / 2;
+          baseHeight = (y_N + y_S) / 2;
         }
       } else if (E && W && !N && !S) {
         const H_E = this.sim.grid[x + 1][y].elevation || 0;
@@ -79,11 +82,11 @@ export class TrafficManager {
         const y_E = Math.max(H_C, H_E) * 0.8;
         const y_W = Math.max(H_C, H_W) * 0.8;
         if (y_E !== y_W) {
-          return (y_E + y_W) / 2;
+          baseHeight = (y_E + y_W) / 2;
         }
       }
     }
-    return H_C * 0.8;
+    return baseHeight + ROAD_LAYOUT.CARRIAGEWAY_SURFACE_Y;
   }
 
   getTileBoundaryHeight(x1: number, y1: number, x2: number, y2: number): number {
@@ -92,7 +95,7 @@ export class TrafficManager {
     if (tile1.bridge || tile2.bridge) return 0.08;
     const H1 = tile1.elevation || 0;
     const H2 = tile2.elevation || 0;
-    return Math.max(H1, H2) * 0.8;
+    return Math.max(H1, H2) * 0.8 + ROAD_LAYOUT.CARRIAGEWAY_SURFACE_Y;
   }
 
   getRoadSlope(x: number, y: number): { x: number; z: number } {
@@ -256,7 +259,7 @@ export class TrafficManager {
         (car.targetY - this.gridOffset) * 2
       );
       const dir = this.tempDir.subVectors(target3D, start3D).normalize();
-      const rightOffset = this.tempRightOffset.set(-dir.z, 0, dir.x).multiplyScalar(0.38); // 0.38m offset
+      const rightOffset = this.tempRightOffset.set(-dir.z, 0, dir.x).multiplyScalar(ROAD_LAYOUT.LANE_OFFSET);
       p.add(rightOffset);
 
       car.mesh.position.copy(p);

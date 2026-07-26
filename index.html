@@ -190,6 +190,13 @@
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
             </button>
+            <button id="item-toggle-streetscape-sandbox" class="dropdown-item" style="display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; padding: 10px 12px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; transition: background 0.15s;">
+              <span style="font-size: 1.1rem; width: 20px; display: inline-block; text-align: center;">🛣️</span>
+              <span style="flex: 1;">Streetscape & Sidewalks</span>
+              <svg class="active-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; color: #60a5fa; margin-left: auto; opacity: 0; transition: opacity 0.15s;">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
             <a href="/assets.html" target="_blank" class="dropdown-item" style="display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 10px 12px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 0.85rem; text-decoration: none; cursor: pointer; transition: background 0.15s;">
               <span style="font-size: 1.1rem; width: 20px; display: inline-block; text-align: center;">📚</span>
               <span>Visual Asset Catalog</span>
@@ -595,6 +602,137 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Streetscape (Sidewalks & Curbs) Sandbox Panel -->
+    <div id="streetscape-sandbox" class="glass hidden" style="position: absolute; top: 160px; right: min(680px, max(1rem, calc(100vw - 346px))); width: min(330px, calc(100vw - 2rem)); z-index: 90; padding: 1.25rem; border-radius: 16px; display: flex; flex-direction: column; gap: 0.85rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); max-height: 80vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem;">
+        <h3 style="margin: 0; font-size: 1.05rem; font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+          🛣️ Streetscape & Sidewalks
+        </h3>
+        <button id="btn-streetscape-close" style="background: none; border: none; color: #94a3b8; font-size: 1.25rem; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.15s; margin-left: auto;">&times;</button>
+      </div>
+
+      <!-- Sidewalk Controls Section -->
+      <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+        <span style="font-size: 0.75rem; font-weight: 600; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.05em;">Sidewalk Parameters</span>
+        
+        <!-- Sidewalk Width -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Sidewalk Width</span>
+            <span id="val-sw-width">0.16m</span>
+          </div>
+          <input type="range" id="slider-sw-width" min="0.16" max="0.40" step="0.01" value="0.16" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Sidewalk Height -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Sidewalk Height</span>
+            <span id="val-sw-height">0.04m</span>
+          </div>
+          <input type="range" id="slider-sw-height" min="0.02" max="0.12" step="0.01" value="0.04" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Sidewalk Path Offset -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Sidewalk Center Offset</span>
+            <span id="val-sw-offset">0.85m</span>
+          </div>
+          <input type="range" id="slider-sw-offset" min="0.65" max="0.95" step="0.01" value="0.85" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Sidewalk Surface Color -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 2px;">
+          <span style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;">Sidewalk Color</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <input type="color" id="picker-sw-color" value="#a0a0a0" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
+            <span id="text-sw-color" style="font-size: 0.75rem; font-family: monospace; color: #fff;">#a0a0a0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Curb Controls Section -->
+      <div style="display: flex; flex-direction: column; gap: 0.6rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.6rem;">
+        <span style="font-size: 0.75rem; font-weight: 600; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.05em;">Curb Parameters</span>
+        
+        <!-- Curb Width -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Curb Width</span>
+            <span id="val-curb-width">0.040m</span>
+          </div>
+          <input type="range" id="slider-curb-width" min="0.02" max="0.08" step="0.005" value="0.04" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Curb Height -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Curb Height</span>
+            <span id="val-curb-height">0.030m</span>
+          </div>
+          <input type="range" id="slider-curb-height" min="0.02" max="0.10" step="0.005" value="0.03" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Curb Bevel -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+            <span>Top-Inner Chamfer / Bevel</span>
+            <span id="val-curb-bevel">0.000m</span>
+          </div>
+          <input type="range" id="slider-curb-bevel" min="0.00" max="0.03" step="0.002" value="0.00" style="width: 100%; cursor: pointer;">
+        </div>
+
+        <!-- Curb Color -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 2px;">
+          <span style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;">Curb Top Color</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <input type="color" id="picker-curb-color" value="#dfd7cd" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
+            <span id="text-curb-color" style="font-size: 0.75rem; font-family: monospace; color: #fff;">#dfd7cd</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Road Asphalt & Markings Section -->
+      <div style="display: flex; flex-direction: column; gap: 0.6rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.6rem;">
+        <span style="font-size: 0.75rem; font-weight: 600; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">Road & Markings</span>
+
+        <!-- Crosswalk Toggle -->
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.85rem; font-weight: 500; color: #fff;">Show Zebra Crosswalks</span>
+          <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px; flex-shrink: 0;">
+            <input type="checkbox" id="panel-crosswalk-toggle" checked style="opacity: 0; width: 0; height: 0;">
+            <span class="slider-round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .2s; border-radius: 34px; border: 1px solid rgba(255,255,255,0.08);"></span>
+          </label>
+        </div>
+
+        <!-- Colors -->
+        <div style="display: flex; gap: 10px; padding-top: 4px;">
+          <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+            <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Asphalt Color</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="color" id="picker-asphalt-color" value="#334155" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
+              <span id="text-asphalt-color" style="font-size: 0.75rem; font-family: monospace; color: #fff;">#334155</span>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+            <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Line Color</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="color" id="picker-line-color" value="#ffffff" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
+              <span id="text-line-color" style="font-size: 0.75rem; font-family: monospace; color: #ffffff;">#ffffff</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reset Button -->
+      <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
+        <button id="btn-streetscape-reset" style="width: 100%; padding: 8px; font-size: 0.8rem; font-family: inherit; font-weight: 500; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; cursor: pointer; transition: background 0.15s;">
+          Reset to Default Streetscape
+        </button>
       </div>
     </div>
   </div>

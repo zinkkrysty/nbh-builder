@@ -3,6 +3,7 @@ import { AssetGenerator } from './AssetGenerator';
 import { Simulation, TileState } from './Simulation';
 import { TrafficManager } from './TrafficManager';
 import { CitizenManager } from './CitizenManager';
+import { ROAD_LAYOUT, StreetscapeSettings, currentStreetscapeSettings } from './RoadLayout';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 
@@ -71,6 +72,15 @@ export class Renderer {
   trunkMesh?: THREE.InstancedMesh;
   greenLeavesMesh?: THREE.InstancedMesh;
   blossomLeavesMesh?: THREE.InstancedMesh;
+
+  // Instanced Street Furniture GPU Pools (Phase 5)
+  lampPolesMesh?: THREE.InstancedMesh;
+  lampArmsMesh?: THREE.InstancedMesh;
+  lampBulbsMesh?: THREE.InstancedMesh;
+  railBarsMesh?: THREE.InstancedMesh;
+  railPostsMesh?: THREE.InstancedMesh;
+  retainingFasciaMesh?: THREE.InstancedMesh;
+  streetFurnitureDirty = true;
 
   // Active Building Meshes
   buildingMeshes: Map<string, THREE.Object3D> = new Map();
@@ -198,6 +208,67 @@ export class Renderer {
     }
   }
 
+  updateStreetscapeSettings(updates: Partial<StreetscapeSettings>) {
+    Object.assign(currentStreetscapeSettings, updates);
+
+    const updateMatColor = (key: string, colorStr: string) => {
+      const color = new THREE.Color(colorStr);
+      if (this.assets.materials[key] && (this.assets.materials[key] as any).color) {
+        (this.assets.materials[key] as any).color.copy(color);
+      }
+      if (this.assets.standardMaterials[key] && (this.assets.standardMaterials[key] as any).color) {
+        (this.assets.standardMaterials[key] as any).color.copy(color);
+      }
+      if (this.assets.toonMaterials[key] && (this.assets.toonMaterials[key] as any).color) {
+        (this.assets.toonMaterials[key] as any).color.copy(color);
+      }
+    };
+
+    if (updates.sidewalkColor) updateMatColor('sidewalk', updates.sidewalkColor);
+    if (updates.curbColor) updateMatColor('curb', updates.curbColor);
+    if (updates.asphaltColor) updateMatColor('road', updates.asphaltColor);
+    if (updates.lineColor) updateMatColor('roadLine', updates.lineColor);
+
+    this.rebuildAllRoads();
+  }
+
+  rebuildAllRoads() {
+    if (!this.sim) return;
+    // Cached road geometries must not be retained across a settings rebuild.
+    // Keep geometry still referenced by non-road scene objects alive; removing
+    // the cache first lets updateRoadMesh dispose each outgoing road safely.
+    const liveGeometries = new Set<THREE.BufferGeometry>();
+    this.scene.traverse((object) => {
+      if (object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh) {
+        liveGeometries.add(object.geometry);
+      }
+    });
+    for (const geometry of Object.values(this.assets.geometries)) {
+      if (!liveGeometries.has(geometry)) geometry.dispose();
+    }
+    this.assets.geometries = {};
+    for (let x = 0; x < this.sim.gridSize; x++) {
+      for (let y = 0; y < this.sim.gridSize; y++) {
+        const tile = this.sim.grid[x][y];
+        if (tile.type === 'road') {
+          this.updateRoadMesh(x, y, this.getRoadConnections(x, y));
+        }
+      }
+    }
+    this.streetFurnitureDirty = true;
+  }
+
+  getRoadConnections(x: number, y: number): { N: boolean; S: boolean; E: boolean; W: boolean } {
+    if (!this.sim) return { N: false, S: false, E: false, W: false };
+    const size = this.sim.gridSize;
+    return {
+      N: y > 0 && this.sim.grid[x][y - 1].type === 'road',
+      S: y < size - 1 && this.sim.grid[x][y + 1].type === 'road',
+      E: x < size - 1 && this.sim.grid[x + 1][y].type === 'road',
+      W: x > 0 && this.sim.grid[x - 1][y].type === 'road',
+    };
+  }
+
   onSimulationTick(lastTime: number, targetTime: number) {
     this.lastTickTime = performance.now();
     this.lastTickTimeOfDay = lastTime;
@@ -284,6 +355,7 @@ export class Renderer {
     this.container = document.getElementById(containerId)!;
     this.assets = assets;
     this.sim = sim;
+    this.assets.sim = sim;
 
     this.initParticles();
     this.initScene();
@@ -431,6 +503,361 @@ export class Renderer {
 
     // 2. Scattered Forest Trees (around borders or randomly as environment details) using InstancedMesh
     this.rebuildTrees();
+
+    // 3. Global Instanced Street Furniture Pools (Phase 5)
+    this.initStreetFurniture();
+  }
+
+  initStreetFurniture() {
+    const disposePool = (mesh?: THREE.InstancedMesh) => {
+      if (!mesh) return;
+      this.scene.remove(mesh);
+      mesh.dispose();
+    };
+    disposePool(this.lampPolesMesh);
+    disposePool(this.lampArmsMesh);
+    disposePool(this.lampBulbsMesh);
+    disposePool(this.railBarsMesh);
+    disposePool(this.railPostsMesh);
+    disposePool(this.retainingFasciaMesh);
+
+    const charcoalMat = this.assets.materials.charcoalMetal;
+    const bulbMat = this.assets.materials.lampBulb;
+    const cementMat = this.assets.materials.cement;
+
+    const maxLamps = 1500;
+    const maxRails = 12000;
+    const maxFascia = 6000;
+
+    const poleGeo = this.assets.getGeometry('lamp_pole_inst', () => new THREE.BoxGeometry(0.05, 0.85, 0.05));
+    this.lampPolesMesh = new THREE.InstancedMesh(poleGeo, charcoalMat, maxLamps);
+    this.lampPolesMesh.castShadow = true;
+    this.lampPolesMesh.frustumCulled = false;
+    this.scene.add(this.lampPolesMesh);
+
+    const armGeo = this.assets.getGeometry('lamp_arm_inst', () => new THREE.BoxGeometry(0.18, 0.04, 0.04));
+    this.lampArmsMesh = new THREE.InstancedMesh(armGeo, charcoalMat, maxLamps);
+    this.lampArmsMesh.frustumCulled = false;
+    this.scene.add(this.lampArmsMesh);
+
+    const bulbGeo = this.assets.getGeometry('lamp_bulb_inst', () => new THREE.BoxGeometry(0.08, 0.08, 0.08));
+    this.lampBulbsMesh = new THREE.InstancedMesh(bulbGeo, bulbMat, maxLamps);
+    this.lampBulbsMesh.frustumCulled = false;
+    this.scene.add(this.lampBulbsMesh);
+
+    const barGeo = this.assets.getGeometry('rail_bar_inst', () => new THREE.BoxGeometry(2.0, 0.03, 0.03));
+    this.railBarsMesh = new THREE.InstancedMesh(barGeo, charcoalMat, maxRails);
+    this.railBarsMesh.castShadow = true;
+    this.railBarsMesh.frustumCulled = false;
+    this.scene.add(this.railBarsMesh);
+
+    const postGeo = this.assets.getGeometry('rail_post_inst', () => new THREE.BoxGeometry(0.05, 0.30, 0.05));
+    this.railPostsMesh = new THREE.InstancedMesh(postGeo, charcoalMat, maxRails * 3);
+    this.railPostsMesh.castShadow = true;
+    this.railPostsMesh.frustumCulled = false;
+    this.scene.add(this.railPostsMesh);
+
+    const fasciaGeo = this.assets.getGeometry('retaining_fascia_inst', () => new THREE.BoxGeometry(2.0, 1.2, 0.06));
+    this.retainingFasciaMesh = new THREE.InstancedMesh(fasciaGeo, cementMat, maxFascia);
+    this.retainingFasciaMesh.receiveShadow = true;
+    this.retainingFasciaMesh.frustumCulled = false;
+    this.scene.add(this.retainingFasciaMesh);
+
+    this.streetFurnitureDirty = true;
+  }
+
+  rebuildStreetFurniture() {
+    if (!this.sim || !this.lampPolesMesh || !this.railBarsMesh) return;
+
+    const dummy = new THREE.Object3D();
+    const size = this.sim.gridSize;
+    const gridOffset = size / 2;
+    const SIDEWALK_Y = ROAD_LAYOUT.SIDEWALK_Y; // 0.05
+
+    let lampCount = 0;
+    let railBarCount = 0;
+    let railPostCount = 0;
+    let fasciaCount = 0;
+    const lampSpacing = 2.5;
+    const lampSpatialHash = new Map<string, Array<{ x: number; z: number }>>();
+
+    const getLampCellKey = (cellX: number, cellZ: number) => `${cellX},${cellZ}`;
+
+    for (let x = 0; x < size; x++) {
+      for (let y = 0; y < size; y++) {
+        const tile = this.sim.grid[x][y];
+        if (tile.type !== 'road') continue;
+
+        const isBridge = tile.bridge || false;
+        if (isBridge) continue; // Bridges render their own deck railings in createRoadMesh and do not get cliff rails or fascia over water
+        const tileH = tile.elevation || 0;
+        const xPos = (x - gridOffset) * 2;
+        const zPos = (y - gridOffset) * 2;
+
+        const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+        const S = y < size - 1 && this.sim.grid[x][y + 1].type === 'road';
+        const E = x < size - 1 && this.sim.grid[x + 1][y].type === 'road';
+        const W = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+
+        // Check slope / ramp
+        const connectionCount = [N, S, E, W].filter(Boolean).length;
+        let yPos = tileH * 0.8;
+        let tiltX = 0;
+        let tiltZ = 0;
+        let isRamp = false;
+
+        if (connectionCount === 2 && !isBridge) {
+          if (N && S) {
+            const H_N = this.sim.grid[x][y - 1].elevation || 0;
+            const H_S = this.sim.grid[x][y + 1].elevation || 0;
+            const y_N = Math.max(tileH, H_N) * 0.8;
+            const y_S = Math.max(tileH, H_S) * 0.8;
+            if (y_N !== y_S) {
+              yPos = (y_N + y_S) / 2;
+              tiltX = Math.atan2(y_N - y_S, 2.0);
+              isRamp = true;
+            }
+          } else if (E && W) {
+            const H_E = this.sim.grid[x + 1][y].elevation || 0;
+            const H_W = this.sim.grid[x - 1][y].elevation || 0;
+            const y_E = Math.max(tileH, H_E) * 0.8;
+            const y_W = Math.max(tileH, H_W) * 0.8;
+            if (y_E !== y_W) {
+              yPos = (y_E + y_W) / 2;
+              tiltZ = Math.atan2(y_E - y_W, 2.0);
+              isRamp = true;
+            }
+          }
+        }
+
+        // 1. Cliff Guard Rails and Retaining Edge
+        const checkCliff = (dir: 'N' | 'S' | 'E' | 'W', isConnected: boolean, nx: number, ny: number) => {
+          if (isConnected) return;
+          const isNS = dir === 'N' || dir === 'S';
+          const isLateralRamp = isRamp && ((tiltX !== 0 && (dir === 'W' || dir === 'E')) || (tiltZ !== 0 && (dir === 'N' || dir === 'S')));
+
+          let isCliff = false;
+          let nH = 0;
+          if (nx < 0 || ny < 0 || nx >= size || ny >= size) {
+            isCliff = true;
+          } else {
+            const nTile = this.sim!.grid[nx][ny];
+            nH = (nTile.elevation || 0) * 0.8;
+            if (nTile.type === 'water_body' || nH < tileH * 0.8) {
+              isCliff = true;
+            }
+          }
+
+          if (isCliff) {
+            const railY = yPos + (isBridge ? 0.08 : SIDEWALK_Y) + 0.15;
+            const offset = (dir === 'N' || dir === 'W') ? -0.94 : 0.94;
+
+            // Flat rails are only emitted for non-ramp edges (ramp lateral sides get tilted rails below)
+            if (!isLateralRamp) {
+              // Bar 1 & Bar 2
+              for (const barYOff of [0, 0.12]) {
+                dummy.position.set(
+                  isNS ? xPos : xPos + offset,
+                  railY + barYOff,
+                  isNS ? zPos + offset : zPos
+                );
+                dummy.rotation.set(0, isNS ? 0 : Math.PI / 2, 0);
+                dummy.scale.set(1, 1, 1);
+                dummy.updateMatrix();
+                this.railBarsMesh!.setMatrixAt(railBarCount++, dummy.matrix);
+              }
+
+              // Posts (3 posts per bar run)
+              for (const step of [-0.85, 0, 0.85]) {
+                dummy.position.set(
+                  isNS ? xPos + step : xPos + offset,
+                  railY + 0.05,
+                  isNS ? zPos + offset : zPos + step
+                );
+                dummy.rotation.set(0, 0, 0);
+                dummy.scale.set(1, 1, 1);
+                dummy.updateMatrix();
+                this.railPostsMesh!.setMatrixAt(railPostCount++, dummy.matrix);
+              }
+            }
+
+            // Concrete Retaining Fascia (scaled dynamically to actual elevation drop)
+            const dropH = Math.max(1.2, tileH * 0.8 - nH);
+            dummy.position.set(
+              isNS ? xPos : xPos + offset,
+              yPos + 0.05 - dropH / 2,
+              isNS ? zPos + offset : zPos
+            );
+            dummy.rotation.set(0, isNS ? 0 : Math.PI / 2, 0);
+            dummy.scale.set(1, dropH / 1.2, 1);
+            dummy.updateMatrix();
+            this.retainingFasciaMesh!.setMatrixAt(fasciaCount++, dummy.matrix);
+          }
+        };
+
+        checkCliff('N', N, x, y - 1);
+        checkCliff('S', S, x, y + 1);
+        checkCliff('E', E, x + 1, y);
+        checkCliff('W', W, x - 1, y);
+
+        // 2. Ramp Guard Rails (only on non-connected lateral sides)
+        if (isRamp) {
+          const deckLen = 2.0;
+          const baseRailHeight = 0.22;
+          const angle = tiltX !== 0 ? tiltX : tiltZ;
+          const postHeight = baseRailHeight / Math.cos(angle);
+          const railY = SIDEWALK_Y + baseRailHeight / 2;
+
+          const rampGroup = new THREE.Object3D();
+          rampGroup.position.set(xPos, yPos, zPos);
+          if (tiltX !== 0) rampGroup.rotation.x = tiltX;
+          if (tiltZ !== 0) rampGroup.rotation.z = tiltZ;
+
+          const worldPos = new THREE.Vector3();
+
+          const addRampRailInst = (xOff: number, zOff: number, isVertical: boolean) => {
+            // Horizontal bars (2 bars)
+            for (const barYOff of [0, 0.12]) {
+              const barDummy = new THREE.Object3D();
+              barDummy.position.set(xOff, railY + barYOff, zOff);
+              if (isVertical) barDummy.rotation.y = Math.PI / 2;
+              rampGroup.add(barDummy);
+              rampGroup.updateMatrixWorld(true);
+              this.railBarsMesh!.setMatrixAt(railBarCount++, barDummy.matrixWorld);
+              rampGroup.remove(barDummy);
+            }
+
+            // Posts (3 posts, un-sheared 100% vertical in world space)
+            for (const step of [-0.85, 0, 0.85]) {
+              const postDummy = new THREE.Object3D();
+              if (isVertical) {
+                postDummy.position.set(xOff, railY + 0.02, zOff + step * (deckLen / 2));
+              } else {
+                postDummy.position.set(xOff + step * (deckLen / 2), railY + 0.02, zOff);
+              }
+              rampGroup.add(postDummy);
+              rampGroup.updateMatrixWorld(true);
+              postDummy.getWorldPosition(worldPos);
+              rampGroup.remove(postDummy);
+
+              dummy.position.copy(worldPos);
+              dummy.rotation.set(0, 0, 0); // 100% unrotated world orientation
+              dummy.scale.set(1, postHeight / 0.30, 1);
+              dummy.updateMatrix();
+              this.railPostsMesh!.setMatrixAt(railPostCount++, dummy.matrix);
+            }
+          };
+
+          if (tiltX !== 0) {
+            if (!W) addRampRailInst(-0.94, 0, true);
+            if (!E) addRampRailInst(0.94, 0, true);
+          } else if (tiltZ !== 0) {
+            if (!N) addRampRailInst(0, -0.94, false);
+            if (!S) addRampRailInst(0, 0.94, false);
+          }
+        }
+
+        // 3. Lamps near development (deterministic corner placement & min 2.5m spacing; skip bridges and ramps)
+        if (!isBridge && !isRamp) {
+          let devX = -1;
+          let devY = -1;
+          for (let dx = -2; dx <= 2 && devX < 0; dx++) {
+            for (let dy = -2; dy <= 2 && devX < 0; dy++) {
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx >= 0 && ny >= 0 && nx < size && ny < size) {
+                const type = this.sim.grid[nx][ny].type;
+                if (type !== 'empty' && type !== 'road' && type !== 'water_body') {
+                  devX = nx;
+                  devY = ny;
+                }
+              }
+            }
+          }
+
+          if (devX >= 0) {
+            const cornerX = devX > x ? 0.80 : (devX < x ? -0.80 : 0.80);
+            const cornerZ = devY > y ? 0.80 : (devY < y ? -0.80 : 0.80);
+            const candX = xPos + cornerX;
+            const candZ = zPos + cornerZ;
+
+            // Candidates are grid-aligned, so only nearby spatial-hash cells can
+            // contain lamps within the 2.5m exclusion radius.
+            const cellX = Math.floor(candX / lampSpacing);
+            const cellZ = Math.floor(candZ / lampSpacing);
+            let tooClose = false;
+            for (let dx = -1; dx <= 1 && !tooClose; dx++) {
+              for (let dz = -1; dz <= 1 && !tooClose; dz++) {
+                const nearbyLamps = lampSpatialHash.get(getLampCellKey(cellX + dx, cellZ + dz));
+                if (!nearbyLamps) continue;
+                for (const lamp of nearbyLamps) {
+                  const distSq = (lamp.x - candX) * (lamp.x - candX) + (lamp.z - candZ) * (lamp.z - candZ);
+                  if (distSq < lampSpacing * lampSpacing) {
+                    tooClose = true;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (!tooClose) {
+              const armDirX = cornerX > 0 ? -1 : 1;
+
+              // Pole
+              dummy.position.set(candX, yPos + SIDEWALK_Y + 0.425, candZ);
+              dummy.rotation.set(0, 0, 0);
+              dummy.scale.set(1, 1, 1);
+              dummy.updateMatrix();
+              this.lampPolesMesh!.setMatrixAt(lampCount, dummy.matrix);
+
+              // Arm
+              dummy.position.set(candX + armDirX * 0.07, yPos + SIDEWALK_Y + 0.82, candZ);
+              dummy.rotation.set(0, 0, 0);
+              dummy.scale.set(1, 1, 1);
+              dummy.updateMatrix();
+              this.lampArmsMesh!.setMatrixAt(lampCount, dummy.matrix);
+
+              // Bulb
+              dummy.position.set(candX + armDirX * 0.14, yPos + SIDEWALK_Y + 0.78, candZ);
+              dummy.rotation.set(0, 0, 0);
+              dummy.scale.set(1, 1, 1);
+              dummy.updateMatrix();
+              this.lampBulbsMesh!.setMatrixAt(lampCount, dummy.matrix);
+
+              const cellKey = getLampCellKey(cellX, cellZ);
+              const lampsInCell = lampSpatialHash.get(cellKey) ?? [];
+              lampsInCell.push({ x: candX, z: candZ });
+              lampSpatialHash.set(cellKey, lampsInCell);
+              lampCount++;
+            }
+          }
+        }
+      }
+    }
+
+    // Set counts & mark instanceMatrix dirty
+    this.lampPolesMesh.count = lampCount;
+    this.lampPolesMesh.instanceMatrix.needsUpdate = true;
+    if (this.lampArmsMesh) {
+      this.lampArmsMesh.count = lampCount;
+      this.lampArmsMesh.instanceMatrix.needsUpdate = true;
+    }
+    if (this.lampBulbsMesh) {
+      this.lampBulbsMesh.count = lampCount;
+      this.lampBulbsMesh.instanceMatrix.needsUpdate = true;
+    }
+
+    this.railBarsMesh.count = railBarCount;
+    this.railBarsMesh.instanceMatrix.needsUpdate = true;
+    if (this.railPostsMesh) {
+      this.railPostsMesh.count = railPostCount;
+      this.railPostsMesh.instanceMatrix.needsUpdate = true;
+    }
+
+    if (this.retainingFasciaMesh) {
+      this.retainingFasciaMesh.count = fasciaCount;
+      this.retainingFasciaMesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   getSeededRandomForCoords(seed: number, x: number, y: number) {
@@ -1247,6 +1674,7 @@ export class Renderer {
 
       this.scene.add(newMesh);
       this.buildingMeshes.set(key, newMesh);
+      this.streetFurnitureDirty = true;
       const rotor = newMesh.getObjectByName('turbine_rotor');
       if (rotor) {
         this.turbineRotors.set(key, rotor);
@@ -1334,6 +1762,8 @@ export class Renderer {
     roadMesh.position.set(xPos, yPos, zPos);
     this.scene.add(roadMesh);
     this.buildingMeshes.set(key, roadMesh);
+
+    this.streetFurnitureDirty = true;
   }
 
   // Trigger building placement dust particles
@@ -1509,6 +1939,11 @@ export class Renderer {
 
   // Animation ticks for particles and spinning turbines
   animate(timeStep: number) {
+    if (this.streetFurnitureDirty) {
+      this.rebuildStreetFurniture();
+      this.streetFurnitureDirty = false;
+    }
+
     // 0. Smoothly interpolate renderTimeOfDay to catch up with simulation timeOfDay in real-time
     if (this.sim) {
       if (this.sim.speed === 0) {

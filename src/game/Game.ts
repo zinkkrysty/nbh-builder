@@ -6,6 +6,7 @@ import { SoundManager } from './SoundManager';
 import { TrafficManager } from './TrafficManager';
 import { CitizenManager } from './CitizenManager';
 import { PlaceArchetype, getPlace, PLACE_CATALOG } from './PlaceCatalog';
+import { DEFAULT_STREETSCAPE_SETTINGS, StreetscapeSettings } from './RoadLayout';
 import * as THREE from 'three';
 
 function escapeHTML(str: string): string {
@@ -61,6 +62,7 @@ export class Game {
     this.setupBindings();
     this.initCelSandbox();
     this.initShadowSandbox();
+    this.initStreetscapeSandbox();
     this.initDevDropdown();
     this.startLoops();
     this.updateAudioButtonsUI();
@@ -1034,11 +1036,145 @@ export class Game {
     }
   }
 
+  initStreetscapeSandbox() {
+    const sandbox = document.getElementById('streetscape-sandbox');
+    const btnClose = document.getElementById('btn-streetscape-close');
+    const btnReset = document.getElementById('btn-streetscape-reset');
+
+    const sliderSwWidth = document.getElementById('slider-sw-width') as HTMLInputElement | null;
+    const valSwWidth = document.getElementById('val-sw-width');
+
+    const sliderSwHeight = document.getElementById('slider-sw-height') as HTMLInputElement | null;
+    const valSwHeight = document.getElementById('val-sw-height');
+
+    const sliderSwOffset = document.getElementById('slider-sw-offset') as HTMLInputElement | null;
+    const valSwOffset = document.getElementById('val-sw-offset');
+
+    const pickerSwColor = document.getElementById('picker-sw-color') as HTMLInputElement | null;
+    const textSwColor = document.getElementById('text-sw-color');
+
+    const sliderCurbWidth = document.getElementById('slider-curb-width') as HTMLInputElement | null;
+    const valCurbWidth = document.getElementById('val-curb-width');
+
+    const sliderCurbHeight = document.getElementById('slider-curb-height') as HTMLInputElement | null;
+    const valCurbHeight = document.getElementById('val-curb-height');
+
+    const sliderCurbBevel = document.getElementById('slider-curb-bevel') as HTMLInputElement | null;
+    const valCurbBevel = document.getElementById('val-curb-bevel');
+
+    const pickerCurbColor = document.getElementById('picker-curb-color') as HTMLInputElement | null;
+    const textCurbColor = document.getElementById('text-curb-color');
+
+    const toggleCrosswalk = document.getElementById('panel-crosswalk-toggle') as HTMLInputElement | null;
+
+    const pickerAsphaltColor = document.getElementById('picker-asphalt-color') as HTMLInputElement | null;
+    const textAsphaltColor = document.getElementById('text-asphalt-color');
+
+    const pickerLineColor = document.getElementById('picker-line-color') as HTMLInputElement | null;
+    const textLineColor = document.getElementById('text-line-color');
+
+    btnClose?.addEventListener('click', () => {
+      this.sounds.playClickSFX();
+      sandbox?.classList.add('hidden');
+      document.getElementById('item-toggle-streetscape-sandbox')?.classList.remove('active');
+    });
+
+    const update = (updates: Partial<StreetscapeSettings>) => {
+      this.renderer.updateStreetscapeSettings(updates);
+    };
+
+    sliderSwWidth?.addEventListener('input', () => {
+      const v = parseFloat(sliderSwWidth.value);
+      if (valSwWidth) valSwWidth.innerText = `${v.toFixed(2)}m`;
+      update({ sidewalkWidth: v });
+    });
+
+    sliderSwHeight?.addEventListener('input', () => {
+      const v = parseFloat(sliderSwHeight.value);
+      if (valSwHeight) valSwHeight.innerText = `${v.toFixed(2)}m`;
+      update({ sidewalkHeight: v });
+    });
+
+    sliderSwOffset?.addEventListener('input', () => {
+      const v = parseFloat(sliderSwOffset.value);
+      if (valSwOffset) valSwOffset.innerText = `${v.toFixed(2)}m`;
+      update({ sidewalkOffset: v });
+    });
+
+    pickerSwColor?.addEventListener('input', () => {
+      const val = pickerSwColor.value;
+      if (textSwColor) textSwColor.innerText = val;
+      update({ sidewalkColor: val });
+    });
+
+    sliderCurbWidth?.addEventListener('input', () => {
+      const v = parseFloat(sliderCurbWidth.value);
+      if (valCurbWidth) valCurbWidth.innerText = `${v.toFixed(3)}m`;
+      update({ curbWidth: v });
+    });
+
+    sliderCurbHeight?.addEventListener('input', () => {
+      const v = parseFloat(sliderCurbHeight.value);
+      if (valCurbHeight) valCurbHeight.innerText = `${v.toFixed(3)}m`;
+      update({ curbHeight: v });
+    });
+
+    sliderCurbBevel?.addEventListener('input', () => {
+      const v = parseFloat(sliderCurbBevel.value);
+      if (valCurbBevel) valCurbBevel.innerText = `${v.toFixed(3)}m`;
+      update({ curbBevel: v });
+    });
+
+    pickerCurbColor?.addEventListener('input', () => {
+      const val = pickerCurbColor.value;
+      if (textCurbColor) textCurbColor.innerText = val;
+      update({ curbColor: val });
+    });
+
+    toggleCrosswalk?.addEventListener('change', () => {
+      if (toggleCrosswalk) {
+        update({ showCrosswalks: toggleCrosswalk.checked });
+        this.sounds.playClickSFX();
+      }
+    });
+
+    pickerAsphaltColor?.addEventListener('input', () => {
+      const val = pickerAsphaltColor.value;
+      if (textAsphaltColor) textAsphaltColor.innerText = val;
+      update({ asphaltColor: val });
+    });
+
+    pickerLineColor?.addEventListener('input', () => {
+      const val = pickerLineColor.value;
+      if (textLineColor) textLineColor.innerText = val;
+      update({ lineColor: val });
+    });
+
+    btnReset?.addEventListener('click', () => {
+      this.sounds.playClickSFX();
+      const defaults = DEFAULT_STREETSCAPE_SETTINGS;
+      if (sliderSwWidth) { sliderSwWidth.value = defaults.sidewalkWidth.toString(); if (valSwWidth) valSwWidth.innerText = `${defaults.sidewalkWidth.toFixed(2)}m`; }
+      if (sliderSwHeight) { sliderSwHeight.value = defaults.sidewalkHeight.toString(); if (valSwHeight) valSwHeight.innerText = `${defaults.sidewalkHeight.toFixed(2)}m`; }
+      if (sliderSwOffset) { sliderSwOffset.value = defaults.sidewalkOffset.toString(); if (valSwOffset) valSwOffset.innerText = `${defaults.sidewalkOffset.toFixed(2)}m`; }
+      if (pickerSwColor) { pickerSwColor.value = defaults.sidewalkColor; if (textSwColor) textSwColor.innerText = defaults.sidewalkColor; }
+      if (sliderCurbWidth) { sliderCurbWidth.value = defaults.curbWidth.toString(); if (valCurbWidth) valCurbWidth.innerText = `${defaults.curbWidth.toFixed(3)}m`; }
+      if (sliderCurbHeight) { sliderCurbHeight.value = defaults.curbHeight.toString(); if (valCurbHeight) valCurbHeight.innerText = `${defaults.curbHeight.toFixed(3)}m`; }
+      if (sliderCurbBevel) { sliderCurbBevel.value = defaults.curbBevel.toString(); if (valCurbBevel) valCurbBevel.innerText = `${defaults.curbBevel.toFixed(3)}m`; }
+      if (pickerCurbColor) { pickerCurbColor.value = defaults.curbColor; if (textCurbColor) textCurbColor.innerText = defaults.curbColor; }
+      if (toggleCrosswalk) { toggleCrosswalk.checked = defaults.showCrosswalks; }
+      if (pickerAsphaltColor) { pickerAsphaltColor.value = defaults.asphaltColor; if (textAsphaltColor) textAsphaltColor.innerText = defaults.asphaltColor; }
+      if (pickerLineColor) { pickerLineColor.value = defaults.lineColor; if (textLineColor) textLineColor.innerText = defaults.lineColor; }
+      
+      update(defaults);
+    });
+  }
+
   initDevDropdown() {
     const devDropdown = document.getElementById('dev-dropdown');
     const btnDevToggle = document.getElementById('btn-dev-toggle');
     const itemToggleCelSandbox = document.getElementById('item-toggle-cel-sandbox');
     const itemToggleShadowSandbox = document.getElementById('item-toggle-shadow-sandbox');
+    const itemToggleStreetscapeSandbox = document.getElementById('item-toggle-streetscape-sandbox');
     
     if (!devDropdown || !btnDevToggle) return;
     
@@ -1074,6 +1210,17 @@ export class Game {
         itemToggleShadowSandbox.classList.toggle('active', !isHidden);
       }
     });
+
+    itemToggleStreetscapeSandbox?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.sounds.playClickSFX();
+      
+      const streetscapeSandbox = document.getElementById('streetscape-sandbox');
+      if (streetscapeSandbox) {
+        const isHidden = streetscapeSandbox.classList.toggle('hidden');
+        itemToggleStreetscapeSandbox.classList.toggle('active', !isHidden);
+      }
+    });
   }
 
   // Recalculates road direction meshes for cell and its neighbors within Manhattan distance 2
@@ -1091,13 +1238,7 @@ export class Game {
       if (item.x >= 0 && item.x < this.sim.gridSize && item.y >= 0 && item.y < this.sim.gridSize) {
         const tile = this.sim.grid[item.x][item.y];
         if (tile.type === 'road') {
-          // Tally adjacency connections
-          const N = item.y > 0 && this.sim.grid[item.x][item.y - 1].type === 'road';
-          const S = item.y < this.sim.gridSize - 1 && this.sim.grid[item.x][item.y + 1].type === 'road';
-          const E = item.x < this.sim.gridSize - 1 && this.sim.grid[item.x + 1][item.y].type === 'road';
-          const W = item.x > 0 && this.sim.grid[item.x - 1][item.y].type === 'road';
-
-          this.renderer.updateRoadMesh(item.x, item.y, { N, S, E, W });
+          this.renderer.updateRoadMesh(item.x, item.y, this.renderer.getRoadConnections(item.x, item.y));
         } else {
           // Redraw empty/other tile if it was road
           this.renderer.updateTileMesh(tile);
