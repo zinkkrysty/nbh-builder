@@ -1,7 +1,7 @@
 import { Simulation, TileState, TileType, APPLICATION_INTEREST_THRESHOLD } from './Simulation';
 import { Renderer } from './Renderer';
 import { InputManager } from './InputManager';
-import { AssetGenerator } from './AssetGenerator';
+import { AssetGenerator, MaterialProfile } from './AssetGenerator';
 import { SoundManager } from './SoundManager';
 import { TrafficManager } from './TrafficManager';
 import { CitizenManager } from './CitizenManager';
@@ -609,13 +609,11 @@ export class Game {
       }
     });
 
-    // Enable/Disable Cel Shading switch inside panel
-    const panelToggle = document.getElementById('panel-cel-toggle') as HTMLInputElement | null;
-    if (panelToggle) {
-      panelToggle.checked = this.assets.useCelShading;
-      panelToggle.addEventListener('change', () => {
-        const isCel = panelToggle.checked;
-        this.assets.setCelShading(isCel);
+    const profileSelect = document.getElementById('panel-material-profile') as HTMLSelectElement | null;
+    if (profileSelect) {
+      profileSelect.value = this.assets.materialProfile;
+      profileSelect.addEventListener('change', () => {
+        this.assets.setMaterialProfile(profileSelect.value as MaterialProfile);
         this.renderer.refreshSceneMaterials();
         this.sounds.playClickSFX();
       });

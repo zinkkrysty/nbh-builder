@@ -400,13 +400,14 @@
         <button id="btn-sandbox-close" style="background: none; border: none; color: #94a3b8; font-size: 1.25rem; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.15s; margin-left: auto;">&times;</button>
       </div>
       
-      <!-- Enable Cel Shading Switch -->
+      <!-- Material profile -->
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.75rem; margin-bottom: 0.25rem;">
-        <span style="font-size: 0.85rem; font-weight: 500; color: #fff;">Enable Cel Shading</span>
-        <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px; flex-shrink: 0;">
-          <input type="checkbox" id="panel-cel-toggle" checked style="opacity: 0; width: 0; height: 0;">
-          <span class="slider-round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .2s; border-radius: 34px; border: 1px solid rgba(255,255,255,0.08);"></span>
-        </label>
+        <label for="panel-material-profile" style="font-size: 0.85rem; font-weight: 500; color: #fff;">Material profile</label>
+        <select id="panel-material-profile" style="width: 132px; padding: 6px 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.12); background: rgba(18, 22, 33, 0.6); color: #fff; font-family: inherit; font-size: 0.8rem; cursor: pointer; outline: none;">
+          <option value="softToon">Soft toon</option>
+          <option value="toon">Cel shading</option>
+          <option value="standard">Standard PBR</option>
+        </select>
       </div>
 
       <div class="control-group" style="display: flex; flex-direction: column; gap: 0.25rem;">
@@ -578,7 +579,7 @@
 
           <div style="display: flex; flex-direction: column; gap: 2px;">
             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
-              <span>Ambient Intensity</span>
+              <span>Sky Fill Intensity</span>
               <span id="val-ambient-intensity">0.6</span>
             </div>
             <input type="range" id="slider-ambient-intensity" min="0" max="2" step="0.1" value="0.6" style="width: 100%; cursor: pointer;">
@@ -594,10 +595,10 @@
               </div>
             </div>
             <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
-              <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Ambient Color</span>
+              <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Sky Fill Color</span>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <input type="color" id="picker-ambient-color" value="#ffffff" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
-                <span id="text-ambient-color" style="font-size: 0.75rem; font-family: monospace; color: #ffffff;">#ffffff</span>
+                <input type="color" id="picker-ambient-color" value="#c5def5" style="border: none; padding: 0; width: 28px; height: 28px; background: none; cursor: pointer; border-radius: 4px;">
+                <span id="text-ambient-color" style="font-size: 0.75rem; font-family: monospace; color: #fff;">#c5def5</span>
               </div>
             </div>
           </div>

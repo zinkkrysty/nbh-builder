@@ -639,6 +639,67 @@ export class Simulation {
     return true;
   }
 
+  isNSRamp(x: number, y: number): boolean {
+    if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
+    const tile = this.grid[x][y];
+    if (tile.type !== 'road' || tile.bridge) return false;
+    const N = y > 0 && this.grid[x][y - 1].type === 'road';
+    const S = y < this.gridSize - 1 && this.grid[x][y + 1].type === 'road';
+    const E = x < this.gridSize - 1 && this.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.grid[x - 1][y].type === 'road';
+    if (N && S && !E && !W) {
+      const H_C = tile.elevation || 0;
+      const H_N = this.grid[x][y - 1].elevation || 0;
+      const H_S = this.grid[x][y + 1].elevation || 0;
+      const y_N = Math.max(H_C, H_N) * 0.8;
+      const y_S = Math.max(H_C, H_S) * 0.8;
+      if (y_N !== y_S) return true;
+    }
+    return false;
+  }
+
+  isEWRamp(x: number, y: number): boolean {
+    if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
+    const tile = this.grid[x][y];
+    if (tile.type !== 'road' || tile.bridge) return false;
+    const N = y > 0 && this.grid[x][y - 1].type === 'road';
+    const S = y < this.gridSize - 1 && this.grid[x][y + 1].type === 'road';
+    const E = x < this.gridSize - 1 && this.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.grid[x - 1][y].type === 'road';
+    if (E && W && !N && !S) {
+      const H_C = tile.elevation || 0;
+      const H_E = this.grid[x + 1][y].elevation || 0;
+      const H_W = this.grid[x - 1][y].elevation || 0;
+      const y_E = Math.max(H_C, H_E) * 0.8;
+      const y_W = Math.max(H_C, H_W) * 0.8;
+      if (y_E !== y_W) return true;
+    }
+    return false;
+  }
+
+  canWalkBetween(x1: number, y1: number, x2: number, y2: number): boolean {
+    const tile1 = this.grid[x1]?.[y1];
+    const tile2 = this.grid[x2]?.[y2];
+    if (!tile1 || !tile2) return false;
+    if (tile1.bridge || tile2.bridge) return true;
+
+    const h1 = tile1.elevation || 0;
+    const h2 = tile2.elevation || 0;
+
+    if (h1 === h2) return true;
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    if (dy !== 0) {
+      return this.isNSRamp(x1, y1) || this.isNSRamp(x2, y2);
+    } else if (dx !== 0) {
+      return this.isEWRamp(x1, y1) || this.isEWRamp(x2, y2);
+    }
+
+    return false;
+  }
+
   private isSharedGardenTargetReachable(home: TilePosition, target: TilePosition): boolean {
     const queue: TilePosition[] = [{ ...home }];
     const visited = new Uint8Array(this.gridSize * this.gridSize);
@@ -655,6 +716,7 @@ export class Simulation {
         if (next.x !== target.x || next.y !== target.y) {
           if (tile.type !== 'road' && tile.type !== 'boardwalk' && tile.type !== 'park') continue;
         }
+        if (!this.canWalkBetween(current.x, current.y, next.x, next.y)) continue;
         visited[index] = 1;
         queue.push(next);
       }
@@ -1273,7 +1335,7 @@ export class Simulation {
     const starts = [{ x: tile.x + 1, y: tile.y }, { x: tile.x - 1, y: tile.y }, { x: tile.x, y: tile.y + 1 }, { x: tile.x, y: tile.y - 1 }]
       .filter(point => {
         const candidate = this.grid[point.x]?.[point.y];
-        return candidate?.type === 'road' || candidate?.type === 'boardwalk';
+        return (candidate?.type === 'road' || candidate?.type === 'boardwalk') && this.canWalkBetween(tile.x, tile.y, point.x, point.y);
       });
     const queue = [...starts];
     const visited = new Set(starts.map(point => `${point.x},${point.y}`));
@@ -1283,7 +1345,7 @@ export class Simulation {
       for (const next of [{ x: current.x + 1, y: current.y }, { x: current.x - 1, y: current.y }, { x: current.x, y: current.y + 1 }, { x: current.x, y: current.y - 1 }]) {
         const key = `${next.x},${next.y}`;
         const candidate = this.grid[next.x]?.[next.y];
-        if (!visited.has(key) && (candidate?.type === 'road' || candidate?.type === 'boardwalk')) {
+        if (!visited.has(key) && (candidate?.type === 'road' || candidate?.type === 'boardwalk') && this.canWalkBetween(current.x, current.y, next.x, next.y)) {
           visited.add(key);
           queue.push(next);
         }

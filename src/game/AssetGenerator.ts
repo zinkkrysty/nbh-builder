@@ -3,6 +3,29 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { Simulation } from './Simulation';
 import { ROAD_LAYOUT, currentStreetscapeSettings } from './RoadLayout';
 
+export type MaterialProfile = 'standard' | 'softToon' | 'toon';
+
+type ResidentialPalette = {
+  wall: THREE.Material;
+  roof: THREE.Material;
+  trim: THREE.Material;
+  brick: THREE.Material;
+};
+
+type CommercialPalette = ResidentialPalette & {
+  accent: THREE.Material;
+};
+
+type WaterNeighbors = { N: boolean; S: boolean; E: boolean; W: boolean };
+type WaterDiagonalNeighbors = { NW: boolean; NE: boolean; SE: boolean; SW: boolean };
+
+const NO_WATER_DIAGONALS: WaterDiagonalNeighbors = {
+  NW: false,
+  NE: false,
+  SE: false,
+  SW: false,
+};
+
 export class AssetGenerator {
   sim: Simulation | null = null;
   // Shared materials for performance
@@ -11,55 +34,26 @@ export class AssetGenerator {
   geometries: { [key: string]: THREE.BufferGeometry } = {};
   isNightMode: boolean = false;
 
-  useCelShading: boolean = true;
+  // Soft-toon keeps PBR roughness/emission while faceting the broad low-poly forms.
+  materialProfile: MaterialProfile = 'softToon';
   toonGradient!: THREE.Texture;
   gradientCanvas!: HTMLCanvasElement;
   standardMaterials: { [key: string]: THREE.Material } = {};
+  softToonMaterials: { [key: string]: THREE.Material } = {};
   toonMaterials: { [key: string]: THREE.Material } = {};
-  standardPalettes: {
-    wall: THREE.Material;
-    roof: THREE.Material;
-    trim: THREE.Material;
-    brick: THREE.Material;
-  }[] = [];
-  toonPalettes: {
-    wall: THREE.Material;
-    roof: THREE.Material;
-    trim: THREE.Material;
-    brick: THREE.Material;
-  }[] = [];
-  standardCommercialPalettes: {
-    wall: THREE.Material;
-    roof: THREE.Material;
-    trim: THREE.Material;
-    accent: THREE.Material;
-    brick: THREE.Material;
-  }[] = [];
-  toonCommercialPalettes: {
-    wall: THREE.Material;
-    roof: THREE.Material;
-    trim: THREE.Material;
-    accent: THREE.Material;
-    brick: THREE.Material;
-  }[] = [];
-  materialTransitionMap: Map<THREE.Material, THREE.Material> = new Map();
+  standardPalettes: ResidentialPalette[] = [];
+  softToonPalettes: ResidentialPalette[] = [];
+  toonPalettes: ResidentialPalette[] = [];
+  standardCommercialPalettes: CommercialPalette[] = [];
+  softToonCommercialPalettes: CommercialPalette[] = [];
+  toonCommercialPalettes: CommercialPalette[] = [];
+  private materialProfileMap = new Map<THREE.Material, Record<MaterialProfile, THREE.Material>>();
 
   // Curated cozy color palettes for procedural residential blocks
-  palettes: {
-    wall: THREE.Material;
-    roof: THREE.Material;
-    trim: THREE.Material;
-    brick: THREE.Material;
-  }[] = [];
+  palettes: ResidentialPalette[] = [];
 
   // Curated color palettes for procedural commercial buildings
-  commercialPalettes: {
-    wall: THREE.Material;
-    roof: THREE.Material;
-    trim: THREE.Material;
-    accent: THREE.Material;
-    brick: THREE.Material;
-  }[] = [];
+  commercialPalettes: CommercialPalette[] = [];
 
   constructor() {
     this.initMaterials();
@@ -225,21 +219,47 @@ export class AssetGenerator {
     this.toonGradient = this.createToonGradientTexture(10);
 
     this.standardMaterials = {};
+    this.softToonMaterials = {};
     this.toonMaterials = {};
-    this.materialTransitionMap = new Map();
+    this.materialProfileMap = new Map();
+
+    const registerProfileTriplet = (standard: THREE.Material, softToon: THREE.Material, toon: THREE.Material) => {
+      const profiles = { standard, softToon, toon };
+      this.materialProfileMap.set(standard, profiles);
+      this.materialProfileMap.set(softToon, profiles);
+      this.materialProfileMap.set(toon, profiles);
+    };
+
+    const softenMaterial = (key: string, material: THREE.Material) => {
+      // Preserve continuous highlights for glass, water, lamps, and metal. Other
+      // standard materials use their existing PBR settings with faceted normals.
+      const smoothSurfaces = new Set([
+        'waterBlue', 'glass', 'metal', 'whiteMetal', 'charcoalMetal',
+        'lampBulb', 'window', 'fairyLight', 'headlight', 'taillight',
+      ]);
+      if (material instanceof THREE.MeshStandardMaterial && !smoothSurfaces.has(key)) {
+        material.flatShading = true;
+        material.needsUpdate = true;
+      }
+      material.userData.materialProfile = 'softToon';
+      return material;
+    };
 
     const registerMat = (key: string, creator: (type: 'standard' | 'toon') => THREE.Material) => {
       const std = creator('standard');
+      const softToon = softenMaterial(key, creator('standard'));
       const toon = creator('toon');
       this.standardMaterials[key] = std;
+      this.softToonMaterials[key] = softToon;
       this.toonMaterials[key] = toon;
-      this.materialTransitionMap.set(std, toon);
-      this.materialTransitionMap.set(toon, std);
+      registerProfileTriplet(std, softToon, toon);
     };
 
     const registerBasicMat = (key: string, mat: THREE.Material) => {
       this.standardMaterials[key] = mat;
+      this.softToonMaterials[key] = mat;
       this.toonMaterials[key] = mat;
+      registerProfileTriplet(mat, mat, mat);
     };
 
     // Ground / Grass
@@ -250,16 +270,29 @@ export class AssetGenerator {
           `#include <common>
            attribute vec4 aEdgeFlags;
            attribute vec4 aCornerFlags;
-           varying vec3 vMyLocalNormal;`
+           attribute vec4 aCliffEdgeRoles;
+           attribute vec4 aCliffCornerRoles;
+           attribute float aTerrainFacet;
+           varying vec3 vTerrainLocalNormal;
+           varying vec3 vTerrainWorldPos;
+           varying vec2 vTerrainTileLocalXZ;
+           varying vec4 vTerrainEdgeFlags;
+           varying vec4 vTerrainCliffEdgeRoles;
+           varying vec4 vTerrainCliffCornerRoles;
+           varying float vTerrainEdgeWeight;
+           varying float vTerrainFacet;
+           varying vec2 vTerrainTileIndex;`
         )
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-           vMyLocalNormal = normal;
+           vTerrainLocalNormal = normal;
            #ifdef USE_INSTANCING
              vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
+             vec4 tileOrigin = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
            #else
              vec4 worldPos = modelMatrix * vec4(position, 1.0);
+             vec4 tileOrigin = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
            #endif
 
            float edgeWeight = 0.0;
@@ -288,6 +321,24 @@ export class AssetGenerator {
              }
            #endif
 
+           // Keep terrain colour variation entirely coordinate-derived. This makes
+           // every open lot and cliff deterministic without a tile material, a
+           // texture lookup, or simulation/save-state data.
+           vTerrainWorldPos = worldPos.xyz;
+           vTerrainTileLocalXZ = worldPos.xz - tileOrigin.xz;
+           vTerrainEdgeWeight = edgeWeight;
+           vTerrainFacet = aTerrainFacet;
+           vTerrainTileIndex = tileOrigin.xz * 0.5;
+           #ifdef USE_INSTANCING
+             vTerrainEdgeFlags = aEdgeFlags;
+             vTerrainCliffEdgeRoles = aCliffEdgeRoles;
+             vTerrainCliffCornerRoles = aCliffCornerRoles;
+           #else
+             vTerrainEdgeFlags = vec4(0.0);
+             vTerrainCliffEdgeRoles = vec4(0.0);
+             vTerrainCliffCornerRoles = vec4(0.0);
+           #endif
+
            vec3 topDisplace = vec3(
              sin(worldPos.z * 2.5 + worldPos.x * 0.8) * cos(worldPos.x * 1.2) * 0.22,
              0.0,
@@ -309,12 +360,89 @@ export class AssetGenerator {
         .replace(
           '#include <common>',
           `#include <common>
-           varying vec3 vMyLocalNormal;`
+           varying vec3 vTerrainLocalNormal;
+           varying vec3 vTerrainWorldPos;
+           varying vec2 vTerrainTileLocalXZ;
+           varying vec4 vTerrainEdgeFlags;
+           varying vec4 vTerrainCliffEdgeRoles;
+           varying vec4 vTerrainCliffCornerRoles;
+           varying float vTerrainEdgeWeight;
+           varying float vTerrainFacet;
+           varying vec2 vTerrainTileIndex;
+
+           float terrainFacetHash(vec2 p) {
+             return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+           }
+
+           `
         )
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
-           vec3 customColor = (vMyLocalNormal.y > 0.5) ? vec3(0.45, 0.75, 0.53) : vec3(0.63, 0.51, 0.38);
+           // Each top triangle gets one deterministic shade. Keep it entirely
+           // facet-local: earlier macro waves made visible bands across large
+           // maps. Coordinate-seeded values do not repeat when zooming out,
+           // while the tighter palette keeps the land quiet and buildable.
+           float grassPatch = floor(terrainFacetHash(
+             vTerrainTileIndex + vec2(vTerrainFacet * 17.0, vTerrainFacet * 31.0)
+           ) * 3.0) * 0.5;
+
+           // Match the game's five sculpting steps instead of painting a smooth
+           // gradient across the landscape. Low ground stays a fuller, cooler
+           // green, while exposed high ground shifts toward a lighter, drier
+           // sage. This gives terraces a readable low-poly value
+           // hierarchy without making altitude look like a biome boundary.
+           float elevationStep = floor(clamp(vTerrainWorldPos.y / 0.8, 0.0, 4.0) + 0.5) / 4.0;
+           vec3 grassAtElevation = mix(
+             vec3(0.415, 0.675, 0.455),
+             vec3(0.525, 0.735, 0.385),
+             elevationStep
+           );
+           vec3 grassShade = grassAtElevation * mix(0.945, 1.055, grassPatch);
+
+           // Exposed vertical terrain faces use three soft elevation-relative
+           // bands. The lower contact shade is intentionally restrained: it
+           // helps stacked tiles read as banks/cliffs without drawing a hard
+           // outline around every lot.
+           float tier = fract(-vTerrainWorldPos.y / 0.8 + 0.0001);
+           vec3 bankShade = mix(vec3(0.515, 0.405, 0.285), vec3(0.575, 0.465, 0.335), smoothstep(0.18, 0.48, tier));
+           bankShade = mix(bankShade, vec3(0.625, 0.515, 0.385), smoothstep(0.54, 0.84, tier));
+           float bankStain = terrainFacetHash(vTerrainTileIndex + vec2(7.3, 12.7));
+           bankShade *= mix(0.965, 1.035, bankStain);
+           float contactShade = smoothstep(0.78, 0.98, tier) * vTerrainEdgeWeight;
+           bankShade *= 1.0 - contactShade * 0.075;
+
+           float topFace = smoothstep(0.42, 0.68, vTerrainLocalNormal.y);
+           vec3 customColor = mix(bankShade, grassShade, topFace);
+
+           // Use crisp, flat bands on the grass cap: the upper tile gets a
+           // narrow lit lip and the lower tile a matching contact shadow. The
+           // signed roles prevent the highlight from appearing on both sides.
+           vec4 grassEdgeBand = vec4(
+             step(0.93, -vTerrainTileLocalXZ.y),
+             step(0.93,  vTerrainTileLocalXZ.x),
+             step(0.93,  vTerrainTileLocalXZ.y),
+             step(0.93, -vTerrainTileLocalXZ.x)
+           );
+           vec4 grassCornerBand = vec4(
+             grassEdgeBand.w * grassEdgeBand.x,
+             grassEdgeBand.x * grassEdgeBand.y,
+             grassEdgeBand.y * grassEdgeBand.z,
+             grassEdgeBand.z * grassEdgeBand.w
+           );
+           vec4 upperCliffEdge = max(vTerrainCliffEdgeRoles, vec4(0.0));
+           vec4 lowerCliffEdge = max(-vTerrainCliffEdgeRoles, vec4(0.0));
+           float upperEdgeLip = max(max(upperCliffEdge.x * grassEdgeBand.x, upperCliffEdge.y * grassEdgeBand.y), max(upperCliffEdge.z * grassEdgeBand.z, upperCliffEdge.w * grassEdgeBand.w));
+           vec4 upperConcaveCorner = max(vTerrainCliffCornerRoles, vec4(0.0));
+           float upperConcaveCornerLip = max(max(upperConcaveCorner.x * grassCornerBand.x, upperConcaveCorner.y * grassCornerBand.y), max(upperConcaveCorner.z * grassCornerBand.z, upperConcaveCorner.w * grassCornerBand.w));
+           vec4 lowerConcaveCorner = max(-vTerrainCliffCornerRoles, vec4(0.0));
+           float lowerConcaveCornerShadow = max(max(lowerConcaveCorner.x * grassCornerBand.x, lowerConcaveCorner.y * grassCornerBand.y), max(lowerConcaveCorner.z * grassCornerBand.z, lowerConcaveCorner.w * grassCornerBand.w));
+           float upperGrassLip = max(upperEdgeLip, upperConcaveCornerLip) * topFace;
+           float lowerEdgeShadow = max(max(lowerCliffEdge.x * grassEdgeBand.x, lowerCliffEdge.y * grassEdgeBand.y), max(lowerCliffEdge.z * grassEdgeBand.z, lowerCliffEdge.w * grassEdgeBand.w));
+           float lowerGrassShadow = max(lowerEdgeShadow, lowerConcaveCornerShadow) * topFace;
+           customColor = mix(customColor, customColor * 0.78, lowerGrassShadow);
+           customColor = mix(customColor, vec3(0.690, 0.805, 0.510), upperGrassLip * 0.52);
+
            diffuseColor = vec4(customColor, opacity);`
         );
     };
@@ -434,6 +562,13 @@ export class AssetGenerator {
       brick: new THREE.MeshStandardMaterial({ color: p.brickColor, roughness: 0.8 })
     }));
 
+    this.softToonPalettes = COZY_PALETTES.map(p => ({
+      wall: softenMaterial('wall', new THREE.MeshStandardMaterial({ color: p.wallColor, roughness: 0.6 })),
+      roof: softenMaterial('roof', new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.7 })),
+      trim: softenMaterial('trim', new THREE.MeshStandardMaterial({ color: p.trimColor, roughness: 0.5 })),
+      brick: softenMaterial('brick', new THREE.MeshStandardMaterial({ color: p.brickColor, roughness: 0.8 })),
+    }));
+
     this.toonPalettes = COZY_PALETTES.map(p => ({
       wall: new THREE.MeshToonMaterial({ color: p.wallColor, gradientMap: this.toonGradient }),
       roof: new THREE.MeshToonMaterial({ color: p.roofColor, gradientMap: this.toonGradient }),
@@ -443,15 +578,12 @@ export class AssetGenerator {
 
     for (let i = 0; i < COZY_PALETTES.length; i++) {
       const std = this.standardPalettes[i];
+      const softToon = this.softToonPalettes[i];
       const toon = this.toonPalettes[i];
-      this.materialTransitionMap.set(std.wall, toon.wall);
-      this.materialTransitionMap.set(toon.wall, std.wall);
-      this.materialTransitionMap.set(std.roof, toon.roof);
-      this.materialTransitionMap.set(toon.roof, std.roof);
-      this.materialTransitionMap.set(std.trim, toon.trim);
-      this.materialTransitionMap.set(toon.trim, std.trim);
-      this.materialTransitionMap.set(std.brick, toon.brick);
-      this.materialTransitionMap.set(toon.brick, std.brick);
+      registerProfileTriplet(std.wall, softToon.wall, toon.wall);
+      registerProfileTriplet(std.roof, softToon.roof, toon.roof);
+      registerProfileTriplet(std.trim, softToon.trim, toon.trim);
+      registerProfileTriplet(std.brick, softToon.brick, toon.brick);
     }
 
     // Curated Commercial Palettes
@@ -471,6 +603,14 @@ export class AssetGenerator {
       brick: new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.8 })
     }));
 
+    this.softToonCommercialPalettes = COMMERCIAL_PALETTES.map(p => ({
+      wall: softenMaterial('wall', new THREE.MeshStandardMaterial({ color: p.wallColor, roughness: 0.5 })),
+      roof: softenMaterial('roof', new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.7 })),
+      trim: softenMaterial('trim', new THREE.MeshStandardMaterial({ color: p.trimColor, roughness: 0.4 })),
+      accent: softenMaterial('accent', new THREE.MeshStandardMaterial({ color: p.accentColor, roughness: 0.6 })),
+      brick: softenMaterial('brick', new THREE.MeshStandardMaterial({ color: p.roofColor, roughness: 0.8 })),
+    }));
+
     this.toonCommercialPalettes = COMMERCIAL_PALETTES.map(p => ({
       wall: new THREE.MeshToonMaterial({ color: p.wallColor, gradientMap: this.toonGradient }),
       roof: new THREE.MeshToonMaterial({ color: p.roofColor, gradientMap: this.toonGradient }),
@@ -481,17 +621,13 @@ export class AssetGenerator {
 
     for (let i = 0; i < COMMERCIAL_PALETTES.length; i++) {
       const std = this.standardCommercialPalettes[i];
+      const softToon = this.softToonCommercialPalettes[i];
       const toon = this.toonCommercialPalettes[i];
-      this.materialTransitionMap.set(std.wall, toon.wall);
-      this.materialTransitionMap.set(toon.wall, std.wall);
-      this.materialTransitionMap.set(std.roof, toon.roof);
-      this.materialTransitionMap.set(toon.roof, std.roof);
-      this.materialTransitionMap.set(std.trim, toon.trim);
-      this.materialTransitionMap.set(toon.trim, std.trim);
-      this.materialTransitionMap.set(std.accent, toon.accent);
-      this.materialTransitionMap.set(toon.accent, std.accent);
-      this.materialTransitionMap.set(std.brick, toon.brick);
-      this.materialTransitionMap.set(toon.brick, std.brick);
+      registerProfileTriplet(std.wall, softToon.wall, toon.wall);
+      registerProfileTriplet(std.roof, softToon.roof, toon.roof);
+      registerProfileTriplet(std.trim, softToon.trim, toon.trim);
+      registerProfileTriplet(std.accent, softToon.accent, toon.accent);
+      registerProfileTriplet(std.brick, softToon.brick, toon.brick);
     }
 
     // Residential Colors (cozy pastels - fallbacks/legacy)
@@ -540,6 +676,8 @@ export class AssetGenerator {
     // Utilities
     registerMat('whiteMetal', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4, metalness: 0.3 }) : new THREE.MeshToonMaterial({ color: 0xf8fafc, gradientMap: this.toonGradient }));
     registerMat('cement', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x8e929b, roughness: 0.85 }) : new THREE.MeshToonMaterial({ color: 0x8e929b, gradientMap: this.toonGradient }));
+    registerMat('constructionFoundation', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.92, metalness: 0.05 }) : new THREE.MeshToonMaterial({ color: 0x64748b, gradientMap: this.toonGradient }));
+    registerMat('constructionFrame', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.7, metalness: 0.08 }) : new THREE.MeshToonMaterial({ color: 0xf59e0b, gradientMap: this.toonGradient }));
 
     const applyWaterOnBeforeCompile = (shader: any, mat: THREE.Material) => {
       if (!mat.userData.uTime) {
@@ -550,25 +688,176 @@ export class AssetGenerator {
         .replace(
           '#include <common>',
           `#include <common>
-           uniform float uTime;`
+           uniform float uTime;
+           varying vec3 vWaterWorldPos;`
         )
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
            vec4 worldPos = modelMatrix * vec4( transformed, 1.0 );
-           float wave = (sin(worldPos.x * 1.8 + uTime * 2.0) + cos(worldPos.z * 1.8 + uTime * 1.6)) * 0.018;
-           transformed += normal * wave;`
+           float rawWave = sin(worldPos.x * 1.35 + worldPos.z * 0.72 + uTime * 1.70) * 0.028
+             + cos(worldPos.z * 1.62 - worldPos.x * 0.48 + uTime * 1.25) * 0.023;
+           // The water plane sits 0.04 below terrain. Compress crests so even
+           // the theoretical maximum stays submerged, while extending troughs
+           // to preserve strong faceted motion without flooding the bank.
+           float wave = max(rawWave, 0.0) * 0.58 + min(rawWave, 0.0) * 1.25;
+           transformed += normal * wave;
+           vWaterWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           uniform float uTime;
+           varying vec3 vWaterWorldPos;
+           vec3 waterFaceNormal;
+
+           float waterFacetHash(vec2 p) {
+             // Interleaved gradient noise: stable pseudo-random variation made
+             // from dot/fract only, avoiding a trigonometric call per fragment.
+             return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+           }`
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+           // A world-space triangular mosaic gives the flat surface the same
+           // chunky visual language as the terrain. It remains seamless across
+           // water tiles and costs only scalar arithmetic: no texture lookup,
+           // reflection, noise octave, or per-pixel sine wave.
+           vec2 facetGrid = vec2(
+             dot(vWaterWorldPos.xz, vec2(0.72, 0.25)),
+             dot(vWaterWorldPos.xz, vec2(-0.25, 0.72))
+           );
+           vec2 facetCell = floor(facetGrid);
+           vec2 facetLocal = fract(facetGrid);
+           float triangle = step(facetLocal.x, facetLocal.y);
+           vec2 triangleId = facetCell + vec2(triangle * 0.43, triangle * 0.71);
+           float facetBand = floor(waterFacetHash(triangleId) * 3.0) * 0.5;
+
+           vec3 coolFacet = vec3(0.87, 0.96, 1.06);
+           vec3 warmFacet = vec3(1.03, 1.02, 0.94);
+           vec3 waterTint = mix(coolFacet, warmFacet, facetBand);
+
+           diffuseColor.rgb *= waterTint;
+           // Use the displaced triangle itself as the detail. Its derivative
+           // normal gives rising and falling wave faces contrasting tones,
+           // without drawn marks, normal maps, or texture reads.
+           waterFaceNormal = normalize(cross(dFdx(vWaterWorldPos), dFdy(vWaterWorldPos)));
+           if (waterFaceNormal.y < 0.0) waterFaceNormal *= -1.0;
+           float faceTilt = dot(waterFaceNormal.xz, normalize(vec2(-0.72, 0.69)));
+           float faceContrast = clamp(faceTilt * 1.35, -0.12, 0.12);
+           diffuseColor.rgb *= 1.0 + faceContrast;`
+        )
+        .replace(
+          '#include <normal_fragment_begin>',
+          `#include <normal_fragment_begin>
+           // Feed the real displaced face normal into Standard and Toon
+           // lighting so the animated geometry, rather than a decal, reads.
+           normal = gl_FrontFacing ? waterFaceNormal : -waterFaceNormal;`
+        );
+    };
+
+    const applyWaterShoreFoamOnBeforeCompile = (shader: any, mat: THREE.Material, style: 'outer' | 'inner') => {
+      if (!mat.userData.uTime) {
+        mat.userData.uTime = { value: 0 };
+      }
+      shader.uniforms.uTime = mat.userData.uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           uniform float uTime;
+           attribute float aShoreFoamFade;
+           attribute float aShoreBandCoord;
+           attribute float aShoreEndFade;
+           varying vec3 vShoreWorldPos;
+           varying float vShoreBandCoord;
+           varying float vShoreEndFade;
+
+           vec2 shoreTerrainContour(vec2 p) {
+             return vec2(
+               sin(p.y * 2.5 + p.x * 0.8) * cos(p.x * 1.2) * 0.22,
+               cos(p.x * 2.5 + p.y * 0.8) * sin(p.y * 1.2) * 0.22
+             );
+           }`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+           // Lock both shoreline layers to the same deterministic horizontal
+           // contour as the exposed grass edge; synchronized vertical motion
+           // is applied below.
+           vec4 shoreWorldPos = modelMatrix * vec4(transformed, 1.0);
+           vShoreBandCoord = aShoreBandCoord;
+           vShoreEndFade = aShoreEndFade;
+           transformed.xz += shoreTerrainContour(shoreWorldPos.xz) * aShoreFoamFade;`
+        );
+      shader.vertexShader = shader.vertexShader.replace(
+        'transformed.xz += shoreTerrainContour(shoreWorldPos.xz) * aShoreFoamFade;',
+        `transformed.xz += shoreTerrainContour(shoreWorldPos.xz) * aShoreFoamFade;
+         vec4 wavedShorePos = modelMatrix * vec4(transformed, 1.0);
+         // Both shoreline layers use the exact bounded surface displacement,
+         // keeping the contact lip synchronized with passing wave faces.
+         float rawShoreWave = (
+           sin(wavedShorePos.x * 1.35 + wavedShorePos.z * 0.72 + uTime * 1.70) * 0.028
+           + cos(wavedShorePos.z * 1.62 - wavedShorePos.x * 0.48 + uTime * 1.25) * 0.023
+         );
+         float shoreWave = (
+           max(rawShoreWave, 0.0) * 0.58 + min(rawShoreWave, 0.0) * 1.25
+         );
+         transformed += normal * shoreWave;
+         vShoreWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           uniform float uTime;
+           varying vec3 vShoreWorldPos;
+           varying float vShoreBandCoord;
+           varying float vShoreEndFade;
+
+           float shorePulseHash(float cell) {
+             return fract(52.9829189 * fract(cell * 0.06711056));
+           }`
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+           // World-coordinate modulation stays continuous across separately
+           // merged tile strips and around convex or concave shoreline turns.
+           float shoreCoord = (vShoreWorldPos.x + vShoreWorldPos.z) * 0.92 - uTime * 0.075;
+           float shoreCell = floor(shoreCoord);
+           float shorePhase = fract(shoreCoord + shorePulseHash(shoreCell) * 0.28);
+           float shorePulse = smoothstep(0.08, 0.24, shorePhase)
+             * (1.0 - smoothstep(0.62, 0.84, shorePhase));
+
+           ${style === 'inner'
+             ? `// The inset wash resolves into drifting turquoise segments,
+           // suggesting water rolling back from the bank rather than a second outline.
+           float bandProfile = smoothstep(0.02, 0.24, vShoreBandCoord)
+             * (1.0 - smoothstep(0.76, 0.98, vShoreBandCoord));
+           float washPulse = smoothstep(0.14, 0.28, shorePhase)
+             * (1.0 - smoothstep(0.42, 0.60, shorePhase));
+           diffuseColor.rgb *= mix(vec3(0.80, 1.01, 1.08), vec3(1.04, 1.13, 1.08), washPulse);
+           diffuseColor.a *= bandProfile * vShoreEndFade * (0.03 + washPulse * 0.66);`
+             : `// The bank-contact lip always remains present, with warmer
+           // pulses travelling through it so the edge feels alive but stable.
+           float bandCenter = 1.0 - abs(vShoreBandCoord * 2.0 - 1.0);
+           diffuseColor.rgb *= mix(vec3(0.94, 1.01, 1.03), vec3(1.09, 1.09, 0.99), shorePulse * 0.42 + bandCenter * 0.10);
+           diffuseColor.a *= 0.76 + shorePulse * 0.24;`}`
         );
     };
 
     registerMat('waterBlue', (type) => {
       if (type === 'standard') {
         const mat = new THREE.MeshStandardMaterial({
-          color: 0x0284c7,
-          roughness: 0.15,
-          metalness: 0.1,
+          color: 0x0588bd,
+          roughness: 0.40,
+          metalness: 0.04,
           transparent: true,
-          opacity: 0.6,
+          opacity: 0.87,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
@@ -577,10 +866,10 @@ export class AssetGenerator {
         return mat;
       } else {
         const mat = new THREE.MeshToonMaterial({
-          color: 0x0284c7,
+          color: 0x0588bd,
           gradientMap: this.toonGradient,
           transparent: true,
-          opacity: 0.6,
+          opacity: 0.87,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
@@ -588,6 +877,60 @@ export class AssetGenerator {
         mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
         return mat;
       }
+    });
+
+    // A solid, faceted shoreline light edge. It is instanced along every
+    // exposed water edge, including boardwalk-facing edges; water-to-water
+    // joins and bridge spans remain uninterrupted.
+    registerMat('waterShoreFoam', (type) => {
+      const material = type === 'standard'
+        ? new THREE.MeshStandardMaterial({
+          color: 0xb9e3e8,
+          roughness: 0.72,
+          metalness: 0,
+          transparent: true,
+          opacity: 0.84,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+        : new THREE.MeshToonMaterial({
+          color: 0xb9e3e8,
+          gradientMap: this.toonGradient,
+          transparent: true,
+          opacity: 0.84,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+      material.userData.uTime = { value: 0 };
+      material.onBeforeCompile = (shader) => applyWaterShoreFoamOnBeforeCompile(shader, material, 'outer');
+      return material;
+    });
+
+    // A quieter companion band sits one line-width into the water. It shares
+    // the same shader and geometry budget as the shoreline line, but its lower
+    // alpha makes it read as a soft shallow-water transition rather than foam.
+    registerMat('waterShoreFoamInner', (type) => {
+      const material = type === 'standard'
+        ? new THREE.MeshStandardMaterial({
+          color: 0x3fa9bf,
+          roughness: 0.72,
+          metalness: 0,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+        : new THREE.MeshToonMaterial({
+          color: 0x3fa9bf,
+          gradientMap: this.toonGradient,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+      material.userData.uTime = { value: 0 };
+      material.onBeforeCompile = (shader) => applyWaterShoreFoamOnBeforeCompile(shader, material, 'inner');
+      return material;
     });
 
     // Vegetation Materials (Seeded water features)
@@ -689,33 +1032,45 @@ export class AssetGenerator {
     registerMat('citizenHairBlonde', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf5dd90, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0xf5dd90, gradientMap: this.toonGradient }));
     registerMat('citizenJeans', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 }) : new THREE.MeshToonMaterial({ color: 0x3b82f6, gradientMap: this.toonGradient }));
 
-    // Set default active material map
-    if (this.useCelShading) {
+    this.setMaterialProfile(this.materialProfile);
+  }
+
+  setMaterialProfile(profile: MaterialProfile) {
+    this.materialProfile = profile;
+    if (profile === 'toon') {
       this.materials = this.toonMaterials;
       this.palettes = this.toonPalettes;
       this.commercialPalettes = this.toonCommercialPalettes;
-    } else {
+    } else if (profile === 'standard') {
       this.materials = this.standardMaterials;
       this.palettes = this.standardPalettes;
       this.commercialPalettes = this.standardCommercialPalettes;
+    } else {
+      this.materials = this.softToonMaterials;
+      this.palettes = this.softToonPalettes;
+      this.commercialPalettes = this.softToonCommercialPalettes;
     }
   }
 
+  // Retained for callers that only need the legacy standard/toon comparison.
   setCelShading(enabled: boolean) {
-    this.useCelShading = enabled;
-    if (enabled) {
-      this.materials = this.toonMaterials;
-      this.palettes = this.toonPalettes;
-      this.commercialPalettes = this.toonCommercialPalettes;
-    } else {
-      this.materials = this.standardMaterials;
-      this.palettes = this.standardPalettes;
-      this.commercialPalettes = this.standardCommercialPalettes;
-    }
+    this.setMaterialProfile(enabled ? 'toon' : 'standard');
   }
 
-  getMaterialTransitionMap(): Map<THREE.Material, THREE.Material> {
-    return this.materialTransitionMap;
+  getMaterialForProfile(material: THREE.Material, profile = this.materialProfile): THREE.Material {
+    return this.materialProfileMap.get(material)?.[profile] ?? material;
+  }
+
+  getAllSharedMaterials(): Set<THREE.Material> {
+    const materials = new Set<THREE.Material>();
+    [this.standardMaterials, this.softToonMaterials, this.toonMaterials].forEach(collection => {
+      Object.values(collection).forEach(material => materials.add(material));
+    });
+    [
+      this.standardPalettes, this.softToonPalettes, this.toonPalettes,
+      this.standardCommercialPalettes, this.softToonCommercialPalettes, this.toonCommercialPalettes,
+    ].forEach(palettes => palettes.forEach(palette => Object.values(palette).forEach(material => materials.add(material))));
+    return materials;
   }
 
   // Set emissive intensity of windows & headlights (0.0 for day, 1.2+ for night)
@@ -746,6 +1101,17 @@ export class AssetGenerator {
     if (fairyMatToon) gsapAnimate(fairyMatToon, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
     const lampMatToon = this.toonMaterials.lampBulb as any;
     if (lampMatToon) gsapAnimate(lampMatToon, 'emissiveIntensity', isNight ? 2.2 : 0.0, 1.5);
+
+    const winMatSoftToon = this.softToonMaterials.window as any;
+    if (winMatSoftToon) gsapAnimate(winMatSoftToon, 'emissiveIntensity', isNight ? 1.4 : 0.0, 1.5);
+    const headMatSoftToon = this.softToonMaterials.headlight as any;
+    if (headMatSoftToon) gsapAnimate(headMatSoftToon, 'emissiveIntensity', isNight ? 2.5 : 0.0, 1.5);
+    const tailMatSoftToon = this.softToonMaterials.taillight as any;
+    if (tailMatSoftToon) gsapAnimate(tailMatSoftToon, 'emissiveIntensity', isNight ? 1.8 : 0.0, 1.5);
+    const fairyMatSoftToon = this.softToonMaterials.fairyLight as any;
+    if (fairyMatSoftToon) gsapAnimate(fairyMatSoftToon, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
+    const lampMatSoftToon = this.softToonMaterials.lampBulb as any;
+    if (lampMatSoftToon) gsapAnimate(lampMatSoftToon, 'emissiveIntensity', isNight ? 2.2 : 0.0, 1.5);
   }
 
   // Stable LCG random number generator helper
@@ -761,11 +1127,16 @@ export class AssetGenerator {
   // 1. Terrain Grass Tile
   createGroundGeometry(): THREE.BufferGeometry {
     // Dense only across the maximum 3.2-unit terrain drop; the final row preserves deep underfill.
-    return this.getGeometry('ground_geo_sub2_nonuniform_vertical', () => {
+    return this.getGeometry('ground_geo_sub2_nonuniform_vertical_facets', () => {
       const boxHeight = 12.0;
       const verticalLevels = [0, -0.4, -0.8, -1.2, -1.6, -2.0, -2.4, -2.8, -3.2, -boxHeight];
       const verticalSegments = verticalLevels.length - 1;
-      const geo = new THREE.BoxGeometry(2, boxHeight, 2, 2, verticalSegments, 2);
+      // Give each triangle its own vertices so the shader can assign a stable
+      // flat facet value. This geometry is shared by all terrain instances,
+      // so the small vertex increase does not scale with map size.
+      const indexedGeo = new THREE.BoxGeometry(2, boxHeight, 2, 2, verticalSegments, 2);
+      const geo = indexedGeo.toNonIndexed();
+      indexedGeo.dispose();
       // Align top of box to y=0
       geo.translate(0, -boxHeight / 2, 0);
 
@@ -778,6 +1149,14 @@ export class AssetGenerator {
         positions.setY(index, verticalLevels[Math.max(0, Math.min(verticalSegments, row))]);
       }
       positions.needsUpdate = true;
+      const facetIds = new Float32Array(positions.count);
+      for (let vertex = 0; vertex < positions.count; vertex += 3) {
+        const facet = vertex / 3;
+        facetIds[vertex] = facet;
+        facetIds[vertex + 1] = facet;
+        facetIds[vertex + 2] = facet;
+      }
+      geo.setAttribute('aTerrainFacet', new THREE.BufferAttribute(facetIds, 1));
       geo.computeBoundingBox();
       geo.computeBoundingSphere();
       return geo;
@@ -1446,111 +1825,277 @@ export class AssetGenerator {
     });
   }
 
-  getWaterTopGeometry(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.BufferGeometry {
-    const key = `water_top_exp_${neighbors.N ? 1 : 0}_${neighbors.S ? 1 : 0}_${neighbors.E ? 1 : 0}_${neighbors.W ? 1 : 0}`;
+  private getExpandedWaterPlaneGeometry(
+    keyPrefix: string,
+    neighbors: WaterNeighbors,
+    diagonalNeighbors: WaterDiagonalNeighbors,
+    segments: number,
+  ): THREE.BufferGeometry {
+    const key = `${keyPrefix}_${neighbors.N ? 1 : 0}_${neighbors.S ? 1 : 0}_${neighbors.E ? 1 : 0}_${neighbors.W ? 1 : 0}_${diagonalNeighbors.NW ? 1 : 0}_${diagonalNeighbors.NE ? 1 : 0}_${diagonalNeighbors.SE ? 1 : 0}_${diagonalNeighbors.SW ? 1 : 0}`;
     return this.getGeometry(key, () => {
-      const minX = neighbors.W ? -1.0 : -1.3;
-      const maxX = neighbors.E ?  1.0 :  1.3;
-      const minY = neighbors.S ? -1.0 : -1.3;
-      const maxY = neighbors.N ?  1.0 :  1.3;
+      const parts: THREE.BufferGeometry[] = [];
+      const addPlane = (minX: number, maxX: number, minY: number, maxY: number, segmentsX: number, segmentsY: number) => {
+        const geometry = new THREE.PlaneGeometry(maxX - minX, maxY - minY, segmentsX, segmentsY);
+        geometry.translate((minX + maxX) * 0.5, (minY + maxY) * 0.5, 0);
+        parts.push(geometry);
+      };
 
-      const width = maxX - minX;
-      const height = maxY - minY;
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
+      // Keep the shared 2x2 tile core exact. Only the land-facing underfill is
+      // added outside it, so connected water tiles never overlap each other.
+      addPlane(-1, 1, -1, 1, segments, segments);
 
-      const geo = new THREE.PlaneGeometry(width, height, 8, 8);
-      geo.translate(centerX, centerY, 0);
-      return geo;
+      // Horizontal strips own all 0.3x0.3 corner underfill squares. At a
+      // concave turn their normal [-1, 1] span already covers that square;
+      // only the perpendicular strip needs trimming below. This deterministic
+      // ownership avoids the double-alpha diamonds made by expanded rectangles.
+      if (!neighbors.N) {
+        const minX = !neighbors.W ? -1.3 : -1;
+        const maxX = !neighbors.E ? 1.3 : 1;
+        addPlane(minX, maxX, 1, 1.3, segments, 1);
+      }
+      if (!neighbors.S) {
+        const minX = !neighbors.W ? -1.3 : -1;
+        const maxX = !neighbors.E ? 1.3 : 1;
+        addPlane(minX, maxX, -1.3, -1, segments, 1);
+      }
+
+      if (!neighbors.E) {
+        const minY = (!neighbors.S || diagonalNeighbors.SE) ? -0.7 : -1;
+        const maxY = (!neighbors.N || diagonalNeighbors.NE) ? 0.7 : 1;
+        addPlane(1, 1.3, minY, maxY, 1, segments);
+      }
+      if (!neighbors.W) {
+        const minY = (!neighbors.S || diagonalNeighbors.SW) ? -0.7 : -1;
+        const maxY = (!neighbors.N || diagonalNeighbors.NW) ? 0.7 : 1;
+        addPlane(-1.3, -1, minY, maxY, 1, segments);
+      }
+
+      const merged = BufferGeometryUtils.mergeGeometries(parts, false);
+      parts.forEach(part => part.dispose());
+      if (!merged) throw new Error(`Failed to build ${keyPrefix} geometry`);
+      return merged;
     });
   }
 
-  getWaterBottomGeometry(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.BufferGeometry {
-    const key = `water_bottom_exp_${neighbors.N ? 1 : 0}_${neighbors.S ? 1 : 0}_${neighbors.E ? 1 : 0}_${neighbors.W ? 1 : 0}`;
+  getWaterTopGeometry(neighbors: WaterNeighbors, diagonalNeighbors = NO_WATER_DIAGONALS): THREE.BufferGeometry {
+    return this.getExpandedWaterPlaneGeometry('water_top_exp', neighbors, diagonalNeighbors, 8);
+  }
+
+  getWaterBottomGeometry(neighbors: WaterNeighbors, diagonalNeighbors = NO_WATER_DIAGONALS): THREE.BufferGeometry {
+    return this.getExpandedWaterPlaneGeometry('water_bottom_exp', neighbors, diagonalNeighbors, 1);
+  }
+
+  private getWaterShoreFoamGeometry(
+    direction: 'N' | 'S' | 'E' | 'W',
+    trimStart = false,
+    trimEnd = false,
+    inset = 0,
+    bandWidth = 0.10,
+    extendStart = false,
+    extendEnd = false,
+    taperEnds = false,
+  ): THREE.BufferGeometry {
+    // A cap is one full band-width wide. Trimming only half that width made the
+    // cap overlap both adjoining strips, producing darker diamonds and pale
+    // tabs after alpha blending.
+    const trimStartAmount = trimStart ? bandWidth + inset : 0;
+    const trimEndAmount = trimEnd ? bandWidth + inset : 0;
+    const extendStartAmount = extendStart ? inset : 0;
+    const extendEndAmount = extendEnd ? inset : 0;
+    const runsAlongX = direction === 'N' || direction === 'S';
+    const length = 2.0 - trimStartAmount - trimEndAmount + extendStartAmount + extendEndAmount;
+    const key = `water_shore_foam_${direction.toLowerCase()}_${trimStart ? 1 : 0}_${trimEnd ? 1 : 0}_${inset}_${bandWidth}_${extendStart ? 1 : 0}_${extendEnd ? 1 : 0}_${taperEnds ? 1 : 0}`;
+
     return this.getGeometry(key, () => {
-      const minX = neighbors.W ? -1.0 : -1.3;
-      const maxX = neighbors.E ?  1.0 :  1.3;
-      const minY = neighbors.S ? -1.0 : -1.3;
-      const maxY = neighbors.N ?  1.0 :  1.3;
+      const geometry = new THREE.PlaneGeometry(
+        runsAlongX ? length : bandWidth,
+        runsAlongX ? bandWidth : length,
+        runsAlongX ? (taperEnds ? 4 : 2) : 1,
+        runsAlongX ? 1 : (taperEnds ? 4 : 2),
+      );
 
-      const width = maxX - minX;
-      const height = maxY - minY;
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
+      // Shorten only the ends that are joined by another exposed edge. The
+      // matching corner cap below fills that square exactly, avoiding alpha
+      // overlap (darker corners) and tiny gaps (broken corners).
+      if (runsAlongX) {
+        geometry.translate((trimStartAmount - extendStartAmount - trimEndAmount + extendEndAmount) * 0.5, 0, 0);
+      } else {
+        // Plane local Y becomes world -Z after the horizontal rotation.
+        geometry.translate(0, (trimEndAmount - extendEndAmount - trimStartAmount + extendStartAmount) * 0.5, 0);
+      }
 
-      const geo = new THREE.PlaneGeometry(width, height, 1, 1);
-      geo.translate(centerX, centerY, 0);
-      return geo;
+      const uv = geometry.getAttribute('uv') as THREE.BufferAttribute;
+      const fade = new Float32Array(uv.count);
+      const bandCoord = new Float32Array(uv.count);
+      const endFade = new Float32Array(uv.count);
+
+      for (let index = 0; index < uv.count; index++) {
+        // This is intentionally a solid low-poly waterline, so every vertex
+        // follows the terrain contour rather than fading across its width.
+        fade[index] = 1;
+        bandCoord[index] = runsAlongX ? uv.getY(index) : uv.getX(index);
+        const along = runsAlongX ? uv.getX(index) : uv.getY(index);
+        // Vertical strips reverse their local UV direction when rotated into
+        // world Z, so map the semantic start/end flags accordingly.
+        const fromStart = runsAlongX ? along : 1 - along;
+        const fromEnd = runsAlongX ? 1 - along : along;
+        endFade[index] = Math.min(
+          taperEnds && trimStart ? Math.min(fromStart * 4, 1) : 1,
+          taperEnds && trimEnd ? Math.min(fromEnd * 4, 1) : 1,
+        );
+      }
+      geometry.setAttribute('aShoreFoamFade', new THREE.BufferAttribute(fade, 1));
+      geometry.setAttribute('aShoreBandCoord', new THREE.BufferAttribute(bandCoord, 1));
+      geometry.setAttribute('aShoreEndFade', new THREE.BufferAttribute(endFade, 1));
+      // Bake the plane horizontal so the shader's contour offset operates in
+      // the same local X/Z axes as the terrain rather than rotated plane axes.
+      geometry.rotateX(-Math.PI / 2);
+      return geometry;
     });
+  }
+
+  private getWaterShoreFoamCornerGeometry(size: number): THREE.BufferGeometry {
+    return this.getGeometry(`water_shore_foam_corner_${size}`, () => {
+      const geometry = new THREE.PlaneGeometry(size, size, 1, 1);
+      const fade = new Float32Array(geometry.getAttribute('position').count).fill(1);
+      const bandCoord = new Float32Array(geometry.getAttribute('position').count).fill(0.5);
+      const endFade = new Float32Array(geometry.getAttribute('position').count).fill(1);
+      geometry.setAttribute('aShoreFoamFade', new THREE.BufferAttribute(fade, 1));
+      geometry.setAttribute('aShoreBandCoord', new THREE.BufferAttribute(bandCoord, 1));
+      geometry.setAttribute('aShoreEndFade', new THREE.BufferAttribute(endFade, 1));
+      geometry.rotateX(-Math.PI / 2);
+      return geometry;
+    });
+  }
+
+  private addWaterShoreFoam(
+    group: THREE.Group,
+    shoreEdges: { N: boolean; S: boolean; E: boolean; W: boolean },
+    innerCorners: { NW: boolean; NE: boolean; SE: boolean; SW: boolean },
+    innerJoinCorners: { NW: boolean; NE: boolean; SE: boolean; SW: boolean },
+  ) {
+    const foamMat = this.materials.waterShoreFoam;
+    const innerFoamMat = this.materials.waterShoreFoamInner;
+    // The contact lip sits just above the water plane but far enough below the
+    // terrain that its bounded crest cannot rise through grass.
+    const foamY = -0.036;
+
+    const addFoam = (
+      material: THREE.Material,
+      direction: 'N' | 'S' | 'E' | 'W',
+      x: number,
+      z: number,
+      trimStart = false,
+      trimEnd = false,
+      inset = 0,
+      bandWidth = 0.10,
+      extendStart = false,
+      extendEnd = false,
+      taperEnds = false,
+    ) => {
+      const geometry = this.getWaterShoreFoamGeometry(direction, trimStart, trimEnd, inset, bandWidth, extendStart, extendEnd, taperEnds);
+      const foam = new THREE.Mesh(geometry, material);
+      // The quieter wash sits just below the contact lip. Both share the same
+      // displacement phase and remain safely beneath the terrain at crest.
+      foam.position.set(x, material === innerFoamMat ? -0.045 : foamY, z);
+      foam.castShadow = false;
+      foam.receiveShadow = false;
+      group.add(foam);
+    };
+
+    const addCorner = (material: THREE.Material, x: number, z: number, size: number) => {
+      const foam = new THREE.Mesh(this.getWaterShoreFoamCornerGeometry(size), material);
+      foam.position.set(x, foamY, z);
+      foam.castShadow = false;
+      foam.receiveShadow = false;
+      group.add(foam);
+    };
+
+    const addBand = (
+      material: THREE.Material,
+      inset: number,
+      bandWidth: number,
+      trimAtCorners: boolean,
+      addCorners: boolean,
+      taperEnds: boolean,
+    ) => {
+      // Inset is measured from the shoreline to the band's outside edge. This
+      // allows the contact lip and inset wash to have distinct visual weights.
+      const center = 1 - inset - bandWidth * 0.5;
+      if (shoreEdges.N) addFoam(material, 'N', 0, -center, trimAtCorners && shoreEdges.W, trimAtCorners && shoreEdges.E, inset, bandWidth, addCorners && innerJoinCorners.NW, addCorners && innerJoinCorners.NE, taperEnds);
+      if (shoreEdges.S) addFoam(material, 'S', 0, center, trimAtCorners && shoreEdges.W, trimAtCorners && shoreEdges.E, inset, bandWidth, addCorners && innerJoinCorners.SW, addCorners && innerJoinCorners.SE, taperEnds);
+      if (shoreEdges.E) addFoam(material, 'E', center, 0, trimAtCorners && shoreEdges.N, trimAtCorners && shoreEdges.S, inset, bandWidth, addCorners && innerJoinCorners.NE, addCorners && innerJoinCorners.SE, taperEnds);
+      if (shoreEdges.W) addFoam(material, 'W', -center, 0, trimAtCorners && shoreEdges.N, trimAtCorners && shoreEdges.S, inset, bandWidth, addCorners && innerJoinCorners.NW, addCorners && innerJoinCorners.SW, taperEnds);
+
+      const corner = center;
+      // Convex / outside shoreline turns: this tile owns both line segments.
+      if (addCorners && shoreEdges.N && shoreEdges.W) addCorner(material, -corner, -corner, bandWidth);
+      if (addCorners && shoreEdges.N && shoreEdges.E) addCorner(material, corner, -corner, bandWidth);
+      if (addCorners && shoreEdges.S && shoreEdges.E) addCorner(material, corner, corner, bandWidth);
+      if (addCorners && shoreEdges.S && shoreEdges.W) addCorner(material, -corner, corner, bandWidth);
+
+      // Concave / inside turns are owned by the water tile diagonally opposite
+      // the land or boardwalk corner.
+      if (addCorners && innerCorners.NW) addCorner(material, -corner, -corner, bandWidth);
+      if (addCorners && innerCorners.NE) addCorner(material, corner, -corner, bandWidth);
+      if (addCorners && innerCorners.SE) addCorner(material, corner, corner, bandWidth);
+      if (addCorners && innerCorners.SW) addCorner(material, -corner, corner, bandWidth);
+    };
+
+    addBand(foamMat, 0, 0.075, true, true, false);
+    addBand(innerFoamMat, 0.08, 0.14, true, false, true);
   }
 
   // 3a. Segmented Water Mesh Creator
-  createWaterMesh(neighbors: { N: boolean; S: boolean; E: boolean; W: boolean }): THREE.Group {
+  createWaterMesh(
+    neighbors: WaterNeighbors,
+    diagonalNeighbors = NO_WATER_DIAGONALS,
+    shoreEdges = { N: false, S: false, E: false, W: false },
+    innerCorners = { NW: false, NE: false, SE: false, SW: false },
+    innerJoinCorners = { NW: false, NE: false, SE: false, SW: false },
+  ): THREE.Group {
     const group = new THREE.Group();
 
     // 1. Top Water surface plane (expanded towards land sides only to avoid overlapping water plane bands)
-    const waterGeo = this.getWaterTopGeometry(neighbors);
+    const waterGeo = this.getWaterTopGeometry(neighbors, diagonalNeighbors);
     const water = new THREE.Mesh(waterGeo, this.materials.waterBlue);
     water.rotation.x = -Math.PI / 2;
     water.position.y = -0.04;
     water.receiveShadow = true;
     group.add(water);
 
+    this.addWaterShoreFoam(group, shoreEdges, innerCorners, innerJoinCorners);
+
     // 2. Bottom Dirt plane (covers bottom grid hole, expanded towards land sides only)
-    const dirtGeo = this.getWaterBottomGeometry(neighbors);
+    const dirtGeo = this.getWaterBottomGeometry(neighbors, diagonalNeighbors);
     const dirt = new THREE.Mesh(dirtGeo, this.materials.dirt);
     dirt.rotation.x = -Math.PI / 2;
     dirt.position.y = -0.4;
     dirt.receiveShadow = true;
     group.add(dirt);
 
-    // 3. Side Walls (only draw if no adjacent water/bridge)
-    const wallH = 0.36;
-    const wallY = -0.22;
-    const wallGeo = this.getGeometry('water_side_wall_0.36', () => new THREE.PlaneGeometry(2, wallH));
-    const wallMat = this.materials.dirt;
-
-    // North Wall (Z = -0.99)
-    if (!neighbors.N) {
-      const wallN = new THREE.Mesh(wallGeo, wallMat);
-      wallN.position.set(0, wallY, -0.99);
-      wallN.receiveShadow = true;
-      group.add(wallN);
-    }
-    // South Wall (Z = 0.99)
-    if (!neighbors.S) {
-      const wallS = new THREE.Mesh(wallGeo, wallMat);
-      wallS.position.set(0, wallY, 0.99);
-      wallS.rotation.y = Math.PI;
-      wallS.receiveShadow = true;
-      group.add(wallS);
-    }
-    // East Wall (X = 0.99)
-    if (!neighbors.E) {
-      const wallE = new THREE.Mesh(wallGeo, wallMat);
-      wallE.position.set(0.99, wallY, 0);
-      wallE.rotation.y = -Math.PI / 2;
-      wallE.receiveShadow = true;
-      group.add(wallE);
-    }
-    // West Wall (X = -0.99)
-    if (!neighbors.W) {
-      const wallW = new THREE.Mesh(wallGeo, wallMat);
-      wallW.position.set(-0.99, wallY, 0);
-      wallW.rotation.y = Math.PI / 2;
-      wallW.receiveShadow = true;
-      group.add(wallW);
-    }
+    // The adjacent ground column already supplies the complete dirt bank down
+    // past the lakebed, including the same displaced contour as the grass rim.
+    // A second square wall here intersected that bank at shoreline turns and
+    // showed through the transparent water as large triangular fins.
 
     return group;
   }
 
   // 3b. Water Body Mesh Generator
-  createWaterBodyMesh(tileX = 0, tileY = 0, neighbors = { N: false, S: false, E: false, W: false }): THREE.Group {
+  createWaterBodyMesh(
+    tileX = 0,
+    tileY = 0,
+    neighbors = { N: false, S: false, E: false, W: false },
+    diagonalNeighbors = NO_WATER_DIAGONALS,
+    shoreEdges = { N: false, S: false, E: false, W: false },
+    innerCorners = { NW: false, NE: false, SE: false, SW: false },
+    innerJoinCorners = { NW: false, NE: false, SE: false, SW: false },
+  ): THREE.Group {
     const group = new THREE.Group();
 
     // Add continuous water mesh
-    group.add(this.createWaterMesh(neighbors));
+    group.add(this.createWaterMesh(neighbors, diagonalNeighbors, shoreEdges, innerCorners, innerJoinCorners));
 
     // Stable Seeded Vegetation Placement
     const rand = this.getSeededRandom(tileX, tileY);

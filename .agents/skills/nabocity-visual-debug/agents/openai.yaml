@@ -1,0 +1,4 @@
+interface:
+  display_name: "NaboCity Visual Debug"
+  short_description: "Diagnose and verify game rendering changes"
+  default_prompt: "Use $nabocity-visual-debug to diagnose this NaboCity visual issue and verify the fix with isolated headless-browser captures."

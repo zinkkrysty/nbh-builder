@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Simulation, TileState, TileType, ResidentState, RoutineActivity, RoutineBlock } from './Simulation';
 import { Renderer } from './Renderer';
 import { CitizenRenderPool } from './CitizenRenderPool';
+import type { MaterialProfile } from './AssetGenerator';
 import { ROAD_LAYOUT, currentStreetscapeSettings } from './RoadLayout';
 
 export interface CitizenState {
@@ -59,7 +60,7 @@ export class CitizenManager {
   constructor(sim: Simulation, renderer: Renderer) {
     this.sim = sim;
     this.renderer = renderer;
-    this.visualPool = new CitizenRenderPool(renderer.scene, this.visualPoolCapacity);
+    this.visualPool = new CitizenRenderPool(renderer.scene, this.visualPoolCapacity, renderer.assets.materialProfile);
   }
 
 
@@ -282,6 +283,67 @@ export class CitizenManager {
     }
   }
 
+  isNSRamp(x: number, y: number): boolean {
+    if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
+    const tile = this.sim.grid[x][y];
+    if (tile.type !== 'road' || tile.bridge) return false;
+    const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+    const S = y < this.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
+    const E = x < this.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+    if (N && S && !E && !W) {
+      const H_C = tile.elevation || 0;
+      const H_N = this.sim.grid[x][y - 1].elevation || 0;
+      const H_S = this.sim.grid[x][y + 1].elevation || 0;
+      const y_N = Math.max(H_C, H_N) * 0.8;
+      const y_S = Math.max(H_C, H_S) * 0.8;
+      if (y_N !== y_S) return true;
+    }
+    return false;
+  }
+
+  isEWRamp(x: number, y: number): boolean {
+    if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
+    const tile = this.sim.grid[x][y];
+    if (tile.type !== 'road' || tile.bridge) return false;
+    const N = y > 0 && this.sim.grid[x][y - 1].type === 'road';
+    const S = y < this.gridSize - 1 && this.sim.grid[x][y + 1].type === 'road';
+    const E = x < this.gridSize - 1 && this.sim.grid[x + 1][y].type === 'road';
+    const W = x > 0 && this.sim.grid[x - 1][y].type === 'road';
+    if (E && W && !N && !S) {
+      const H_C = tile.elevation || 0;
+      const H_E = this.sim.grid[x + 1][y].elevation || 0;
+      const H_W = this.sim.grid[x - 1][y].elevation || 0;
+      const y_E = Math.max(H_C, H_E) * 0.8;
+      const y_W = Math.max(H_C, H_W) * 0.8;
+      if (y_E !== y_W) return true;
+    }
+    return false;
+  }
+
+  canWalkBetween(x1: number, y1: number, x2: number, y2: number): boolean {
+    const tile1 = this.sim.grid[x1]?.[y1];
+    const tile2 = this.sim.grid[x2]?.[y2];
+    if (!tile1 || !tile2) return false;
+    if (tile1.bridge || tile2.bridge) return true;
+
+    const h1 = tile1.elevation || 0;
+    const h2 = tile2.elevation || 0;
+
+    if (h1 === h2) return true;
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    if (dy !== 0) {
+      return this.isNSRamp(x1, y1) || this.isNSRamp(x2, y2);
+    } else if (dx !== 0) {
+      return this.isEWRamp(x1, y1) || this.isEWRamp(x2, y2);
+    }
+
+    return false;
+  }
+
   // BFS pathfinding on walkable tiles (road, boardwalk, park) plus the source/target building nodes
   findWalkwayPath(start: { x: number; y: number }, end: { x: number; y: number }): { x: number; y: number }[] | null {
     if (start.x === end.x && start.y === end.y) {
@@ -333,7 +395,7 @@ export class CitizenManager {
       for (const n of neighbors) {
         if (n.x >= 0 && n.x < this.gridSize && n.y >= 0 && n.y < this.gridSize) {
           const idx = n.y * this.gridSize + n.x;
-          if (parentGrid[idx] === -1 && isWalkable(n.x, n.y)) {
+          if (parentGrid[idx] === -1 && isWalkable(n.x, n.y) && this.canWalkBetween(curr.x, curr.y, n.x, n.y)) {
             parentGrid[idx] = currIdx;
             queue.push(n);
           }
@@ -393,7 +455,7 @@ export class CitizenManager {
 
     const previousPool = this.visualPool;
     this.visualPoolCapacity *= 2;
-    this.visualPool = new CitizenRenderPool(this.renderer.scene, this.visualPoolCapacity);
+    this.visualPool = new CitizenRenderPool(this.renderer.scene, this.visualPoolCapacity, this.renderer.assets.materialProfile);
 
     for (const visibleCim of this.cims) {
       if (!visibleCim.mesh) continue;
@@ -410,6 +472,10 @@ export class CitizenManager {
       );
     }
     previousPool.dispose();
+  }
+
+  setMaterialProfile(profile: MaterialProfile) {
+    this.visualPool.setMaterialProfile(profile);
   }
 
   // Despawn/remove mesh safely

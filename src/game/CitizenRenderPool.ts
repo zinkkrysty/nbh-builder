@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { MaterialProfile } from './AssetGenerator';
 import { createPrototypeResident, getResidentColor, PrototypeResident } from '../prototype/ResidentAppearance';
 
 type MotionKind = 'none' | 'armLeft' | 'armRight' | 'legLeft' | 'legRight' | 'skirtLegLeft' | 'skirtLegRight';
@@ -56,8 +57,16 @@ function createToonGradient(): THREE.DataTexture {
   return texture;
 }
 
-function makeMaterial(gradientMap: THREE.Texture): THREE.MeshToonMaterial {
-  return new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap });
+function makeMaterial(profile: MaterialProfile, gradientMap: THREE.Texture): THREE.Material {
+  if (profile === 'toon') {
+    return new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap });
+  }
+  return new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.78,
+    metalness: 0,
+    flatShading: profile === 'softToon',
+  });
 }
 
 function createTaperedPrismGeometry(topWidth: number, bottomWidth: number, topDepth: number, bottomDepth: number): THREE.BufferGeometry {
@@ -151,9 +160,11 @@ export class CitizenRenderPool {
   private readonly hiddenMatrix = new THREE.Matrix4().makeScale(HIDDEN_SCALE, HIDDEN_SCALE, HIDDEN_SCALE);
   private readonly color = new THREE.Color();
   private readonly parent: THREE.Object3D;
+  private materialProfile: MaterialProfile;
 
-  constructor(parent: THREE.Object3D, maxResidents: number) {
+  constructor(parent: THREE.Object3D, maxResidents: number, materialProfile: MaterialProfile = 'softToon') {
     this.parent = parent;
+    this.materialProfile = materialProfile;
     this.boxCapacity = maxResidents * MAX_BOX_PARTS;
     this.taperedCapacity = maxResidents * MAX_TAPERED_PARTS;
     this.facetedCapacity = maxResidents * MAX_FACETED_PARTS;
@@ -242,6 +253,16 @@ export class CitizenRenderPool {
     return 5;
   }
 
+  setMaterialProfile(profile: MaterialProfile): void {
+    if (this.materialProfile === profile) return;
+    this.materialProfile = profile;
+    [this.boxes, this.tapered, this.faceted, this.wedges, this.glasses].forEach(pool => {
+      const previous = pool.material as THREE.Material;
+      pool.material = makeMaterial(profile, this.gradient);
+      previous.dispose();
+    });
+  }
+
   dispose(): void {
     this.parent.remove(this.boxes, this.tapered, this.faceted, this.wedges, this.glasses);
     this.boxes.geometry.dispose();
@@ -258,7 +279,7 @@ export class CitizenRenderPool {
   }
 
   private createPool(geometry: THREE.BufferGeometry, capacity: number): THREE.InstancedMesh {
-    const pool = new THREE.InstancedMesh(geometry, makeMaterial(this.gradient), capacity);
+    const pool = new THREE.InstancedMesh(geometry, makeMaterial(this.materialProfile, this.gradient), capacity);
     pool.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     pool.castShadow = true;
     pool.receiveShadow = false;
