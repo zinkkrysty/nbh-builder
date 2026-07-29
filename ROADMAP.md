@@ -41,6 +41,9 @@ The following completed systems are foundations for the new direction rather tha
 - [x] Traffic, pedestrians, sidewalks, crosswalks, parks, and boardwalk paths.
 - [x] Water, bridges, waterfront boardwalks, docks, and associated props.
 - [x] Persistent residents and households, deterministic citizen presentation, direct selection, and destination-based routines.
+- [x] Instanced procedural resident rendering that keeps hundreds of distinct, recognizable neighbors within a fixed draw-call budget.
+- [x] Compact topology-aware streetscapes: curbs, sidewalks, crossings, cliff rails, and night-glowing lamps derived from road state.
+- [x] Jagged terrain edges and natural shorelines via deterministic vertex displacement.
 - [x] Topography, hills, terrain sculpting, and elevation-aware movement.
 
 These systems may be simplified, reframed, or replaced where they conflict with the north star. Existing implementation is not a reason to preserve the old city-builder loop.
@@ -115,7 +118,7 @@ Replace anonymous residential growth with intentional arrivals.
 
 ### Done when
 
-A new resident arrives because the player chose to welcome them, not because a demand bar filled.
+A new resident arrives because the player chose to welcome them, not because a demand bar filled. Invitations are paced so each arrival lands emotionally, and across the full slice all five households remain individually recognizable to the player.
 
 ## Milestone 2.3 — Hopes, Requests, and Gentle Needs
 
@@ -173,6 +176,7 @@ Make completed moments persist emotionally as well as technically.
 - [x] Record household arrivals and shared-garden request completions.
 - [x] Attach those memories to relevant residents, households, and the completed garden tile.
 - [ ] Add a simple neighborhood scrapbook or timeline.
+- [ ] Reframe the HUD around neighbors, hopes, and today's moments; surface recorded memories in the scrapbook and a visible moments feed.
 - [x] Persist names, dates, participants, location, and a short description for implemented memories.
 - [ ] Let the player rename important homes and shared places.
 - [x] Preserve implemented memories across save/load and migrations.

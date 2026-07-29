@@ -1,8 +1,8 @@
 # ADR 0004: Performance-conscious low-poly visual fidelity through shared profiles and derived surfaces
 
-Status: Proposed
+Status: Accepted
 Date: 2026-07-28
-Source proposal: [performance-conscious-visual-fidelity.md](../proposals/performance-conscious-visual-fidelity.md)
+Source decision: recorded in `ROADMAP.md` (Existing Foundation).
 
 ## Context
 

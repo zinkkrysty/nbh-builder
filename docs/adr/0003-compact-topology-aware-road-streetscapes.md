@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-07-26
-Source proposal: [cozy-road-streetscapes.md](../proposals/cozy-road-streetscapes.md)
+Source decision: recorded in `ROADMAP.md` (Existing Foundation).
 
 ## Context
 

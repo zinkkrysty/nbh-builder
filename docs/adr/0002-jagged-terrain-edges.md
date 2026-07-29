@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-07-24
-Source proposal: `docs/proposals/jagged-terrain-edges.md`
+Source decision: recorded in `ROADMAP.md` (Existing Foundation).
 
 ## Context
 

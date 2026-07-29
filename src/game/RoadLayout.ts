@@ -1,6 +1,5 @@
 /**
  * Cozy Road Streetscapes layout constants and cardinal topology helpers.
- * Reference: docs/proposals/cozy-road-streetscapes.md
  */
 
 export const ROAD_LAYOUT = {
