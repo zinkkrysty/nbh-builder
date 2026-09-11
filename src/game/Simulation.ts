@@ -930,6 +930,51 @@ export class Simulation {
     }
   }
 
+  /**
+   * Bridges are intentionally small waterfront crossings. Treat an adjacent
+   * cluster of bridge tiles as one span, including water tiles being placed in
+   * the current stroke, so a drag cannot bypass the three-tile limit.
+   */
+  private wouldExceedBridgeSpanLimit(cells: readonly { x: number; y: number }[]): boolean {
+    const pending = new Set(
+      cells
+        .filter(({ x, y }) => this.grid[x]?.[y]?.type === 'water_body')
+        .map(({ x, y }) => `${x},${y}`),
+    );
+    if (pending.size === 0) return false;
+
+    const visited = new Set<string>();
+    const isBridgeTile = (x: number, y: number) =>
+      x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize &&
+      (pending.has(`${x},${y}`) || this.grid[x][y].bridge === true);
+
+    for (const key of pending) {
+      if (visited.has(key)) continue;
+
+      const [startX, startY] = key.split(',').map(Number);
+      const queue = [{ x: startX, y: startY }];
+      let spanLength = 0;
+
+      while (queue.length > 0) {
+        const current = queue.pop()!;
+        const currentKey = `${current.x},${current.y}`;
+        if (visited.has(currentKey) || !isBridgeTile(current.x, current.y)) continue;
+        visited.add(currentKey);
+        spanLength += 1;
+        if (spanLength > 3) return true;
+
+        queue.push(
+          { x: current.x, y: current.y - 1 },
+          { x: current.x, y: current.y + 1 },
+          { x: current.x + 1, y: current.y },
+          { x: current.x - 1, y: current.y },
+        );
+      }
+    }
+
+    return false;
+  }
+
   build(x: number, y: number, type: TileType): boolean {
     if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return false;
     const archetype = this.defaultArchetypeFor(type);
@@ -945,6 +990,10 @@ export class Simulation {
     // Cannot build on top of existing non-empty without demolishing first
     if (tile.type !== 'empty') {
       if (type === 'road' && tile.type === 'water_body') {
+        if (this.wouldExceedBridgeSpanLimit([{ x, y }])) {
+          this.onNotification("Bridges can be a maximum of 3 tiles long!", "danger");
+          return false;
+        }
         const cost = this.getBuildCost('road');
         if (this.money < cost) {
           this.onNotification("Not enough money to build this!", "danger");
@@ -1072,6 +1121,11 @@ export class Simulation {
       return tile.type === 'empty';
     });
     if (validCells.length === 0) return false;
+
+    if (type === 'road' && this.wouldExceedBridgeSpanLimit(validCells)) {
+      this.onNotification("Bridges can be a maximum of 3 tiles long!", "danger");
+      return false;
+    }
 
     if (type === 'boardwalk') {
       const lineHasWater = validCells.some(cell => {

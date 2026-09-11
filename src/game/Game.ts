@@ -22,6 +22,7 @@ function escapeHTML(str: string): string {
 export class Game {
   private static readonly SAVE_KEY = 'nabocity_save_v7';
   private static readonly FRAME_INTERVAL_MS = 1000 / 60;
+  private static readonly PAUSED_FRAME_INTERVAL_MS = 1000 / 15;
   sim: Simulation;
   assets: AssetGenerator;
   renderer: Renderer;
@@ -1246,6 +1247,19 @@ export class Game {
   }
 
   startLoops() {
+    // A paused scene still has ambient animation. Render it at 15fps at rest,
+    // but immediately restore 60fps for previews, sculpting, and camera input.
+    let interactiveUntil = 0;
+    const noteInteraction = () => { interactiveUntil = performance.now() + 200; };
+    for (const event of ['pointermove', 'pointerdown', 'pointerup', 'wheel', 'keydown', 'keyup', 'input', 'change', 'resize']) {
+      window.addEventListener(event, noteInteraction, { passive: true, capture: true });
+    }
+    document.addEventListener('visibilitychange', () => {
+      this.lastFrameTime = this.lastRenderTime = performance.now();
+      this.frameTimeAccumulator = 0;
+      noteInteraction();
+    });
+
     // 1. Render loop: browsers can drive requestAnimationFrame at rates that do
     // not divide evenly into 60Hz. Accumulating rAF time avoids aliasing to a
     // lower rate while keeping render work capped at 60fps.
@@ -1253,16 +1267,25 @@ export class Game {
       requestAnimationFrame(animateLoop);
 
       const now = performance.now();
+      if (document.hidden) {
+        this.lastFrameTime = this.lastRenderTime = now;
+        this.frameTimeAccumulator = 0;
+        return;
+      }
       const elapsed = now - this.lastFrameTime;
       this.lastFrameTime = now;
       const accumulatedTime = this.frameTimeAccumulator + elapsed;
-      if (accumulatedTime < Game.FRAME_INTERVAL_MS) {
+      const resting = this.sim.speed === 0 && now >= interactiveUntil
+        && !this.renderer.cameraNeedsSmoothing() && !this.renderer.isDragging
+        && !this.input.isBuildingDrag && this.renderer.particles.length === 0;
+      const frameInterval = resting ? Game.PAUSED_FRAME_INTERVAL_MS : Game.FRAME_INTERVAL_MS;
+      if (accumulatedTime < frameInterval) {
         this.frameTimeAccumulator = accumulatedTime;
         return;
       }
 
-      this.frameTimeAccumulator = accumulatedTime % Game.FRAME_INTERVAL_MS;
-      const deltaTime = (now - this.lastRenderTime) / 1000;
+      this.frameTimeAccumulator = accumulatedTime % frameInterval;
+      const deltaTime = Math.min((now - this.lastRenderTime) / 1000, 0.1);
       this.lastRenderTime = now;
 
       // Animate 3D renderer updates (particles, turbines)
@@ -1270,7 +1293,7 @@ export class Game {
 
       // If shadow sandbox is open and auto-fit frustum is active, keep slider in sync
       const shadowSandbox = document.getElementById('shadow-sandbox');
-      if (shadowSandbox && shadowSandbox.style.display !== 'none') {
+      if (shadowSandbox && !shadowSandbox.classList.contains('hidden') && shadowSandbox.style.display !== 'none') {
         const toggleAutoFitFrustum = document.getElementById('panel-autofit-frustum') as HTMLInputElement | null;
         if (toggleAutoFitFrustum && toggleAutoFitFrustum.checked) {
           const sliderFrustum = document.getElementById('slider-shadow-frustum') as HTMLInputElement | null;
@@ -1958,7 +1981,7 @@ export class Game {
     if (success) {
       this.renderer.resetInterpolation(this.sim.timeOfDay);
       this.renderer.resetGroundInstances();
-      this.renderer.rebuildTrees();
+      this.renderer.rebuildEnvironmentScenery();
       // 4. Rebuild all roads and structures in the 3D scene
       for (let x = 0; x < this.sim.gridSize; x++) {
         for (let y = 0; y < this.sim.gridSize; y++) {
@@ -2022,7 +2045,7 @@ export class Game {
       // Clear 3D building meshes
       this.renderer.clearAllBuildings();
       this.renderer.resetGroundInstances();
-      this.renderer.rebuildTrees();
+      this.renderer.rebuildEnvironmentScenery();
 
       this.sim.updateUtilities();
       this.updateHUD();

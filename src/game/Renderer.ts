@@ -4,11 +4,20 @@ import { Simulation, TileState } from './Simulation';
 import { TrafficManager } from './TrafficManager';
 import { CitizenManager } from './CitizenManager';
 import { ROAD_LAYOUT, StreetscapeSettings, currentStreetscapeSettings } from './RoadLayout';
+import { EnvironmentScenery } from './EnvironmentScenery';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// Keep scene/output buffers sharp; only the soft glow is sampled more cheaply.
+// Override setSize so EffectComposer also preserves this ratio after resizing.
+class QuarterResolutionBloomPass extends UnrealBloomPass {
+  override setSize(width: number, height: number) {
+    super.setSize(Math.max(1, Math.round(width / 2)), Math.max(1, Math.round(height / 2)));
+  }
+}
 
 interface StaticTreeData {
   gridX: number;
@@ -140,6 +149,7 @@ export class Renderer {
   trunkMesh?: THREE.InstancedMesh;
   greenLeavesMesh?: THREE.InstancedMesh;
   blossomLeavesMesh?: THREE.InstancedMesh;
+  environmentScenery?: EnvironmentScenery;
 
   // Instanced Street Furniture GPU Pools (Phase 5)
   lampPolesMesh?: THREE.InstancedMesh;
@@ -479,10 +489,9 @@ export class Renderer {
 
 
     // 3. Unreal Bloom Pass for glowing emissive windows & vehicle headlights.
-    // UnrealBloomPass creates its internal source buffers at half this supplied
-    // size. EffectComposer supplies drawing-buffer dimensions on resize, so this
-    // keeps those buffers at exactly 50% of the renderer resolution.
-    const bloomPass = new UnrealBloomPass(
+    // Quarter-resolution bloom reduces blur work without lowering scene detail.
+    // UnrealBloomPass itself halves the size supplied by the subclass above.
+    const bloomPass = new QuarterResolutionBloomPass(
       new THREE.Vector2(this.container.clientWidth, this.container.clientHeight),
       0.25, // strength (cozy and soft)
       0.3,  // radius
@@ -581,8 +590,10 @@ export class Renderer {
     cliffCornerRolesAttr.needsUpdate = true;
     this.scene.add(this.groundMesh);
 
-    // 2. Scattered Forest Trees (around borders or randomly as environment details) using InstancedMesh
-    this.rebuildTrees();
+    // 2. Deterministic, renderer-owned natural scenery. It derives recipes from
+    // the neighborhood seed and tile state, so it adds no save data.
+    this.environmentScenery = new EnvironmentScenery(this.scene, this.sim!, this.assets);
+    this.environmentScenery.initialize();
 
     // 3. Global Instanced Street Furniture Pools (Phase 5)
     this.initStreetFurniture();
@@ -1609,7 +1620,13 @@ export class Renderer {
       }
     }
 
-    this.updateTreesOnTile(x, y);
+    // Scenery visibility and terrain height are both tile-derived. The queued
+    // 3x3 refresh also covers water-boulder and shore-plant topology rules.
+    this.environmentScenery?.markTileDirty(x, y, true);
+  }
+
+  rebuildEnvironmentScenery() {
+    this.environmentScenery?.rebuildAll();
   }
 
   resetGroundInstances() {
@@ -2269,7 +2286,7 @@ export class Renderer {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.mesh.position.addScaledVector(p.velocity, timeStep);
-      p.life++;
+      p.life += timeStep * 60;
 
       // Fade out opacity by assigning a pre-created material of the closest opacity level
       const opacityFraction = Math.max(0, Math.min(1, 1.0 - p.life / p.maxLife));
@@ -2337,12 +2354,16 @@ export class Renderer {
       this.citizens.update(timeStep);
     }
 
-    // 5. Render composer passes
+    // Apply coalesced construction, demolition, and terrain-sculpting updates
+    // immediately before rendering. No scenery matrices change on idle frames.
+    this.environmentScenery?.refresh();
+
+    // 6. Render composer passes
     this.composer.render();
   }
 
   // Camera Smoothing update method
-  private cameraNeedsSmoothing(): boolean {
+  cameraNeedsSmoothing(): boolean {
     const isPanningWithKeyboard = Boolean(
       this.keysPressed['w'] || this.keysPressed['arrowup'] ||
       this.keysPressed['a'] || this.keysPressed['arrowleft'] ||
@@ -2470,6 +2491,7 @@ export class Renderer {
     if (this.trunkMesh) this.trunkMesh.instanceMatrix.needsUpdate = true;
     if (this.greenLeavesMesh) this.greenLeavesMesh.instanceMatrix.needsUpdate = true;
     if (this.blossomLeavesMesh) this.blossomLeavesMesh.instanceMatrix.needsUpdate = true;
+    this.environmentScenery?.refreshMaterialProfile();
     this.citizens?.setMaterialProfile(this.assets.materialProfile);
   }
 

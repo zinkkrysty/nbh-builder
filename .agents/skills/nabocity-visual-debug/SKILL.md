@@ -19,6 +19,7 @@ Use controlled screenshots as experiments. Change one visual variable at a time,
 8. Rebuild and replay the identical scenario. Capture the same baseline and isolation views after the change.
 9. Inspect the screenshots visually, then use pixel comparison as supporting evidence when the framing is identical.
 10. Test a nearby state transition that can invalidate cached geometry: add/remove a tile, change a diagonal neighbor, switch a material profile, move the camera, or resize the viewport.
+11. For detailed asset, silhouette, material, or seam work, also capture at the runtime's closest supported in-game zoom. Inspect that close-up before relying on normal gameplay framing; distant views can hide faceting, intersections, thin gaps, and repeated-shape artifacts.
 
 ## Build a deterministic scene
 
@@ -30,6 +31,7 @@ Use the game API exposed as `window.game`. Set all relevant state explicitly:
 - rebuild tile caches and renderer instances;
 - rebuild every affected tile only after the final state is in place;
 - set both current and desired camera target, zoom, pitch, and yaw;
+- when checking detailed geometry, set the camera to the closest supported in-game zoom (currently `cameraZoom = desiredCameraZoom = 300`) and frame the affected tile directly;
 - call `updateCameraPosition()` and `onWindowResize()`;
 - hide `#loader` and `#hud-layer` when testing the WebGL layer alone.
 
@@ -109,6 +111,7 @@ Before reporting completion:
 - the browser has no new `pageerror` or console error;
 - the exact before scene is replayed after the change;
 - combined and isolated captures are reviewed;
+- detailed visual work includes a reviewed capture at the closest supported in-game zoom;
 - at least one convex/concave, connected/disconnected, or otherwise adjacent edge case is checked when topology is involved;
 - a dynamic rebuild or neighbor mutation does not leave stale visuals;
 - unrelated visual systems remain visible in one representative full-scene capture.

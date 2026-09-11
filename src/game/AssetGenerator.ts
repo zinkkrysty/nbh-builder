@@ -4,6 +4,8 @@ import { Simulation } from './Simulation';
 import { ROAD_LAYOUT, currentStreetscapeSettings } from './RoadLayout';
 
 export type MaterialProfile = 'standard' | 'softToon' | 'toon';
+export type EnvironmentTreeFamily = 'conifer' | 'broadleaf' | 'slender';
+export type EnvironmentPlantGeometry = 'env_reed_clump' | 'env_lily_pad_rosette';
 
 type ResidentialPalette = {
   wall: THREE.Material;
@@ -549,10 +551,10 @@ export class AssetGenerator {
 
     // Curated Cozy Palettes definition
     const COZY_PALETTES = [
-      { wallColor: 0xa84c3e, roofColor: 0x2d3139, trimColor: 0xf8fafc, brickColor: 0x475569 }, // Nordic Red
-      { wallColor: 0xf59e0b, roofColor: 0x78350f, trimColor: 0xfef3c7, brickColor: 0xa18262 }, // Autumn Farmhouse
-      { wallColor: 0xa5f3fc, roofColor: 0x475569, trimColor: 0xf8fafc, brickColor: 0x94a3b8 }, // Coastal Cottage
-      { wallColor: 0xfef3c7, roofColor: 0xb91c1c, trimColor: 0xf8fafc, brickColor: 0xa84c3e }  // Cozy Cream
+      { wallColor: 0xb96350, roofColor: 0x38434c, trimColor: 0xf3e8cd, brickColor: 0x8e8170 }, // Terracotta and slate
+      { wallColor: 0xd9b972, roofColor: 0x655345, trimColor: 0xffefd5, brickColor: 0x918374 }, // Warm ochre
+      { wallColor: 0x92b9aa, roofColor: 0x3c5058, trimColor: 0xf4eddc, brickColor: 0x8c9088 }, // Sage and blue slate
+      { wallColor: 0xe9dabe, roofColor: 0xa45e47, trimColor: 0xfff3db, brickColor: 0x988575 }  // Limestone and clay
     ];
 
     this.standardPalettes = COZY_PALETTES.map(p => ({
@@ -672,6 +674,20 @@ export class AssetGenerator {
     registerMat('leaves', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x16a34a, gradientMap: this.toonGradient }));
     registerMat('blossom', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0xf472b6, gradientMap: this.toonGradient }));
     registerMat('darkVoid', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x120c08, roughness: 0.95 }) : new THREE.MeshToonMaterial({ color: 0x120c08, gradientMap: this.toonGradient }));
+
+    // Environment scenery uses a deliberately restrained palette so procedural
+    // understory sits between grass and tree canopies instead of competing with
+    // buildings. These stay in the normal profile registry: instanced scenery
+    // pools therefore switch standard/soft-toon/toon without a recipe rebuild.
+    registerMat('bush', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0x72bd62, roughness: 0.9 })
+      : new THREE.MeshToonMaterial({ color: 0x72bd62, gradientMap: this.toonGradient }));
+    registerMat('shrub', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0x91cf70, roughness: 0.94 })
+      : new THREE.MeshToonMaterial({ color: 0x91cf70, gradientMap: this.toonGradient }));
+    registerMat('stone', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0x70716d, roughness: 0.96 })
+      : new THREE.MeshToonMaterial({ color: 0x70716d, gradientMap: this.toonGradient }));
 
     // Utilities
     registerMat('whiteMetal', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4, metalness: 0.3 }) : new THREE.MeshToonMaterial({ color: 0xf8fafc, gradientMap: this.toonGradient }));
@@ -1199,6 +1215,248 @@ export class AssetGenerator {
     return group;
   }
 
+  /**
+   * Shared, baked-at-origin parts for the renderer-owned environment pools.
+   * The geometry is intentionally cached here rather than in EnvironmentScenery:
+   * it has the same lifecycle as every other procedural asset and is included in
+   * Renderer.disposeObject3D's shared-geometry exclusion set.
+   */
+  getEnvironmentTreeGeometry(part: 'trunk' | 'conifer' | 'broadleaf' | 'blossom'): THREE.BufferGeometry {
+    const key = part === 'trunk'
+      ? 'env_tree_trunk'
+      : part === 'conifer'
+        ? 'env_conifer_crown'
+        : part === 'broadleaf'
+          ? 'env_broadleaf_crown'
+          : 'env_blossom_crown';
+
+    return this.getGeometry(key, () => {
+      if (part === 'trunk') {
+        const geometry = new THREE.CylinderGeometry(0.095, 0.145, 0.86, 5);
+        geometry.translate(0, 0.43, 0);
+        return geometry;
+      }
+
+      if (part === 'conifer') {
+        const tiers = [
+          { radius: 0.44, height: 0.56, y: 0.86, x: 0.015, z: -0.025 },
+          { radius: 0.34, height: 0.54, y: 1.18, x: -0.025, z: 0.018 },
+          { radius: 0.23, height: 0.50, y: 1.48, x: 0.018, z: 0.010 },
+        ].map(tier => {
+          const geometry = new THREE.ConeGeometry(tier.radius, tier.height, 6);
+          geometry.translate(tier.x, tier.y, tier.z);
+          return geometry;
+        });
+        const merged = BufferGeometryUtils.mergeGeometries(tiers, false);
+        tiers.forEach(geometry => geometry.dispose());
+        if (!merged) throw new Error('Unable to merge conifer crown geometry');
+        merged.computeVertexNormals();
+        return merged;
+      }
+
+      const crowns = [
+        { radius: 0.38, x: -0.19, y: 1.10, z: -0.04 },
+        { radius: 0.46, x: 0.14, y: 1.16, z: 0.03 },
+        { radius: 0.32, x: 0.01, y: 1.42, z: -0.02 },
+      ].map(crown => {
+        const geometry = new THREE.DodecahedronGeometry(crown.radius, 0);
+        geometry.scale(1, 0.92, 0.94);
+        geometry.translate(crown.x, crown.y, crown.z);
+        return geometry;
+      });
+      const merged = BufferGeometryUtils.mergeGeometries(crowns, false);
+      crowns.forEach(geometry => geometry.dispose());
+      if (!merged) throw new Error('Unable to merge broadleaf crown geometry');
+      merged.computeVertexNormals();
+      return merged;
+    });
+  }
+
+  /** Returns the crown asset appropriate for an environment tree family. */
+  getEnvironmentTreeCrownGeometry(family: EnvironmentTreeFamily, blossom = false): THREE.BufferGeometry {
+    if (blossom) return this.getEnvironmentTreeGeometry('blossom');
+    return this.getEnvironmentTreeGeometry(family === 'conifer' ? 'conifer' : 'broadleaf');
+  }
+
+  /**
+   * Convenience factory for non-instanced callers (parks and previews). World
+   * scenery should use the cached geometry getters above with InstancedMesh.
+   */
+  createEnvironmentTreeMesh(family: EnvironmentTreeFamily = 'broadleaf', blossom = false): THREE.Group {
+    const group = new THREE.Group();
+    const trunk = new THREE.Mesh(this.getEnvironmentTreeGeometry('trunk'), this.materials.trunk);
+    const crown = new THREE.Mesh(this.getEnvironmentTreeCrownGeometry(family, blossom), blossom ? this.materials.blossom : this.materials.leaves);
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    crown.castShadow = true;
+    crown.receiveShadow = true;
+    if (family === 'slender') {
+      crown.scale.set(0.68, 1.22, 0.68);
+      crown.position.y = 0.15;
+    }
+    group.add(trunk, crown);
+    return group;
+  }
+
+  getEnvironmentBushGeometry(kind: 'bush' | 'shrub'): THREE.BufferGeometry {
+    const key = kind === 'bush' ? 'env_bush_cluster' : 'env_shrub_cluster';
+    return this.getGeometry(key, () => {
+      // A radial cluster of pointed leaves reads as a planted bush at gameplay
+      // distance. The previous dodecahedron lobes read more like green rocks.
+      const leafCount = kind === 'bush' ? 7 : 6;
+      const leafHeight = kind === 'bush' ? 0.46 : 0.34;
+      const leafRadius = kind === 'bush' ? 0.115 : 0.105;
+      const baseRadius = kind === 'bush' ? 0.10 : 0.15;
+      const lean = kind === 'bush' ? 0.58 : 0.82;
+      const geometries: THREE.BufferGeometry[] = [];
+
+      for (let index = 0; index < leafCount; index++) {
+        const angle = (index / leafCount) * Math.PI * 2 + (kind === 'bush' ? 0.14 : 0.34);
+        const height = leafHeight * (0.82 + (index % 3) * 0.09);
+        const leaf = new THREE.ConeGeometry(leafRadius * (0.88 + (index % 2) * 0.12), height, 5);
+        // Put the base at the local origin before tilting, so every leaf grows
+        // outward from the cluster rather than orbiting around its centre.
+        leaf.translate(0, height / 2, 0);
+        leaf.rotateZ(-Math.cos(angle) * lean);
+        leaf.rotateX(Math.sin(angle) * lean);
+        leaf.translate(Math.cos(angle) * baseRadius, 0, Math.sin(angle) * baseRadius);
+        geometries.push(leaf);
+      }
+
+      // One shorter upright leaf gives the cluster a visible centre without
+      // returning to the rounded, stone-like silhouette.
+      const centerLeaf = new THREE.ConeGeometry(leafRadius * 0.86, leafHeight * 0.78, 5);
+      centerLeaf.translate(0, leafHeight * 0.39, 0);
+      geometries.push(centerLeaf);
+
+      const merged = BufferGeometryUtils.mergeGeometries(geometries, false);
+      geometries.forEach(geometry => geometry.dispose());
+      if (!merged) throw new Error(`Unable to merge ${kind} cluster geometry`);
+      merged.computeVertexNormals();
+      return merged;
+    });
+  }
+
+  getEnvironmentRockGeometry(variant: 0 | 1 | 2): THREE.BufferGeometry {
+    return this.getGeometry(`env_rock_${variant}`, () => {
+      const source = new THREE.IcosahedronGeometry(1, 1).toNonIndexed();
+      const position = source.getAttribute('position') as THREE.BufferAttribute;
+      const shape = [
+        { sx: 0.54, sy: 0.31, sz: 0.46, floor: -0.58 },
+        { sx: 0.47, sy: 0.54, sz: 0.43, floor: -0.62 },
+        { sx: 0.64, sy: 0.44, sz: 0.54, floor: -0.60 },
+      ][variant];
+
+      for (let i = 0; i < position.count; i++) {
+        const x = position.getX(i);
+        const y = position.getY(i);
+        const z = position.getZ(i);
+        // Coordinate-derived deformation gives three repeatable faceted stones
+        // without retaining a per-instance random state or texture.
+        const radial = 0.87 + 0.16 * Math.sin(x * 19.7 + y * 11.3 + z * (7.1 + variant * 2.9));
+        position.setXYZ(
+          i,
+          x * radial * shape.sx,
+          Math.max(y * radial, shape.floor) * shape.sy,
+          z * radial * shape.sz,
+        );
+      }
+      position.needsUpdate = true;
+      source.computeVertexNormals();
+      source.computeBoundingBox();
+      // All environment props use their tile elevation as the instance origin.
+      // Put the flattened stone base exactly on that origin so lowering/raising
+      // land cannot leave a visible seam below it.
+      source.translate(0, -(source.boundingBox?.min.y ?? 0), 0);
+      source.computeBoundingBox();
+      source.computeBoundingSphere();
+      return source;
+    });
+  }
+
+  /**
+   * One grouped geometry for a small cattail/reed composition. Group 0 is
+   * reedGreen and group 1 is cattailBrown; this maps directly to an
+   * InstancedMesh material array.
+   */
+  getEnvironmentPlantGeometry(kind: EnvironmentPlantGeometry): THREE.BufferGeometry {
+    const key = kind;
+    return this.getGeometry(key, () => {
+      if (kind === 'env_reed_clump') {
+        const reedParts: THREE.BufferGeometry[] = [];
+        const cattailParts: THREE.BufferGeometry[] = [];
+        const layout = [
+          [-0.20, -0.05, 0.67, -0.13], [-0.06, 0.10, 0.78, 0.10],
+          [0.14, -0.10, 0.61, -0.08], [0.23, 0.13, 0.72, 0.14],
+          [0.02, -0.20, 0.57, 0.05],
+        ] as const;
+        layout.forEach(([x, z, height, lean]) => {
+          const stem = new THREE.CylinderGeometry(0.012, 0.017, height, 4);
+          stem.rotateZ(lean);
+          stem.translate(x, height * 0.5, z);
+          reedParts.push(stem);
+        });
+        layout.slice(0, 3).forEach(([x, z, height, lean]) => {
+          const head = new THREE.CylinderGeometry(0.032, 0.027, 0.16, 5);
+          head.rotateZ(lean);
+          head.translate(x + Math.sin(lean) * 0.035, height - 0.045, z);
+          cattailParts.push(head);
+        });
+        return this.mergeEnvironmentMaterialGroups(reedParts, cattailParts, 'reed/cattail clump');
+      }
+
+      const leafParts: THREE.BufferGeometry[] = [];
+      const flowerParts: THREE.BufferGeometry[] = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2 + 0.18;
+        const radius = i % 2 === 0 ? 0.19 : 0.15;
+        const leaf = new THREE.CylinderGeometry(radius, radius * 0.92, 0.018, 7);
+        leaf.scale(1.22, 1, 0.83);
+        leaf.rotateY(angle);
+        leaf.translate(Math.cos(angle) * 0.16, 0.01, Math.sin(angle) * 0.16);
+        leafParts.push(leaf);
+      }
+      for (let i = 0; i < 5; i++) {
+        const petal = new THREE.ConeGeometry(0.045, 0.10, 5);
+        petal.rotateZ(Math.PI / 3);
+        petal.rotateY((i / 5) * Math.PI * 2);
+        petal.translate(0, 0.06, 0);
+        flowerParts.push(petal);
+      }
+      return this.mergeEnvironmentMaterialGroups(leafParts, flowerParts, 'lily-pad rosette');
+    });
+  }
+
+  getEnvironmentPlantMaterials(kind: EnvironmentPlantGeometry): THREE.Material[] {
+    return kind === 'env_reed_clump'
+      ? [this.materials.reedGreen, this.materials.cattailBrown]
+      : [this.materials.lilypadGreen, this.materials.lotusPink];
+  }
+
+  private mergeEnvironmentMaterialGroups(
+    primary: THREE.BufferGeometry[],
+    accent: THREE.BufferGeometry[],
+    name: string,
+  ): THREE.BufferGeometry {
+    const primaryMerged = BufferGeometryUtils.mergeGeometries(primary, false);
+    const accentMerged = BufferGeometryUtils.mergeGeometries(accent, false);
+    primary.forEach(geometry => geometry.dispose());
+    accent.forEach(geometry => geometry.dispose());
+    if (!primaryMerged || !accentMerged) {
+      primaryMerged?.dispose();
+      accentMerged?.dispose();
+      throw new Error(`Unable to merge ${name} geometry`);
+    }
+    const combined = BufferGeometryUtils.mergeGeometries([primaryMerged, accentMerged], true);
+    primaryMerged.dispose();
+    accentMerged.dispose();
+    if (!combined) throw new Error(`Unable to combine ${name} geometry`);
+    combined.computeVertexNormals();
+    combined.computeBoundingBox();
+    combined.computeBoundingSphere();
+    return combined;
+  }
+
   // 3. Road Mesh Generator based on neighbors
   isIntersection(tx: number, ty: number): boolean {
     if (!this.sim) return false;
@@ -1252,7 +1510,6 @@ export class AssetGenerator {
       CARRIAGEWAY_Y,
       CARRIAGEWAY_ARM_CENTER_OFFSET,
       CARRIAGEWAY_ARM_LENGTH,
-      SIDEWALK_WIDTH,
       SIDEWALK_Y,
     } = ROAD_LAYOUT;
 
@@ -1408,27 +1665,66 @@ export class AssetGenerator {
       // 1. Water underneath
       group.add(this.createWaterMesh(neighbors));
 
-      // 2. Central vehicle wooden deck
-      const deckGeo = new THREE.BoxGeometry(CARRIAGEWAY_WIDTH, 0.08, 2);
-      const deck = new THREE.Mesh(deckGeo, this.materials.trunk);
-      deck.position.y = 0.04;
-      deck.castShadow = true;
-      deck.receiveShadow = true;
-      group.add(deck);
+      // 2. A bridge follows its road connection. The old fixed north/south
+      // layout made east/west sidewalks sit at the approach ends instead of
+      // beside the carriageway.
+      const runsNorthSouth = (N || S) && !(E || W);
+      const bridgeLength = 2;
+      const bridgeWidth = 2;
+      const deckWidth = 1.36;
+      const pedestrianWidth = (bridgeWidth - deckWidth) / 2;
+      const sidewalkOffset = deckWidth / 2 + pedestrianWidth / 2;
+      const plankCount = 9;
+      const plankLength = 0.20;
+      const plankPitch = 0.225;
+      const sidewalkBaseHeight = 0.035;
+      const sidewalkPaverHeight = 0.04;
+      const sidewalkPaverY = sidewalkBaseHeight + sidewalkPaverHeight / 2;
 
-      // 3. Raised wooden pedestrian walkways
-      const sideDeckGeo = new THREE.BoxGeometry(SIDEWALK_WIDTH, 0.10, 2);
-      const sideDeckL = new THREE.Mesh(sideDeckGeo, this.materials.trunk);
-      sideDeckL.position.set(-0.84, 0.05, 0);
-      sideDeckL.castShadow = true;
-      sideDeckL.receiveShadow = true;
-      group.add(sideDeckL);
+      const addBridgePart = (
+        width: number,
+        height: number,
+        length: number,
+        x: number,
+        y: number,
+        z: number,
+        material: THREE.Material,
+      ) => {
+        const geometry = new THREE.BoxGeometry(
+          runsNorthSouth ? width : length,
+          height,
+          runsNorthSouth ? length : width,
+        );
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+      };
 
-      const sideDeckR = new THREE.Mesh(sideDeckGeo, this.materials.trunk);
-      sideDeckR.position.set(0.84, 0.05, 0);
-      sideDeckR.castShadow = true;
-      sideDeckR.receiveShadow = true;
-      group.add(sideDeckR);
+      // Keep a pair of dark stringers beneath the open plank deck: the narrow
+      // gaps make the warm timber readable from the normal isometric camera.
+      for (const offset of [-deckWidth / 2 + 0.16, deckWidth / 2 - 0.16]) {
+        addBridgePart(0.08, 0.055, bridgeLength, runsNorthSouth ? offset : 0, 0.0275, runsNorthSouth ? 0 : offset, this.materials.charcoalMetal);
+      }
+
+      // Transverse planks are individually modelled rather than painted onto a
+      // single slab, so the wood grain rhythm remains clear at gameplay zoom.
+      for (let index = 0; index < plankCount; index += 1) {
+        const along = (index - (plankCount - 1) / 2) * plankPitch;
+        addBridgePart(deckWidth - 0.05, 0.09, plankLength, runsNorthSouth ? 0 : along, 0.072, runsNorthSouth ? along : 0, this.materials.trunk);
+      }
+
+      // 3. Low, continuous sidewalks use tight paver joints. Together with the
+      // central deck they fill the entire two-metre tile width edge-to-edge.
+      for (const side of [-1, 1]) {
+        const sideOffset = side * sidewalkOffset;
+        addBridgePart(pedestrianWidth, sidewalkBaseHeight, bridgeLength, runsNorthSouth ? sideOffset : 0, sidewalkBaseHeight / 2, runsNorthSouth ? 0 : sideOffset, this.materials.trunk);
+        for (let index = 0; index < 6; index += 1) {
+          const along = (index - 2.5) * 0.33;
+          addBridgePart(pedestrianWidth - 0.01, sidewalkPaverHeight, 0.32, runsNorthSouth ? sideOffset : along, sidewalkPaverY, runsNorthSouth ? along : sideOffset, this.materials.sidewalk);
+        }
+      }
     } else {
       // Standard Cozy Road Surface
       // 1. Central carriageway core (1.28 x 1.28)
@@ -1637,11 +1933,11 @@ export class AssetGenerator {
       }
     };
 
-    if (count === 2 && N && S) {
+    if (!isBridge && count === 2 && N && S) {
       addCenterlineWithGaps('NS', activeCrosswalksNS);
-    } else if (count === 2 && E && W) {
+    } else if (!isBridge && count === 2 && E && W) {
       addCenterlineWithGaps('EW', activeCrosswalksEW);
-    } else if (count === 1) {
+    } else if (!isBridge && count === 1) {
       // A dead-end may face an adjacent intersection. Keep only the edge stub
       // beyond its crosswalk so the centre line never paints through zebra stripes.
       if (N) {
@@ -1660,7 +1956,7 @@ export class AssetGenerator {
         if (activeCrosswalksEW.includes(-0.78)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
         else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
       }
-    } else if (count === 2) {
+    } else if (!isBridge && count === 2) {
       if (N && E) {
         if (activeCrosswalksNS.includes(-0.78)) addLine(0.06, 0.1, 0, -0.95);
         else addLine(0.06, 1, 0, -0.5);
@@ -1682,7 +1978,7 @@ export class AssetGenerator {
         if (activeCrosswalksEW.includes(-0.78)) addLine(0.06, 0.1, -0.95, 0, Math.PI / 2);
         else addLine(0.06, 1, -0.5, 0, Math.PI / 2);
       }
-    } else if (count >= 3) {
+    } else if (!isBridge && count >= 3) {
       const centerDotGeo = new THREE.BoxGeometry(0.1, 0.005, 0.1);
       const centerDot = new THREE.Mesh(centerDotGeo, lineMat);
       centerDot.position.set(0, lineY, 0);
@@ -1695,7 +1991,7 @@ export class AssetGenerator {
     }
 
     // Paint Zebra Crosswalks (spanning carriageway width)
-    if (currentStreetscapeSettings.showCrosswalks) {
+    if (!isBridge && currentStreetscapeSettings.showCrosswalks) {
       const drawCrosswalk = (cx: number, cz: number, orientation: 'NS' | 'EW') => {
         const stripeMat = this.materials.roadCrosswalk;
         const stripeGeo = this.getGeometry(
@@ -1727,33 +2023,45 @@ export class AssetGenerator {
     // Bridge Railings (using charcoalMetal)
     if (isBridge) {
       const railColor = this.materials.charcoalMetal;
-      const railingHeight = 0.22;
-      const railingY = 0.08 + railingHeight / 2;
+      const railingHeight = 0.26;
+      const railOffset = 0.965;
+      const sidewalkSurfaceY = 0.075;
+      const railingY = sidewalkSurfaceY + railingHeight / 2;
 
       const addSideRailing = (xOffset: number, zOffset: number, rotY = 0) => {
         const barGeo = new THREE.BoxGeometry(2.0, 0.04, 0.04);
         const bar = new THREE.Mesh(barGeo, railColor);
-        bar.position.set(xOffset, 0.08 + railingHeight - 0.02, zOffset);
+        bar.position.set(xOffset, sidewalkSurfaceY + railingHeight - 0.02, zOffset);
         bar.rotation.y = rotY;
         bar.castShadow = true;
         group.add(bar);
 
         const postGeo = new THREE.BoxGeometry(0.06, railingHeight, 0.06);
+        const footingGeo = new THREE.BoxGeometry(0.12, 0.025, 0.12);
         for (const off of [-0.9, 0, 0.9]) {
           const post = new THREE.Mesh(postGeo, railColor);
-          if (rotY === 0) post.position.set(xOffset + off, railingY, zOffset);
-          else post.position.set(xOffset, railingY, zOffset + off);
+          const footing = new THREE.Mesh(footingGeo, railColor);
+          if (rotY === 0) {
+            post.position.set(xOffset + off, railingY, zOffset);
+            footing.position.set(xOffset + off, sidewalkSurfaceY + 0.0125, zOffset);
+          } else {
+            post.position.set(xOffset, railingY, zOffset + off);
+            footing.position.set(xOffset, sidewalkSurfaceY + 0.0125, zOffset + off);
+          }
           post.castShadow = true;
+          footing.castShadow = true;
+          footing.receiveShadow = true;
           group.add(post);
+          group.add(footing);
         }
       };
 
       if (N || S) {
-        addSideRailing(-0.95, 0, Math.PI / 2);
-        addSideRailing(0.95, 0, Math.PI / 2);
+        addSideRailing(-railOffset, 0, Math.PI / 2);
+        addSideRailing(railOffset, 0, Math.PI / 2);
       } else if (E || W) {
-        addSideRailing(0, -0.95, 0);
-        addSideRailing(0, 0.95, 0);
+        addSideRailing(0, -railOffset, 0);
+        addSideRailing(0, railOffset, 0);
       } else {
         const postGeo = new THREE.BoxGeometry(0.08, railingHeight, 0.08);
         for (const c of [{ x: -0.9, z: -0.9 }, { x: 0.9, z: -0.9 }, { x: -0.9, z: 0.9 }, { x: 0.9, z: 0.9 }]) {
@@ -2097,17 +2405,11 @@ export class AssetGenerator {
     // Add continuous water mesh
     group.add(this.createWaterMesh(neighbors, diagonalNeighbors, shoreEdges, innerCorners, innerJoinCorners));
 
-    // Stable Seeded Vegetation Placement
-    const rand = this.getSeededRandom(tileX, tileY);
-    const vegRoll = rand();
-
-    if (vegRoll < 0.15) {
-      // 15% chance for lilypads
-      group.add(this.createLilypadMesh(rand));
-    } else if (vegRoll >= 0.15 && vegRoll < 0.35) {
-      // 20% chance for cattails/reeds
-      group.add(this.createReedsMesh(rand));
-    }
+    // Water vegetation is owned by EnvironmentScenery's global instanced
+    // pools. Keeping it out of this per-tile mesh prevents double scatter and
+    // lets boulders, reeds, and lily pads share one deterministic lifecycle.
+    void tileX;
+    void tileY;
 
     return group;
   }
@@ -2857,1049 +3159,182 @@ export class AssetGenerator {
   }
 
   // 4. Residential Buildings (Levels 0-3)
+  private residentialDesign(level: number, tileX: number, tileY: number) {
+    const rand = this.getSeededRandom(tileX, tileY);
+    const paletteIndex = Math.floor(rand() * this.palettes.length);
+    const side = rand() > 0.5 ? 1 : -1;
+    const tier = Math.min(3, Math.max(1, level));
+    return {
+      paletteIndex, side, tier,
+      w: [1.08, 1.3, 1.44][tier - 1],
+      d: [0.92, 1.04, 1.16][tier - 1],
+      h: [0.56, 0.98, 1.02][tier - 1],
+      rise: [0.44, 0.48, 0.66][tier - 1],
+      doorX: side * (tier === 1 ? 0.25 : 0.32),
+      chimneyX: -side * 0.3,
+    };
+  }
+
   createResidentialMesh(level: number, tileX: number = 0, tileY: number = 0): THREE.Group {
     const group = new THREE.Group();
-
-    if (level === 0) {
-      // Level 0: Zoned Outline
-      const lineGeo = this.getGeometry('res_geom_59_box_1_9_0_05_1_9', () => new THREE.BoxGeometry(1.9, 0.05, 1.9));
-      const line = new THREE.Mesh(lineGeo, this.materials.zoneR);
-      line.position.y = 0.06;
-      group.add(line);
+    const cube = this.getGeometry('house_unit_box', () => new THREE.BoxGeometry(1, 1, 1));
+    const box = (w: number, h: number, d: number, x: number, y: number, z: number, material: THREE.Material, parent: THREE.Group = group) => {
+      const mesh = new THREE.Mesh(cube, material);
+      mesh.scale.set(w, h, d);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
+    if (level <= 0) {
+      box(1.9, 0.05, 1.9, 0, 0.06, 0, this.materials.zoneR);
       return group;
     }
 
-    // Seed-based random generator
-    const rand = this.getSeededRandom(tileX, tileY);
-    const paletteIndex = Math.floor(rand() * this.palettes.length);
-    const palette = this.palettes[paletteIndex];
+    const design = this.residentialDesign(level, tileX, tileY);
+    const {w, h, d, rise, doorX, chimneyX, tier} = design;
+    const p = this.palettes[design.paletteIndex];
+    const timber = this.materials.trunk;
+    const base = 0.16;
+    const eave = base + h;
+    const front = d / 2;
+    const trim = tier === 3 ? timber : p.trim;
 
-    const foundHeight = 0.04;
-    const addFoundationAndStep = (fw: number, fd: number, doorXCoord: number | null, fx = 0, fz = 0) => {
-      const foundGeo = this.getGeometry(`res_geom_58_box_${fw}_${foundHeight}_${fd}`, () => {
-        const geo = new THREE.BoxGeometry(fw + 0.05, foundHeight, fd + 0.05);
-        geo.translate(0, foundHeight / 2, 0);
-        return geo;
-      });
-      const found = new THREE.Mesh(foundGeo, palette.brick);
-      found.position.set(fx, 0.06, fz);
-      found.castShadow = true;
-      found.receiveShadow = true;
-      group.add(found);
+    // A solid, closed shell prevents light leaks; window recesses are layered
+    // outward with a dark reveal, glass and a separate frame, never coplanar.
+    box(w + 0.07, 0.1, d + 0.07, 0, 0.11, 0, p.brick);
+    box(w, h, d, 0, base + h / 2, 0, p.wall);
+    box(w + 0.025, 0.035, d + 0.025, 0, base + 0.025, 0, trim);
 
-      if (doorXCoord !== null) {
-        const stepGeo = this.getGeometry(`res_geom_57_box_${foundHeight}`, () => {
-          const geo = new THREE.BoxGeometry(0.3, foundHeight / 2, 0.15);
-          geo.translate(0, foundHeight / 4, 0);
-          return geo;
-        });
-        const step = new THREE.Mesh(stepGeo, palette.brick);
-        step.position.set(fx + doorXCoord, 0.06, fz + fd / 2 + 0.025);
-        step.castShadow = true;
-        step.receiveShadow = true;
-        group.add(step);
-      }
-    };
-
-    // Helper for grid-aligned picket fences (sturdier, better proportioned)
-    const addFenceX = (z: number, xStart: number, xEnd: number, count: number) => {
-      const step = (xEnd - xStart) / (count - 1);
-      const postGeo = this.getGeometry('res_fence_post', () => new THREE.BoxGeometry(0.04, 0.24, 0.04));
-      for (let i = 0; i < count; i++) {
-        const post = new THREE.Mesh(postGeo, this.materials.whiteMetal);
-        post.position.set(xStart + step * i, 0.06 + 0.12, z);
-        post.castShadow = true;
-        group.add(post);
-      }
-      const railWidth = Math.abs(xEnd - xStart) + 0.04;
-      const railGeo = this.getGeometry(`res_fence_rail_x_${railWidth}`, () => new THREE.BoxGeometry(railWidth, 0.03, 0.016));
-      const rail = new THREE.Mesh(railGeo, this.materials.whiteMetal);
-      rail.position.set((xStart + xEnd) / 2, 0.06 + 0.17, z);
-      group.add(rail);
-    };
-
-    const addFenceZ = (x: number, zStart: number, zEnd: number, count: number) => {
-      const step = (zEnd - zStart) / (count - 1);
-      const postGeo = this.getGeometry('res_fence_post', () => new THREE.BoxGeometry(0.04, 0.24, 0.04));
-      for (let i = 0; i < count; i++) {
-        const post = new THREE.Mesh(postGeo, this.materials.whiteMetal);
-        post.position.set(x, 0.06 + 0.12, zStart + step * i);
-        post.castShadow = true;
-        group.add(post);
-      }
-      const railLength = Math.abs(zEnd - zStart) + 0.04;
-      const railGeo = this.getGeometry(`res_fence_rail_z_${railLength}`, () => new THREE.BoxGeometry(0.016, 0.03, railLength));
-      const rail = new THREE.Mesh(railGeo, this.materials.whiteMetal);
-      rail.position.set(x, 0.06 + 0.17, (zStart + zEnd) / 2);
-      group.add(rail);
-    };
-
-    let style = 0;
-
-    if (level === 1) {
-      // Level 1: Cozy small cottage (Well proportioned: w=1.0, h=0.45, d=0.9)
-      const w = 1.0, h = 0.45, d = 0.9;
-
-      // Always use open gable roof style with tiles (pyramid hip roof variation removed)
-      rand(); // consume roll for sequence sync
-      const isGable = true;
-
-      // Brick Chimney side selection
-      const isLeft = rand() > 0.5;
-
-      // Door layout asymmetry
-      const doorRoll = rand();
-      let doorX = 0;
-      let hasWinL = true;
-      let hasWinR = true;
-
-      if (doorRoll < 0.3) {
-        doorX = -0.22;
-        hasWinL = false;
-      } else if (doorRoll < 0.6) {
-        doorX = 0.22;
-        hasWinR = false;
-      }
-
-      addFoundationAndStep(w, d, doorX);
-
-      // Walls (Front, Back, and Extruded Left/Right Side Walls with Gable Peaks)
-      const t = 0.04; // wall thickness
-
-      // Windows cutout dimensions (larger: 0.14 x 0.20)
-      const winW = 0.14;
-      const winH = 0.20;
-      const yWin = 0.1 + 0.22; // world y center of window
-      const localYWin = 0.22;  // local y center inside wall
-
-      // Front Wall Shape Extrusion (cutout door & windows, flat top)
+    const gable = this.getGeometry(`house_gable_${w}_${rise}_${d}`, () => {
       const shape = new THREE.Shape();
-      shape.moveTo(-w / 2, 0);
-      shape.lineTo(w / 2, 0);
-      shape.lineTo(w / 2, h);
-      shape.lineTo(-w / 2, h);
-      shape.closePath();
+      shape.moveTo(-w / 2, 0);shape.lineTo(w / 2, 0);shape.lineTo(0, rise);shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, {depth: d, bevelEnabled: false, steps: 1});
+      geo.translate(0, 0, -d / 2);
+      return geo;
+    });
+    const gableMesh = new THREE.Mesh(gable, tier === 3 ? timber : p.wall);
+    gableMesh.position.y = eave;gableMesh.castShadow = true;gableMesh.receiveShadow = true;group.add(gableMesh);
 
-      // Add door cutout hole (from bottom to door height)
-      const doorPath = new THREE.Path();
-      doorPath.moveTo(doorX - 0.09, 0);
-      doorPath.lineTo(doorX - 0.09, 0.38);
-      doorPath.lineTo(doorX + 0.09, 0.38);
-      doorPath.lineTo(doorX + 0.09, 0);
-      doorPath.closePath();
-      shape.holes.push(doorPath);
-
-      // Add window cutout holes
-      if (hasWinL) {
-        const winLPath = new THREE.Path();
-        winLPath.moveTo(-0.25 - 0.07, localYWin - 0.10);
-        winLPath.lineTo(-0.25 - 0.07, localYWin + 0.10);
-        winLPath.lineTo(-0.25 + 0.07, localYWin + 0.10);
-        winLPath.lineTo(-0.25 + 0.07, localYWin - 0.10);
-        winLPath.closePath();
-        shape.holes.push(winLPath);
-      }
-
-      if (hasWinR) {
-        const winRPath = new THREE.Path();
-        winRPath.moveTo(0.25 - 0.07, localYWin - 0.10);
-        winRPath.lineTo(0.25 - 0.07, localYWin + 0.10);
-        winRPath.lineTo(0.25 + 0.07, localYWin + 0.10);
-        winRPath.lineTo(0.25 + 0.07, localYWin - 0.10);
-        winRPath.closePath();
-        shape.holes.push(winRPath);
-      }
-
-      const wallFGeo = this.getGeometry(`res_level1_wallF_${w}_${h}_${doorX}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }));
-      const wallF = new THREE.Mesh(wallFGeo, palette.wall);
-      wallF.position.set(0, 0.1, d / 2 - t);
-      wallF.castShadow = true;
-      wallF.receiveShadow = true;
-      group.add(wallF);
-
-      // Back Wall with Shape Extrusion (same windows as front, no door)
-      const backShape = new THREE.Shape();
-      backShape.moveTo(-w / 2, 0);
-      backShape.lineTo(w / 2, 0);
-      backShape.lineTo(w / 2, h);
-      backShape.lineTo(-w / 2, h);
-      backShape.closePath();
-
-      if (hasWinL) {
-        const winLPath = new THREE.Path();
-        winLPath.moveTo(-0.25 - 0.07, localYWin - 0.10);
-        winLPath.lineTo(-0.25 - 0.07, localYWin + 0.10);
-        winLPath.lineTo(-0.25 + 0.07, localYWin + 0.10);
-        winLPath.lineTo(-0.25 + 0.07, localYWin - 0.10);
-        winLPath.closePath();
-        backShape.holes.push(winLPath);
-      }
-
-      if (hasWinR) {
-        const winRPath = new THREE.Path();
-        winRPath.moveTo(0.25 - 0.07, localYWin - 0.10);
-        winRPath.lineTo(0.25 - 0.07, localYWin + 0.10);
-        winRPath.lineTo(0.25 + 0.07, localYWin + 0.10);
-        winRPath.lineTo(0.25 + 0.07, localYWin - 0.10);
-        winRPath.closePath();
-        backShape.holes.push(winRPath);
-      }
-
-      const wallBGeo = this.getGeometry(`res_level1_wallB_${w}_${h}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(backShape, { depth: t, bevelEnabled: false }));
-      const wallB = new THREE.Mesh(wallBGeo, palette.wall);
-      wallB.position.set(0, 0.1, -d / 2);
-      wallB.castShadow = true;
-      wallB.receiveShadow = true;
-      group.add(wallB);
-
-      // Left and Right Gable Side Walls (Pentagonal if isGable) with center window cutout
-      const sideShape = new THREE.Shape();
-      sideShape.moveTo(-d / 2 + t, 0);
-      sideShape.lineTo(d / 2 - t, 0);
-      sideShape.lineTo(d / 2 - t, h);
-      if (isGable) {
-        sideShape.lineTo(0, h + 0.38); // Side wall gable peak
-      }
-      sideShape.lineTo(-d / 2 + t, h);
-      sideShape.closePath();
-
-      const sideWinPath = new THREE.Path();
-      sideWinPath.moveTo(-winW / 2, localYWin - winH / 2);
-      sideWinPath.lineTo(-winW / 2, localYWin + winH / 2);
-      sideWinPath.lineTo(winW / 2, localYWin + winH / 2);
-      sideWinPath.lineTo(winW / 2, localYWin - winH / 2);
-      sideWinPath.closePath();
-      sideShape.holes.push(sideWinPath);
-
-      const wallLGeo = this.getGeometry(`res_level1_wallL_${d}_${h}_${isGable}_${t}`, () => new THREE.ExtrudeGeometry(sideShape, { depth: t, bevelEnabled: false }));
-
-      const wallL = new THREE.Mesh(wallLGeo, palette.wall);
-      wallL.rotation.y = Math.PI / 2;
-      wallL.position.set(-w / 2, 0.1, 0); // sits flush between front and back walls
-      wallL.castShadow = true;
-      wallL.receiveShadow = true;
-      group.add(wallL);
-
-      const wallR = new THREE.Mesh(wallLGeo, palette.wall);
-      wallR.rotation.y = Math.PI / 2;
-      wallR.position.set(w / 2 - t, 0.1, 0);
-      wallR.castShadow = true;
-      wallR.receiveShadow = true;
-      group.add(wallR);
-
-      // Roof (Open Gable vs Hip)
-      if (isGable) {
-        // Open Gable Roof built from multiple sloped vertical panels (tiles)
-        const slabL = 0.72; // slope length along Z (front-to-back)
-        const slabT = 0.045; // thickness of the roof board
-        const slabW = w + 0.12; // width along X (overhang left and right)
-        const angle = Math.atan2(0.38, 0.5);
-
-        // Divide the roof into 4 vertical panels/tiles with a tiny gap
-        const numTiles = 4;
-        const tileW = slabW / numTiles;
-        const tileGap = 0.012;
-        const tileWidth = tileW - tileGap;
-
-        // Front slab tiles
-        for (let i = 0; i < numTiles; i++) {
-          const tileGeo = this.getGeometry(`res_geom_49_box_${tileWidth}_${slabT}_${slabL}`, () => new THREE.BoxGeometry(tileWidth, slabT, slabL));
-          const tileMesh = new THREE.Mesh(tileGeo, palette.roof);
-          const x = -slabW / 2 + tileW / 2 + i * tileW;
-          tileMesh.position.set(x, h + 0.1 + 0.20, 0.24);
-          tileMesh.rotation.x = angle;
-          tileMesh.castShadow = true;
-          tileMesh.receiveShadow = true;
-          group.add(tileMesh);
+    // Two continuous roof planes with generous eaves, crisp bargeboards and
+    // raised standing seams. No gaps between individual roof tiles.
+    const roof = (rw: number, rd: number, roofRise: number, y: number, x = 0, z = 0, seams = true) => {
+      const half = rw / 2;
+      const slope = Math.hypot(half, roofRise);
+      const angle = Math.atan2(roofRise, half);
+      for (const side of [-1, 1]) {
+        const panel = box(slope + 0.018, 0.045, rd, x + side * half / 2, y + roofRise / 2, z, p.roof);
+        panel.rotation.z = -side * angle;
+        for (const end of [-1, 1]) {
+          const fascia = box(slope + 0.035, 0.045, 0.035, x + side * half / 2, y + roofRise / 2 - 0.02, z + end * rd / 2, trim);
+          fascia.rotation.z = -side * angle;
         }
-
-        // Back slab tiles
-        for (let i = 0; i < numTiles; i++) {
-          const tileGeo = this.getGeometry(`res_geom_48_box_${tileWidth}_${slabT}_${slabL}`, () => new THREE.BoxGeometry(tileWidth, slabT, slabL));
-          const tileMesh = new THREE.Mesh(tileGeo, palette.roof);
-          const x = -slabW / 2 + tileW / 2 + i * tileW;
-          tileMesh.position.set(x, h + 0.1 + 0.20, -0.24);
-          tileMesh.rotation.x = -angle;
-          tileMesh.castShadow = true;
-          tileMesh.receiveShadow = true;
-          group.add(tileMesh);
+        if (seams) for (let i = 1; i < 5; i++) {
+          const seam = box(slope, 0.012, 0.012, x + side * (half / 2 + Math.sin(angle) * 0.026), y + roofRise / 2 + Math.cos(angle) * 0.026, z - rd / 2 + rd * i / 5, p.roof);
+          seam.rotation.z = -side * angle;
         }
-
-        // Cylindrical ridge cap running along X axis (left-to-right)
-        const ridgeCapGeo = this.getGeometry(`res_geom_47_cylinder_${slabW}`, () => {
-          const geo = new THREE.CylinderGeometry(0.045, 0.045, slabW + 0.02, 8);
-          geo.rotateZ(Math.PI / 2); // align with X axis
-          return geo;
-        });
-        const ridgeCap = new THREE.Mesh(ridgeCapGeo, palette.roof);
-        ridgeCap.position.set(0, h + 0.1 + 0.38 + 0.01, 0);
-        ridgeCap.castShadow = true;
-        group.add(ridgeCap);
-      } else {
-        // Pyramid Hip Roof
-        const roofGeo = this.getGeometry('res_geom_46_cone_0_72_0_35_4', () => {
-          const geo = new THREE.ConeGeometry(0.72, 0.35, 4);
-          geo.rotateY(Math.PI / 4);
-          geo.scale(1.15, 1.0, 1.15);
-          geo.translate(0, h + 0.175 + 0.1, 0);
-          return geo;
-        });
-        const roof = new THREE.Mesh(roofGeo, palette.roof);
-        roof.castShadow = true;
-        group.add(roof);
+        box(0.045, 0.05, rd, x + side * half, y - 0.014, z, trim);
       }
+      box(0.075, 0.045, rd + 0.035, x, y + roofRise + 0.018, z, p.roof);
+    };
+    const overhang = tier === 3 ? 0.16 : 0.1;
+    const roofRise = rise * (w / 2 + overhang) / (w / 2);
+    roof(w + overhang * 2, d + 0.24, roofRise, eave + rise - roofRise);
 
-      // Brick Chimney
-      const chimX = isLeft ? -0.28 : 0.28;
-      const chimGeo = this.getGeometry('res_geom_45_box_0_14_0_55_0_14', () => new THREE.BoxGeometry(0.14, 0.55, 0.14));
-      const chimney = new THREE.Mesh(chimGeo, palette.brick);
-      chimney.position.set(chimX, h + 0.275, -0.2);
-      chimney.castShadow = true;
-      group.add(chimney);
+    // Corner boards give the plaster body a readable architectural frame.
+    for (const x of [-w / 2, w / 2]) for (const z of [-front, front]) {
+      box(0.045, h, 0.045, x, base + h / 2, z, trim);
+    }
+    if (tier > 1) box(w + 0.045, 0.055, d + 0.045, 0, base + 0.53, 0, trim);
 
-      const chimCap = new THREE.Mesh(this.getGeometry('res_geom_44_box_0_18_0_04_0_18', () => new THREE.BoxGeometry(0.18, 0.04, 0.18)), this.materials.road);
-      chimCap.position.set(chimX, h + 0.55, -0.2);
-      group.add(chimCap);
-
-      // Small door and door frame casing snugly fitted inside cutout opening
-      const doorInnerW = 0.15;
-      const doorInnerH = 0.365;
-
-      const doorFrameShape = new THREE.Shape();
-      doorFrameShape.moveTo(-0.09, 0);
-      doorFrameShape.lineTo(0.09, 0);
-      doorFrameShape.lineTo(0.09, 0.38);
-      doorFrameShape.lineTo(-0.09, 0.38);
-      doorFrameShape.closePath();
-
-      const doorFrameHole = new THREE.Path();
-      doorFrameHole.moveTo(-0.075, 0);
-      doorFrameHole.lineTo(0.075, 0);
-      doorFrameHole.lineTo(0.075, 0.365);
-      doorFrameHole.lineTo(-0.075, 0.365);
-      doorFrameHole.closePath();
-      doorFrameShape.holes.push(doorFrameHole);
-
-      const doorFrameGeo = this.getGeometry(`res_level1_doorFrame_${t}`, () => new THREE.ExtrudeGeometry(doorFrameShape, { depth: t, bevelEnabled: false }));
-      const doorFrame = new THREE.Mesh(doorFrameGeo, palette.trim); // door frame matches trim color
-      doorFrame.position.set(doorX, 0.1, d / 2 - t);
-      doorFrame.castShadow = true;
-      group.add(doorFrame);
-
-      const doorGeo = this.getGeometry(`res_geom_42_box_${doorInnerW}_${doorInnerH}`, () => new THREE.BoxGeometry(doorInnerW, doorInnerH, 0.02));
-      const door = new THREE.Mesh(doorGeo, palette.trim); // door board matches trim color
-      door.position.set(doorX, 0.1 + doorInnerH / 2, d / 2 - t / 2); // recessed inside frame
-      group.add(door);
-
-      // Windows with cutout frame details (hollow frame fitting snugly inside hole cutout)
-      const fw = winW; // frame outer width equals hole width
-      const fh = winH; // frame outer height equals hole height
-      const winInnerW = winW - 0.03; // glass window opening width
-      const winInnerH = winH - 0.03; // glass window opening height
-
-      const frameShape = new THREE.Shape();
-      frameShape.moveTo(-fw / 2, -fh / 2);
-      frameShape.lineTo(fw / 2, -fh / 2);
-      frameShape.lineTo(fw / 2, fh / 2);
-      frameShape.lineTo(-fw / 2, fh / 2);
-      frameShape.closePath();
-
-      const frameHole = new THREE.Path();
-      frameHole.moveTo(-winInnerW / 2, -winInnerH / 2);
-      frameHole.lineTo(winInnerW / 2, -winInnerH / 2);
-      frameHole.lineTo(winInnerW / 2, winInnerH / 2);
-      frameHole.lineTo(-winInnerW / 2, winInnerH / 2);
-      frameHole.closePath();
-      frameShape.holes.push(frameHole);
-
-      const frameGeo = this.getGeometry(`res_level1_winFrame_${t}`, () => new THREE.ExtrudeGeometry(frameShape, { depth: t, bevelEnabled: false }));
-      const frameMat = palette.trim; // matching trim color for realistic framing
-      const glassGeo = this.getGeometry(`res_geom_40_box_${winInnerW}_${winInnerH}`, () => new THREE.BoxGeometry(winInnerW, winInnerH, 0.015));
-      const glassMat = this.materials.window;
-
-      const sillGeo = this.getGeometry(`res_geom_39_box_${winW}_${t}`, () => new THREE.BoxGeometry(winW + 0.04, 0.02, t + 0.04));
-      const sillMat = palette.brick;
-
-      const addFramedWindow = (x: number) => {
-        // Front Window Frame & Glass
-        const frameF = new THREE.Mesh(frameGeo, frameMat);
-        frameF.position.set(x, yWin, d / 2 - t);
-        frameF.castShadow = true;
-        group.add(frameF);
-
-        const glassF = new THREE.Mesh(glassGeo, glassMat);
-        glassF.position.set(x, yWin, d / 2 - t / 2);
-        group.add(glassF);
-
-        // Front Window Sill
-        const sillF = new THREE.Mesh(sillGeo, sillMat);
-        sillF.position.set(x, yWin - winH / 2, d / 2 - t / 2);
-        sillF.castShadow = true;
-        group.add(sillF);
-
-        // Back Window Frame & Glass (opposite face)
-        const frameB = new THREE.Mesh(frameGeo, frameMat);
-        frameB.position.set(x, yWin, -d / 2);
-        frameB.castShadow = true;
-        group.add(frameB);
-
-        const glassB = new THREE.Mesh(glassGeo, glassMat);
-        glassB.position.set(x, yWin, -d / 2 + t / 2);
-        group.add(glassB);
-
-        // Back Window Sill
-        const sillB = new THREE.Mesh(sillGeo, sillMat);
-        sillB.position.set(x, yWin - winH / 2, -d / 2 + t / 2);
-        sillB.castShadow = true;
-        group.add(sillB);
-      };
-
-      const addFramedWindowSide = (wx: number, wy: number, wz: number) => {
-        const frame = new THREE.Mesh(frameGeo, frameMat);
-        frame.rotation.y = Math.PI / 2;
-        frame.position.set(wx, wy, wz);
-        frame.castShadow = true;
-        group.add(frame);
-
-        const glass = new THREE.Mesh(glassGeo, glassMat);
-        glass.rotation.y = Math.PI / 2;
-        glass.position.set(wx + t / 2, wy, wz);
-        group.add(glass);
-
-        // Side Window Sill
-        const sill = new THREE.Mesh(sillGeo, sillMat);
-        sill.rotation.y = Math.PI / 2;
-        sill.position.set(wx + t / 2, wy - winH / 2, wz);
-        sill.castShadow = true;
-        group.add(sill);
-      };
-
-      if (hasWinL) {
-        addFramedWindow(-0.25);
-      }
-
-      if (hasWinR) {
-        addFramedWindow(0.25);
-      }
-
-      // Add Left & Right side wall center windows
-      addFramedWindowSide(-w / 2, yWin, 0);
-      addFramedWindowSide(w / 2 - t, yWin, 0);
-
-      // Stepping stones walkway aligned to door
-      for (let i = 0; i < 3; i++) {
-        const stone = new THREE.Mesh(this.getGeometry('res_geom_38_box_0_15_0_015_0_15', () => new THREE.BoxGeometry(0.15, 0.015, 0.15)), this.materials.whiteMetal);
-        stone.rotation.y = rand() * 0.5;
-        stone.position.set(doorX + (rand() - 0.5) * 0.06, 0.068, d / 2 + 0.15 + i * 0.15);
-        stone.receiveShadow = true;
-        group.add(stone);
-      }
-
-      // Shrub
-      const shrub = new THREE.Mesh(this.getGeometry('res_geom_37_sphere_0_12_5_5', () => new THREE.SphereGeometry(0.12, 5, 5)), this.materials.leaves);
-      shrub.position.set(-0.5, 0.12, 0.4);
-      shrub.castShadow = true;
-      group.add(shrub);
-
-      // Picket fences at front flanking the walkway
-      if (rand() > 0.4) {
-        if (doorX === 0) {
-          addFenceX(0.75, -0.7, -0.2, 3);
-          addFenceX(0.75, 0.2, 0.7, 3);
-        } else if (doorX < 0) {
-          addFenceX(0.75, -0.7, -0.42, 2);
-          addFenceX(0.75, -0.02, 0.7, 4);
-        } else {
-          addFenceX(0.75, -0.7, 0.02, 4);
-          addFenceX(0.75, 0.42, 0.7, 2);
+    const window = (x: number, y: number, z: number, rotation = 0, width = 0.23, height = 0.25, shutters = false, flowers = false) => {
+      const frame = new THREE.Group();frame.position.set(x, y, z);frame.rotation.y = rotation;group.add(frame);
+      box(width + 0.055, height + 0.055, 0.024, 0, 0, 0.012, p.roof, frame);
+      box(width, height, 0.012, 0, 0, 0.027, this.materials.window, frame).castShadow = false;
+      for (const side of [-1, 1]) {
+        box(0.022, height + 0.05, 0.028, side * (width / 2 + 0.011), 0, 0.038, p.trim, frame);
+        box(width + 0.065, 0.022, 0.028, 0, side * (height / 2 + 0.011), 0.038, p.trim, frame);
+        if (shutters) {
+          box(0.073, height + 0.035, 0.026, side * (width / 2 + 0.068), 0, 0.02, p.roof, frame);
+          for (const yy of [-0.065, 0.065]) box(0.073, 0.016, 0.018, side * (width / 2 + 0.068), yy, 0.041, trim, frame);
         }
       }
-
-    } else if (level === 2) {
-      // Level 2: Rebuilt from Level 1 (larger footprint, 2 stories)
-      const w = 1.2, h = 0.9, d = 1.0;
-      style = Math.floor(rand() * 3); // used for yard style decorations
-      const isLeft = rand() > 0.5;
-      const doorRoll = rand();
-      let doorX = 0;
-      let hasWinL = true;
-      let hasWinR = true;
-
-      if (doorRoll < 0.3) {
-        doorX = -0.28;
-        hasWinL = false;
-      } else if (doorRoll < 0.6) {
-        doorX = 0.28;
-        hasWinR = false;
-      }
-
-      addFoundationAndStep(w, d, doorX);
-
-      // Walls (Front, Back, Left, Right)
-      const t = 0.04;
-      const winW = 0.14;
-      const winH = 0.20;
-      const localYWin1 = 0.22;
-      const localYWin2 = 0.67;
-
-      // Front wall shape with door and window cutouts
-      const shape = new THREE.Shape();
-      shape.moveTo(-w / 2, 0);
-      shape.lineTo(w / 2, 0);
-      shape.lineTo(w / 2, h);
-      shape.lineTo(-w / 2, h);
-      shape.closePath();
-
-      // Door cutout hole
-      const doorPath = new THREE.Path();
-      doorPath.moveTo(doorX - 0.09, 0);
-      doorPath.lineTo(doorX - 0.09, 0.38);
-      doorPath.lineTo(doorX + 0.09, 0.38);
-      doorPath.lineTo(doorX + 0.09, 0);
-      doorPath.closePath();
-      shape.holes.push(doorPath);
-
-      // Window cutouts helper list
-      const windowsList: { x: number; y: number }[] = [];
-      if (doorX === 0) {
-        if (hasWinL) windowsList.push({ x: -0.30, y: localYWin1 });
-        if (hasWinR) windowsList.push({ x: 0.30, y: localYWin1 });
-        windowsList.push({ x: -0.30, y: localYWin2 });
-        windowsList.push({ x: 0, y: localYWin2 });
-        windowsList.push({ x: 0.30, y: localYWin2 });
-      } else if (doorX === -0.28) {
-        windowsList.push({ x: 0.30, y: localYWin1 });
-        windowsList.push({ x: -0.28, y: localYWin2 });
-        windowsList.push({ x: 0.30, y: localYWin2 });
-      } else {
-        windowsList.push({ x: -0.30, y: localYWin1 });
-        windowsList.push({ x: -0.30, y: localYWin2 });
-        windowsList.push({ x: 0.28, y: localYWin2 });
-      }
-
-      for (const win of windowsList) {
-        const winPath = new THREE.Path();
-        winPath.moveTo(win.x - winW / 2, win.y - winH / 2);
-        winPath.lineTo(win.x - winW / 2, win.y + winH / 2);
-        winPath.lineTo(win.x + winW / 2, win.y + winH / 2);
-        winPath.lineTo(win.x + winW / 2, win.y - winH / 2);
-        winPath.closePath();
-        shape.holes.push(winPath);
-      }
-
-      const wallFGeo = this.getGeometry(`res_level2_wallF_${w}_${h}_${doorX}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false }));
-      const wallF = new THREE.Mesh(wallFGeo, palette.wall);
-      wallF.position.set(0, 0.1, d / 2 - t);
-      wallF.castShadow = true;
-      wallF.receiveShadow = true;
-      group.add(wallF);
-
-      // Back Wall with windows
-      const backShape = new THREE.Shape();
-      backShape.moveTo(-w / 2, 0);
-      backShape.lineTo(w / 2, 0);
-      backShape.lineTo(w / 2, h);
-      backShape.lineTo(-w / 2, h);
-      backShape.closePath();
-
-      for (const win of windowsList) {
-        const winPath = new THREE.Path();
-        winPath.moveTo(win.x - winW / 2, win.y - winH / 2);
-        winPath.lineTo(win.x - winW / 2, win.y + winH / 2);
-        winPath.lineTo(win.x + winW / 2, win.y + winH / 2);
-        winPath.lineTo(win.x + winW / 2, win.y - winH / 2);
-        winPath.closePath();
-        backShape.holes.push(winPath);
-      }
-
-      const wallBGeo = this.getGeometry(`res_level2_wallB_${w}_${h}_${doorX}_${hasWinL}_${hasWinR}_${t}`, () => new THREE.ExtrudeGeometry(backShape, { depth: t, bevelEnabled: false }));
-      const wallB = new THREE.Mesh(wallBGeo, palette.wall);
-      wallB.position.set(0, 0.1, -d / 2);
-      wallB.castShadow = true;
-      wallB.receiveShadow = true;
-      group.add(wallB);
-
-      // Side Walls with Gable Peaks and center column windows
-      const peakH = 0.456;
-      const sideShape = new THREE.Shape();
-      sideShape.moveTo(-d / 2 + t, 0);
-      sideShape.lineTo(d / 2 - t, 0);
-      sideShape.lineTo(d / 2 - t, h);
-      sideShape.lineTo(0, h + peakH);
-      sideShape.lineTo(-d / 2 + t, h);
-      sideShape.closePath();
-
-      const sideWindowsY = [localYWin1, localYWin2];
-      for (const wy of sideWindowsY) {
-        const sideWinPath = new THREE.Path();
-        sideWinPath.moveTo(-winW / 2, wy - winH / 2);
-        sideWinPath.lineTo(-winW / 2, wy + winH / 2);
-        sideWinPath.lineTo(winW / 2, wy + winH / 2);
-        sideWinPath.lineTo(winW / 2, wy - winH / 2);
-        sideWinPath.closePath();
-        sideShape.holes.push(sideWinPath);
-      }
-
-      const wallLGeo = this.getGeometry(`res_level2_wallL_${d}_${h}_${peakH}_${t}`, () => new THREE.ExtrudeGeometry(sideShape, { depth: t, bevelEnabled: false }));
-      const wallL = new THREE.Mesh(wallLGeo, palette.wall);
-      wallL.rotation.y = Math.PI / 2;
-      wallL.position.set(-w / 2, 0.1, 0);
-      wallL.castShadow = true;
-      wallL.receiveShadow = true;
-      group.add(wallL);
-
-      const wallR = new THREE.Mesh(wallLGeo, palette.wall);
-      wallR.rotation.y = Math.PI / 2;
-      wallR.position.set(w / 2 - t, 0.1, 0);
-      wallR.castShadow = true;
-      wallR.receiveShadow = true;
-      group.add(wallR);
-
-      // Tiled Roof
-      const slabL = 0.8;
-      const slabT = 0.045;
-      const slabW = w + 0.12;
-      const angle = Math.atan2(0.38, 0.5);
-
-      const numTiles = 4;
-      const tileW = slabW / numTiles;
-      const tileGap = 0.012;
-      const tileWidth = tileW - tileGap;
-
-      for (let i = 0; i < numTiles; i++) {
-        const tileGeo = this.getGeometry(`res_geom_33_box_${tileWidth}_${slabT}_${slabL}`, () => new THREE.BoxGeometry(tileWidth, slabT, slabL));
-        const tileMesh = new THREE.Mesh(tileGeo, palette.roof);
-        const x = -slabW / 2 + tileW / 2 + i * tileW;
-        tileMesh.position.set(x, h + 0.1 + 0.228, 0.26);
-        tileMesh.rotation.x = angle;
-        tileMesh.castShadow = true;
-        tileMesh.receiveShadow = true;
-        group.add(tileMesh);
-      }
-
-      for (let i = 0; i < numTiles; i++) {
-        const tileGeo = this.getGeometry(`res_geom_32_box_${tileWidth}_${slabT}_${slabL}`, () => new THREE.BoxGeometry(tileWidth, slabT, slabL));
-        const tileMesh = new THREE.Mesh(tileGeo, palette.roof);
-        const x = -slabW / 2 + tileW / 2 + i * tileW;
-        tileMesh.position.set(x, h + 0.1 + 0.228, -0.26);
-        tileMesh.rotation.x = -angle;
-        tileMesh.castShadow = true;
-        tileMesh.receiveShadow = true;
-        group.add(tileMesh);
-      }
-
-      // Cylindrical ridge cap
-      const ridgeCapGeo = this.getGeometry(`res_geom_31_cylinder_${slabW}`, () => {
-        const geo = new THREE.CylinderGeometry(0.045, 0.045, slabW + 0.02, 8);
-        geo.rotateZ(Math.PI / 2);
-        return geo;
-      });
-      const ridgeCap = new THREE.Mesh(ridgeCapGeo, palette.roof);
-      ridgeCap.position.set(0, h + 0.1 + peakH + 0.01, 0);
-      ridgeCap.castShadow = true;
-      group.add(ridgeCap);
-
-      // Chimney
-      const chimX = isLeft ? -0.32 : 0.32;
-      const chimGeo = this.getGeometry('res_geom_30_box_0_14_0_85_0_14', () => new THREE.BoxGeometry(0.14, 0.85, 0.14));
-      const chimney = new THREE.Mesh(chimGeo, palette.brick);
-      chimney.position.set(chimX, h + 0.325, -0.22);
-      chimney.castShadow = true;
-      group.add(chimney);
-
-      const chimCap = new THREE.Mesh(this.getGeometry('res_geom_29_box_0_18_0_04_0_18', () => new THREE.BoxGeometry(0.18, 0.04, 0.18)), this.materials.road);
-      chimCap.position.set(chimX, h + 0.75, -0.22);
-      group.add(chimCap);
-
-      // Door & Frame
-      const doorInnerW = 0.15;
-      const doorInnerH = 0.365;
-
-      const doorFrameShape = new THREE.Shape();
-      doorFrameShape.moveTo(-0.09, 0);
-      doorFrameShape.lineTo(0.09, 0);
-      doorFrameShape.lineTo(0.09, 0.38);
-      doorFrameShape.lineTo(-0.09, 0.38);
-      doorFrameShape.closePath();
-
-      const doorFrameHole = new THREE.Path();
-      doorFrameHole.moveTo(-0.075, 0);
-      doorFrameHole.lineTo(0.075, 0);
-      doorFrameHole.lineTo(0.075, 0.365);
-      doorFrameHole.lineTo(-0.075, 0.365);
-      doorFrameHole.closePath();
-      doorFrameShape.holes.push(doorFrameHole);
-
-      const doorFrameGeo = this.getGeometry(`res_level2_doorFrame_${t}`, () => new THREE.ExtrudeGeometry(doorFrameShape, { depth: t, bevelEnabled: false }));
-      const doorFrame = new THREE.Mesh(doorFrameGeo, palette.trim);
-      doorFrame.position.set(doorX, 0.1, d / 2 - t);
-      doorFrame.castShadow = true;
-      group.add(doorFrame);
-
-      const doorGeo = this.getGeometry(`res_geom_27_box_${doorInnerW}_${doorInnerH}`, () => new THREE.BoxGeometry(doorInnerW, doorInnerH, 0.02));
-      const door = new THREE.Mesh(doorGeo, palette.trim);
-      door.position.set(doorX, 0.1 + doorInnerH / 2, d / 2 - t / 2);
-      group.add(door);
-
-      // Windows
-      const fw = winW;
-      const fh = winH;
-      const winInnerW = winW - 0.03;
-      const winInnerH = winH - 0.03;
-
-      const frameShape = new THREE.Shape();
-      frameShape.moveTo(-fw / 2, -fh / 2);
-      frameShape.lineTo(fw / 2, -fh / 2);
-      frameShape.lineTo(fw / 2, fh / 2);
-      frameShape.lineTo(-fw / 2, fh / 2);
-      frameShape.closePath();
-
-      const frameHole = new THREE.Path();
-      frameHole.moveTo(-winInnerW / 2, -winInnerH / 2);
-      frameHole.lineTo(winInnerW / 2, -winInnerH / 2);
-      frameHole.lineTo(winInnerW / 2, winInnerH / 2);
-      frameHole.lineTo(-winInnerW / 2, winInnerH / 2);
-      frameHole.closePath();
-      frameShape.holes.push(frameHole);
-
-      const frameGeo = this.getGeometry(`res_level2_winFrame_${t}`, () => new THREE.ExtrudeGeometry(frameShape, { depth: t, bevelEnabled: false }));
-      const frameMat = palette.trim;
-      const glassGeo = this.getGeometry(`res_geom_25_box_${winInnerW}_${winInnerH}`, () => new THREE.BoxGeometry(winInnerW, winInnerH, 0.015));
-      const glassMat = this.materials.window;
-
-      const sillGeo = this.getGeometry(`res_geom_24_box_${winW}_${t}`, () => new THREE.BoxGeometry(winW + 0.04, 0.02, t + 0.04));
-      const sillMat = palette.brick;
-
-      const addFramedWindow = (wx: number, wy: number) => {
-        // Front Window
-        const frameF = new THREE.Mesh(frameGeo, frameMat);
-        frameF.position.set(wx, 0.1 + wy, d / 2 - t);
-        frameF.castShadow = true;
-        group.add(frameF);
-
-        const glassF = new THREE.Mesh(glassGeo, glassMat);
-        glassF.position.set(wx, 0.1 + wy, d / 2 - t / 2);
-        group.add(glassF);
-
-        // Front Window Sill
-        const sillF = new THREE.Mesh(sillGeo, sillMat);
-        sillF.position.set(wx, 0.1 + wy - winH / 2, d / 2 - t / 2);
-        sillF.castShadow = true;
-        group.add(sillF);
-
-        // Back Window (opposite face)
-        const frameB = new THREE.Mesh(frameGeo, frameMat);
-        frameB.position.set(wx, 0.1 + wy, -d / 2);
-        frameB.castShadow = true;
-        group.add(frameB);
-
-        const glassB = new THREE.Mesh(glassGeo, glassMat);
-        glassB.position.set(wx, 0.1 + wy, -d / 2 + t / 2);
-        group.add(glassB);
-
-        // Back Window Sill
-        const sillB = new THREE.Mesh(sillGeo, sillMat);
-        sillB.position.set(wx, 0.1 + wy - winH / 2, -d / 2 + t / 2);
-        sillB.castShadow = true;
-        group.add(sillB);
-      };
-
-      const addFramedWindowSide = (wx: number, wy: number, wz: number) => {
-        const frame = new THREE.Mesh(frameGeo, frameMat);
-        frame.rotation.y = Math.PI / 2;
-        frame.position.set(wx, 0.1 + wy, wz);
-        frame.castShadow = true;
-        group.add(frame);
-
-        const glass = new THREE.Mesh(glassGeo, glassMat);
-        glass.rotation.y = Math.PI / 2;
-        glass.position.set(wx + t / 2, 0.1 + wy, wz);
-        group.add(glass);
-
-        // Side Window Sill
-        const sill = new THREE.Mesh(sillGeo, sillMat);
-        sill.rotation.y = Math.PI / 2;
-        sill.position.set(wx + t / 2, 0.1 + wy - winH / 2, wz);
-        sill.castShadow = true;
-        group.add(sill);
-      };
-
-      for (const win of windowsList) {
-        addFramedWindow(win.x, win.y);
-      }
-
-      // Add Left & Right side wall center windows
-      for (const wy of sideWindowsY) {
-        addFramedWindowSide(-w / 2, wy, 0);
-        addFramedWindowSide(w / 2 - t, wy, 0);
-      }
-
-      // Flagstone walkway
-      const walkwayX = (doorX === 0) ? 0.0 : doorX;
-      for (let i = 0; i < 4; i++) {
-        const stone = new THREE.Mesh(this.getGeometry('res_geom_23_box_0_18_0_02_0_18', () => new THREE.BoxGeometry(0.18, 0.02, 0.18)), this.materials.whiteMetal);
-        stone.rotation.y = rand() * 0.4 - 0.2;
-        stone.position.set(walkwayX + (rand() - 0.5) * 0.08, 0.07, d / 2 + 0.15 + i * 0.15);
-        stone.receiveShadow = true;
-        group.add(stone);
-      }
-
-      // Style-based yard variations
-      if (style === 0) {
-        // Doghouse and tree
-        const doghouse = new THREE.Group();
-        doghouse.position.set(0.4, 0.06, -0.45);
-        const dhWalls = new THREE.Mesh(this.getGeometry('res_geom_22_box_0_18_0_15_0_18', () => new THREE.BoxGeometry(0.18, 0.15, 0.18)), palette.brick);
-        dhWalls.position.y = 0.075;
-        doghouse.add(dhWalls);
-        const dhRoof = new THREE.Mesh(this.getGeometry('res_geom_21_cone_0_14_0_1_4', () => new THREE.ConeGeometry(0.14, 0.1, 4)), palette.roof);
-        dhRoof.rotateY(Math.PI / 4);
-        dhRoof.position.y = 0.2;
-        doghouse.add(dhRoof);
-        group.add(doghouse);
-
-        const yardTree = this.createTreeMesh();
-        yardTree.position.set(-0.55, 0.06, -0.45);
-        yardTree.scale.set(0.55, 0.55, 0.55);
-        group.add(yardTree);
-
-        addFenceX(0.76, -0.75, -0.3, 3);
-        addFenceZ(-0.76, -0.75, 0.75, 5);
-      } else if (style === 1) {
-        // Water well and tree
-        const well = new THREE.Group();
-        well.position.set(-0.4, 0.06, -0.4);
-        const wBase = new THREE.Mesh(this.getGeometry('res_geom_20_cylinder_0_12_0_12_0_12_6', () => new THREE.CylinderGeometry(0.12, 0.12, 0.12, 6)), palette.brick);
-        wBase.position.y = 0.06;
-        wBase.castShadow = true;
-        well.add(wBase);
-
-        const p1 = new THREE.Mesh(this.getGeometry('res_geom_19_box_0_015_0_25_0_015', () => new THREE.BoxGeometry(0.015, 0.25, 0.015)), this.materials.trunk);
-        p1.position.set(-0.09, 0.15, 0);
-        well.add(p1);
-        const p2 = p1.clone();
-        p2.position.x = 0.09;
-        well.add(p2);
-
-        const wRoof = new THREE.Mesh(this.getGeometry('res_geom_18_box_0_2_0_02_0_18', () => new THREE.BoxGeometry(0.2, 0.02, 0.18)), palette.roof);
-        wRoof.position.set(0, 0.27, 0);
-        well.add(wRoof);
-        group.add(well);
-
-        const flowerbed = new THREE.Group();
-        flowerbed.position.set(0.45, 0.06, 0.45);
-        const bedBase = new THREE.Mesh(this.getGeometry('res_geom_17_box_0_25_0_06_0_25', () => new THREE.BoxGeometry(0.25, 0.06, 0.25)), this.materials.trunk);
-        bedBase.position.y = 0.03;
-        flowerbed.add(bedBase);
-        const bedSoil = new THREE.Mesh(this.getGeometry('res_geom_16_box_0_22_0_06_0_22', () => new THREE.BoxGeometry(0.22, 0.06, 0.22)), this.materials.dirt);
-        bedSoil.position.y = 0.04;
-        flowerbed.add(bedSoil);
-
-        const flowerColors = [this.materials.blossom, this.materials.leaves];
-        for (let i = 0; i < 3; i++) {
-          const f = new THREE.Mesh(this.getGeometry('res_geom_15_sphere_0_04_4_4', () => new THREE.SphereGeometry(0.04, 4, 4)), flowerColors[i % 2]);
-          f.position.set(-0.06 + i * 0.06, 0.08, -0.04 + (i % 2) * 0.08);
-          flowerbed.add(f);
+      box(0.016, height, 0.02, 0, 0, 0.045, p.trim, frame);
+      box(width, 0.016, 0.02, 0, 0.012, 0.045, p.trim, frame);
+      box(width + 0.085, 0.03, 0.085, 0, -height / 2 - 0.025, 0.038, p.trim, frame);
+      if (flowers) {
+        box(width + 0.05, 0.055, 0.075, 0, -height / 2 - 0.075, 0.045, timber, frame);
+        for (const offset of [-0.07, 0, 0.07]) {
+          box(0.065, 0.04, 0.06, offset, -height / 2 - 0.043, 0.05, this.materials.leaves, frame);
+          box(0.03, 0.03, 0.035, offset, -height / 2 - 0.014, 0.065, this.materials.blossom, frame);
         }
-        group.add(flowerbed);
-
-        const yardTree = this.createTreeMesh();
-        yardTree.position.set(0.55, 0.06, -0.45);
-        yardTree.scale.set(0.5, 0.5, 0.5);
-        group.add(yardTree);
-
-        addFenceX(-0.76, -0.75, 0.75, 5);
-        addFenceX(0.76, 0.35, 0.75, 3);
-        addFenceX(0.76, -0.75, -0.35, 3);
-      } else {
-        // Firewood stack and pine tree
-        const woodpile = new THREE.Group();
-        woodpile.position.set(0.4, 0.06, -0.4);
-        const logGeo = this.getGeometry('res_geom_14_cylinder_0_03_0_03_0_22_5', () => {
-          const geo = new THREE.CylinderGeometry(0.03, 0.03, 0.22, 5);
-          geo.rotateX(Math.PI / 2);
-          return geo;
-        });
-
-        const logOffsets = [
-          [-0.06, 0.025, 0], [0, 0.025, 0], [0.06, 0.025, 0],
-          [-0.03, 0.065, 0], [0.03, 0.065, 0],
-          [0, 0.105, 0]
-        ];
-        for (const [lx, ly, lz] of logOffsets) {
-          const log = new THREE.Mesh(logGeo, this.materials.trunk);
-          log.position.set(lx, ly, lz);
-          log.castShadow = true;
-          woodpile.add(log);
-        }
-        group.add(woodpile);
-
-        const yardTree = this.createTreeMesh();
-        yardTree.position.set(-0.55, 0.06, -0.45);
-        yardTree.scale.set(0.5, 0.5, 0.5);
-        group.add(yardTree);
-
-        addFenceZ(-0.76, -0.75, 0.75, 5);
-        addFenceZ(0.76, -0.75, 0.75, 5);
       }
+    };
+    window(-doorX, base + 0.3, front + 0.002, 0, tier === 1 ? 0.24 : 0.3, 0.25, true, true);
+    for (const side of [-1, 1]) {
+      window(side * (w / 2 + 0.002), base + 0.3, -0.16, side * Math.PI / 2);
+      if (tier > 1) window(side * (w / 2 + 0.002), base + 0.77, -0.16, side * Math.PI / 2);
+      window(side * w * 0.25, base + 0.3, -front - 0.002, Math.PI);
+      if (tier > 1) window(side * w * 0.25, base + 0.77, -front - 0.002, Math.PI);
+    }
+    if (tier > 1) {
+      for (const x of [-0.32, 0.32]) window(x, base + 0.77, front + 0.002, 0, 0.23, 0.25, tier === 2);
+    }
+    window(0, eave + rise * 0.38, front + 0.004, 0, 0.15, 0.17);
 
-    } else if (level >= 3) {
-      // Level 3: Three-story procedural apartment styles
-      const w = 1.45, h = 2.45, d = 1.45;
-      style = rand() > 0.5 ? 0 : 1;
-
-      if (style === 0) {
-        // SPLIT-LEVEL STEPPED MODERN APARTMENTS
-        addFoundationAndStep(0.85, 1.2, 0, -0.3, 0);
-        addFoundationAndStep(0.6, 1.1, null, 0.4, -0.05);
-
-        // Main tower block (3 stories)
-        const wt1 = 0.85, ht1 = 2.4, dt1 = 1.2;
-        const tower1 = new THREE.Group();
-
-        const brick1 = new THREE.Mesh(this.getGeometry(`res_geom_13_box_${wt1}_${ht1}_${dt1}`, () => new THREE.BoxGeometry(wt1, ht1, dt1)), palette.brick);
-        brick1.position.y = ht1 / 2 + 0.1;
-        brick1.castShadow = true;
-        brick1.receiveShadow = true;
-        tower1.add(brick1);
-
-        // Roof trim
-        const rt1 = new THREE.Mesh(this.getGeometry(`res_geom_12_box_${wt1}_${dt1}`, () => new THREE.BoxGeometry(wt1 + 0.06, 0.1, dt1 + 0.06)), palette.roof);
-        rt1.position.y = ht1 + 0.15;
-        tower1.add(rt1);
-
-        this.addWindows(tower1, { w: wt1 - 0.1, h: ht1 - 0.2, d: dt1 - 0.1 }, 3, 2, 0.1);
-        tower1.position.set(-0.3, 0, 0);
-        group.add(tower1);
-
-        // Stepped shorter wing block (2 stories)
-        const wt2 = 0.6, ht2 = 1.6, dt2 = 1.1;
-        const tower2 = new THREE.Group();
-
-        const wall2 = new THREE.Mesh(this.getGeometry(`res_geom_11_box_${wt2}_${ht2}_${dt2}`, () => new THREE.BoxGeometry(wt2, ht2, dt2)), palette.wall);
-        wall2.position.y = ht2 / 2 + 0.1;
-        wall2.castShadow = true;
-        wall2.receiveShadow = true;
-        tower2.add(wall2);
-
-        const rt2 = new THREE.Mesh(this.getGeometry(`res_geom_10_box_${wt2}_${dt2}`, () => new THREE.BoxGeometry(wt2 + 0.06, 0.1, dt2 + 0.06)), palette.roof);
-        rt2.position.y = ht2 + 0.15;
-        tower2.add(rt2);
-
-        this.addWindows(tower2, { w: wt2 - 0.08, h: ht2 - 0.2, d: dt2 - 0.08 }, 2, 1, 0.1);
-        tower2.position.set(0.4, 0, -0.05);
-        group.add(tower2);
-
-      } else {
-        // BALCONY-FOCUS APARTMENT
-        addFoundationAndStep(w, d, 0);
-
-        const wall = new THREE.Mesh(this.getGeometry(`res_geom_9_box_${w}_${h}_${d}`, () => new THREE.BoxGeometry(w, h, d)), palette.wall);
-        wall.position.set(0, h / 2 + 0.1, 0);
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        group.add(wall);
-
-        // Roof cornice
-        const cornice = new THREE.Mesh(this.getGeometry(`res_geom_8_box_${w}_${d}`, () => new THREE.BoxGeometry(w + 0.08, 0.12, d + 0.08)), palette.roof);
-        cornice.position.set(0, h + 0.16, 0);
-        cornice.castShadow = true;
-        group.add(cornice);
-
-        // Exposed concrete columns / corners
-        const colW = 0.08;
-        const colOffsets = [
-          [-w/2, -d/2], [w/2, -d/2], [-w/2, d/2], [w/2, d/2]
-        ];
-        for (const [cx, cz] of colOffsets) {
-          const col = new THREE.Mesh(this.getGeometry(`res_geom_7_box_${colW}_${h}_${colW}`, () => new THREE.BoxGeometry(colW, h + 0.06, colW)), palette.trim);
-          col.position.set(cx, h / 2 + 0.13, cz);
-          col.castShadow = true;
-          group.add(col);
-        }
-
-        // Add balconies in the front
-        for (let story = 0; story < 3; story++) {
-          const yPos = 0.1 + 0.35 + story * 0.75;
-          const deck = new THREE.Mesh(this.getGeometry('res_geom_6_box_0_8_0_03_0_22', () => new THREE.BoxGeometry(0.8, 0.03, 0.22)), this.materials.trunk);
-          deck.position.set(0, yPos, d / 2 + 0.1);
-          group.add(deck);
-
-          const rail = new THREE.Mesh(this.getGeometry('res_geom_5_box_0_82_0_16_0_02', () => new THREE.BoxGeometry(0.82, 0.16, 0.02)), palette.trim);
-          rail.position.set(0, yPos + 0.08, d / 2 + 0.2);
-          group.add(rail);
-
-          // Balcony flowerbox
-          if (rand() > 0.4) {
-            const fBox = new THREE.Mesh(this.getGeometry('res_geom_4_box_0_3_0_05_0_06', () => new THREE.BoxGeometry(0.3, 0.05, 0.06)), this.materials.trunk);
-            fBox.position.set(-0.15, yPos + 0.1, d / 2 + 0.23);
-            group.add(fBox);
-            const foliage = new THREE.Mesh(this.getGeometry('res_geom_3_box_0_28_0_04_0_05', () => new THREE.BoxGeometry(0.28, 0.04, 0.05)), this.materials.leaves);
-            foliage.position.set(-0.15, yPos + 0.13, d / 2 + 0.23);
-            group.add(foliage);
-          }
-
-          // Sliding glass doors behind balcony
-          const door = new THREE.Mesh(this.getGeometry('res_geom_2_box_0_36_0_5_0_02', () => new THREE.BoxGeometry(0.36, 0.5, 0.02)), this.materials.window);
-          door.position.set(0, yPos + 0.26, d / 2 + 0.015);
-          group.add(door);
-        }
-
-        // Standard windows on the sides (skipFront=true to prevent clipping sliding glass doors)
-        this.addWindows(group, { w, h, d }, 3, 3, 0.1, true);
-      }
-
-      // Landscaping: simple manicured bushes in front yard
-      const bush1 = new THREE.Mesh(this.getGeometry('res_geom_1_box_0_22_0_22_0_22', () => new THREE.BoxGeometry(0.22, 0.22, 0.22)), this.materials.leaves);
-      bush1.position.set(-0.55, 0.17, 0.85);
-      bush1.castShadow = true;
-      group.add(bush1);
-
-      const bush2 = bush1.clone();
-      bush2.position.x = 0.55;
-      group.add(bush2);
-
-      // Picket fence
-      addFenceX(0.96, -0.9, -0.2, 3);
-      addFenceX(0.96, 0.2, 0.9, 3);
+    // Contrasting entrance, glazed upper panel, brass-sized handle and porch.
+    box(0.235, 0.405, 0.045, doorX, base + 0.2025, front + 0.014, p.trim);
+    box(0.185, 0.365, 0.025, doorX, base + 0.1825, front + 0.045, p.roof);
+    box(0.115, 0.11, 0.015, doorX, base + 0.275, front + 0.062, this.materials.window);
+    box(0.11, 0.1, 0.012, doorX, base + 0.09, front + 0.063, trim);
+    box(0.017, 0.035, 0.018, doorX + 0.061, base + 0.17, front + 0.07, p.trim);
+    box(0.42, 0.08, 0.27, doorX, 0.12, front + 0.11, p.brick);
+    box(0.46, 0.04, 0.14, doorX, 0.08, front + 0.3, p.brick);
+    if (tier < 3) {
+      roof(0.48, 0.33, 0.13, base + 0.43, doorX, front + 0.105, false);
+      for (const side of [-1, 1]) box(0.032, 0.42, 0.032, doorX + side * 0.195, base + 0.21, front + 0.23, trim);
+    } else {
+      // The chalet's broad balcony doubles as a shelter for its entrance.
+      box(w - 0.14, 0.055, 0.25, 0, base + 0.53, front + 0.11, timber);
+      for (const x of [-0.55, -0.275, 0, 0.275, 0.55]) box(0.035, 0.21, 0.035, x, base + 0.66, front + 0.23, timber);
+      box(1.14, 0.035, 0.05, 0, base + 0.77, front + 0.23, timber);
+      for (const x of [-0.55, 0.55]) box(0.055, 0.53, 0.055, x, base + 0.265, front + 0.22, timber);
+      for (const z of [-front - 0.016, front + 0.016]) box(0.045, rise * 0.86, 0.035, 0, eave + rise * 0.43, z, p.trim);
     }
 
+    // Chimney outlet and smoke both derive from the same design parameters.
+    const chimneyTop = eave + rise + 0.13;
+    box(0.14, 0.48, 0.16, chimneyX, chimneyTop - 0.24, -0.18, p.brick);
+    box(0.185, 0.035, 0.205, chimneyX, chimneyTop, -0.18, p.trim);
+    box(0.095, 0.009, 0.11, chimneyX, chimneyTop + 0.021, -0.18, p.roof);
+    for (let i = 0; i < 3; i++) box(0.148, 0.016, 0.168, chimneyX, chimneyTop - 0.08 - i * 0.09, -0.18, p.trim);
+
+    // Deliberate front garden: path, planted borders and a short open fence.
+    for (let z = front + 0.4; z <= 0.88; z += 0.14) box(0.25, 0.018, 0.12, doorX, 0.071, z, p.brick);
+    const leafGeo = this.getGeometry('house_garden_facet', () => new THREE.IcosahedronGeometry(1, 0));
+    for (const x of [-w / 2 - 0.07, w / 2 + 0.07]) {
+      box(0.2, 0.045, 0.36, x, 0.085, 0.29, p.brick);
+      for (const z of [0.17, 0.34]) {
+        const shrub = new THREE.Mesh(leafGeo, this.materials.leaves);
+        shrub.scale.set(0.13, 0.14, 0.14);shrub.position.set(x, 0.18, z);shrub.castShadow = true;group.add(shrub);
+      }
+    }
+    for (const side of [-1, 1]) {
+      const start = side < 0 ? -0.87 : doorX + 0.23;
+      const end = side < 0 ? doorX - 0.23 : 0.87;
+      if (end - start < 0.12) continue;
+      box(end - start, 0.035, 0.027, (start + end) / 2, 0.19, 0.93, trim);
+      for (let i = 0; i < 3; i++) box(0.035, 0.22, 0.035, start + (end - start) * i / 2, 0.17, 0.93, trim);
+    }
     return group;
   }
 
-  // Returns chimney offset positions relative to tile center
+  // Local outlet location; the renderer applies the tile's rotation/elevation.
   getResidentialChimneyPos(level: number, tileX: number, tileY: number): THREE.Vector3[] {
-    const list: THREE.Vector3[] = [];
-    if (level <= 0) return list;
-
-    const rand = this.getSeededRandom(tileX, tileY);
-    // Mimic the LCG consumption order of createResidentialMesh exactly
-    rand(); // consume palette index
-    rand(); // consume foundation roll
-
-    if (level === 1) {
-      rand(); // consume isGable roll
-      const isLeft = rand() > 0.5; // chimney side
-      rand(); // consume doorRoll
-      const xOffset = isLeft ? -0.28 : 0.28;
-      list.push(new THREE.Vector3(xOffset, 1.03, -0.2));
-    } else if (level === 2) {
-      rand(); // consume style roll for sequence sync
-      const isLeft = rand() > 0.5; // keep chimney side selection sequence sync
-      const xOffset = isLeft ? -0.32 : 0.32;
-      list.push(new THREE.Vector3(xOffset, 1.68, -0.22));
-    } else if (level >= 3) {
-      const styleVal = rand() > 0.5 ? 0 : 1;
-      if (styleVal === 0) {
-        // split level tower 1 chimney point
-        list.push(new THREE.Vector3(-0.3, 2.5, 0));
-      } else {
-        // flat vents
-        list.push(new THREE.Vector3(-0.45, 2.65, -0.45));
-        list.push(new THREE.Vector3(0.45, 2.65, 0.45));
-      }
-    }
-    return list;
+    if (level <= 0) return [];
+    const {h, rise, chimneyX} = this.residentialDesign(level, tileX, tileY);
+    return [new THREE.Vector3(chimneyX, 0.16 + h + rise + 0.155, -0.18)];
   }
 
   // 5. Commercial Buildings (Levels 0-3)
