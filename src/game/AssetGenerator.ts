@@ -237,7 +237,7 @@ export class AssetGenerator {
       // standard materials use their existing PBR settings with faceted normals.
       const smoothSurfaces = new Set([
         'waterBlue', 'glass', 'metal', 'whiteMetal', 'charcoalMetal',
-        'lampBulb', 'window', 'fairyLight', 'headlight', 'taillight',
+        'lampBulb', 'window', 'bakeryWindow', 'bakeryGlass', 'fairyLight', 'headlight', 'taillight',
       ]);
       if (material instanceof THREE.MeshStandardMaterial && !smoothSurfaces.has(key)) {
         material.flatShading = true;
@@ -695,6 +695,28 @@ export class AssetGenerator {
     registerMat('constructionFoundation', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.92, metalness: 0.05 }) : new THREE.MeshToonMaterial({ color: 0x64748b, gradientMap: this.toonGradient }));
     registerMat('constructionFrame', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.7, metalness: 0.08 }) : new THREE.MeshToonMaterial({ color: 0xf59e0b, gradientMap: this.toonGradient }));
 
+    // Bakery Artisanal Materials
+    registerMat('bakeryWall', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xfbf9f5, roughness: 0.70 }) : new THREE.MeshToonMaterial({ color: 0xfbf9f5, gradientMap: this.toonGradient }));
+    registerMat('bakeryOak', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xd7a168, roughness: 0.75 }) : new THREE.MeshToonMaterial({ color: 0xd7a168, gradientMap: this.toonGradient }));
+    registerMat('bakerySteel', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x24272d, roughness: 0.50, metalness: 0.25 }) : new THREE.MeshToonMaterial({ color: 0x24272d, gradientMap: this.toonGradient }));
+    registerMat('bakeryRoofDeck', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xdeb27e, roughness: 0.75 }) : new THREE.MeshToonMaterial({ color: 0xdeb27e, gradientMap: this.toonGradient }));
+    registerMat('bakeryGlass', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xd8e6f3, roughness: 0.10, metalness: 0.10, transparent: true, opacity: 0.28 }) : new THREE.MeshToonMaterial({ color: 0xd8e6f3, transparent: true, opacity: 0.28, gradientMap: this.toonGradient }));
+    registerMat('bakeryTerracotta', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xc86438, roughness: 0.80 }) : new THREE.MeshToonMaterial({ color: 0xc86438, gradientMap: this.toonGradient }));
+    registerMat('bakeryFoliage', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x4e7b3c, roughness: 0.80 }) : new THREE.MeshToonMaterial({ color: 0x4e7b3c, gradientMap: this.toonGradient }));
+    registerMat('bakeryBread', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf4b242, roughness: 0.50 }) : new THREE.MeshToonMaterial({ color: 0xf4b242, gradientMap: this.toonGradient }));
+    registerMat('bakeryCrust', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x934515, roughness: 0.70 }) : new THREE.MeshToonMaterial({ color: 0x934515, gradientMap: this.toonGradient }));
+    registerMat('bakeryWindow', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({
+      color: 0xffdf80,
+      roughness: 0.3,
+      emissive: 0xffa020,
+      emissiveIntensity: 0.4,
+    }) : new THREE.MeshToonMaterial({
+      color: 0xffdf80,
+      emissive: 0xffa020,
+      emissiveIntensity: 0.4,
+      gradientMap: this.toonGradient,
+    }));
+
     const applyWaterOnBeforeCompile = (shader: any, mat: THREE.Material) => {
       if (!mat.userData.uTime) {
         mat.userData.uTime = { value: 0 };
@@ -1105,6 +1127,8 @@ export class AssetGenerator {
     if (fairyMatStd) gsapAnimate(fairyMatStd, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
     const lampMatStd = this.standardMaterials.lampBulb as any;
     if (lampMatStd) gsapAnimate(lampMatStd, 'emissiveIntensity', isNight ? 2.2 : 0.0, 1.5);
+    const bakWinMatStd = this.standardMaterials.bakeryWindow as any;
+    if (bakWinMatStd) gsapAnimate(bakWinMatStd, 'emissiveIntensity', isNight ? 1.8 : 0.4, 1.5);
 
     // Animate toon materials
     const winMatToon = this.toonMaterials.window as any;
@@ -1117,6 +1141,8 @@ export class AssetGenerator {
     if (fairyMatToon) gsapAnimate(fairyMatToon, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
     const lampMatToon = this.toonMaterials.lampBulb as any;
     if (lampMatToon) gsapAnimate(lampMatToon, 'emissiveIntensity', isNight ? 2.2 : 0.0, 1.5);
+    const bakWinMatToon = this.toonMaterials.bakeryWindow as any;
+    if (bakWinMatToon) gsapAnimate(bakWinMatToon, 'emissiveIntensity', isNight ? 1.8 : 0.4, 1.5);
 
     const winMatSoftToon = this.softToonMaterials.window as any;
     if (winMatSoftToon) gsapAnimate(winMatSoftToon, 'emissiveIntensity', isNight ? 1.4 : 0.0, 1.5);
@@ -1128,6 +1154,8 @@ export class AssetGenerator {
     if (fairyMatSoftToon) gsapAnimate(fairyMatSoftToon, 'emissiveIntensity', isNight ? 2.0 : 0.0, 1.5);
     const lampMatSoftToon = this.softToonMaterials.lampBulb as any;
     if (lampMatSoftToon) gsapAnimate(lampMatSoftToon, 'emissiveIntensity', isNight ? 2.2 : 0.0, 1.5);
+    const bakWinMatSoftToon = this.softToonMaterials.bakeryWindow as any;
+    if (bakWinMatSoftToon) gsapAnimate(bakWinMatSoftToon, 'emissiveIntensity', isNight ? 1.8 : 0.4, 1.5);
   }
 
   // Stable LCG random number generator helper
@@ -3337,8 +3365,487 @@ export class AssetGenerator {
     return [new THREE.Vector3(chimneyX, 0.16 + h + rise + 0.155, -0.18)];
   }
 
+  createBakeryMesh(_level: number, _tileX: number = 0, _tileY: number = 0): THREE.Group {
+    const group = new THREE.Group();
+
+    const cube = this.getGeometry('bakery_unit_box', () => new THREE.BoxGeometry(1, 1, 1));
+    const box = (w: number, h: number, d: number, x: number, y: number, z: number, material: THREE.Material, parent: THREE.Group = group, castShadow: boolean = true) => {
+      const mesh = new THREE.Mesh(cube, material);
+      mesh.scale.set(w, h, d);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
+
+    const cyl = (rt: number, rb: number, h: number, segs: number, x: number, y: number, z: number, material: THREE.Material, parent: THREE.Group = group) => {
+      const geo = this.getGeometry(`bakery_cyl_${rt.toFixed(3)}_${rb.toFixed(3)}_${h.toFixed(3)}_${segs}`, () => new THREE.CylinderGeometry(rt, rb, h, segs));
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
+
+    const puff = (r: number, x: number, y: number, z: number, material: THREE.Material, parent: THREE.Group = group) => {
+      const geo = this.getGeometry(`bakery_puff_${r.toFixed(3)}`, () => new THREE.DodecahedronGeometry(r, 0));
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
+
+    // Modern Material Palette
+    const wallMat = this.materials.bakeryWall;
+    const oakMat = this.materials.bakeryOak;
+    const steelMat = this.materials.bakerySteel;
+    const roofDeckMat = this.materials.bakeryRoofDeck;
+    const glassMat = this.materials.bakeryGlass;
+    const glowMat = this.materials.bakeryWindow;
+    const potMat = this.materials.bakeryTerracotta;
+    const foliageMat = this.materials.bakeryFoliage;
+    const breadMat = this.materials.bakeryBread;
+    const crustMat = this.materials.bakeryCrust;
+    const curbMat = this.materials.curb;
+    const stoneMat = this.materials.stone;
+    const sidewalkMat = this.materials.sidewalk;
+    const whiteMat = this.materials.whiteMetal;
+
+    // 1. Paved Plaza Diorama Plinth with Modern Large-Format Concrete Pavers & Framing Curbs
+    box(1.92, 0.08, 1.92, 0, 0.04, 0, stoneMat);
+    // Dark stone border curbs framing the perimeter
+    box(1.96, 0.038, 0.06, 0, 0.08, 0.95, curbMat);
+    box(1.96, 0.038, 0.06, 0, 0.08, -0.95, curbMat);
+    box(0.06, 0.038, 1.96, 0.95, 0.08, 0, curbMat);
+    box(0.06, 0.038, 1.96, -0.95, 0.08, 0, curbMat);
+
+    // Modern Large-Format Square Paver Tiles (outside building)
+    const paverSize = 0.32;
+    const paverStep = 0.36;
+    for (let px = -2; px <= 2; px++) {
+      for (let pz = -2; pz <= 2; pz++) {
+        const posX = px * paverStep;
+        const posZ = pz * paverStep;
+        // Pave open patio in front and around building
+        if (posZ > 0.44 || posX < -0.66 || posX > 0.48 || posZ < -0.58) {
+          box(paverSize, 0.012, paverSize, posX, 0.086, posZ, sidewalkMat);
+        }
+      }
+    }
+
+    // 2. Building Coordinates & Footprint
+    // bX, bZ: center of building
+    const bX = -0.08;
+    const bZ = -0.05;
+    const w = 1.16; // width along X
+    const d = 1.06; // depth along Z
+    const leftX = bX - w / 2;  // -0.66
+    const rightX = bX + w / 2; // +0.50
+    const frontZ = bZ + d / 2; // +0.48
+    const backZ = bZ - d / 2;  // -0.58
+
+    // Interior blonde oak wood flooring
+    box(w - 0.06, 0.016, d - 0.06, bX, 0.088, bZ, oakMat);
+
+    // 3. Modern Mono-Pitch Asymmetric Massing & Walls
+    // Roof slope along X: low on left (-X), high on right (+X)
+    const slope = 0.318965;
+    const roofAngleZ = Math.atan(slope); // ~ +0.3087 rad (+17.69 deg)
+    const yUnderAt = (x: number) => 0.97 + (x - leftX) * slope;
+
+    // Solid Back Wall (-Z) - precision extruded polygon perfectly flush with roof underside
+    const backWallGeo = this.getGeometry('bakery_back_wall_v4', () => {
+      const shape = new THREE.Shape();
+      shape.moveTo(leftX, 0.08);
+      shape.lineTo(rightX, 0.08);
+      shape.lineTo(rightX, yUnderAt(rightX));
+      shape.lineTo(leftX, yUnderAt(leftX));
+      shape.closePath();
+      return new THREE.ExtrudeGeometry(shape, { depth: 0.05, bevelEnabled: false });
+    });
+    const backWall = new THREE.Mesh(backWallGeo, wallMat);
+    backWall.position.set(0, 0, backZ - 0.05);
+    backWall.castShadow = true;
+    backWall.receiveShadow = true;
+    group.add(backWall);
+
+    // Solid Left Wall (-X)
+    const leftH = yUnderAt(leftX) - 0.08; // 0.89
+    box(0.06, leftH, d, leftX + 0.03, 0.08 + leftH / 2, bZ, wallMat);
+
+    // Right Wall (+X): Refined with modern side display window & zero missing faces
+    const rightH = yUnderAt(rightX) - 0.08; // 1.26
+    const sideWinSillY = 0.30;
+    const sideWinLintelY = 0.88;
+    const sideWinH = sideWinLintelY - sideWinSillY; // 0.58
+    const sideWinMidY = (sideWinSillY + sideWinLintelY) / 2; // 0.59
+    const sideWinZ1 = -0.28;
+    const sideWinZ2 = 0.18;
+    const sideWinD = sideWinZ2 - sideWinZ1; // 0.46
+    const sideWinMidZ = (sideWinZ1 + sideWinZ2) / 2; // -0.05
+
+    // Right wall back pier (z: backZ to sideWinZ1)
+    const rBackPierD = sideWinZ1 - backZ; // 0.30
+    box(0.06, rightH, rBackPierD, rightX - 0.03, 0.08 + rightH / 2, backZ + rBackPierD / 2, wallMat);
+
+    // Right wall front pier (z: sideWinZ2 to frontZ)
+    const rFrontPierD = frontZ - sideWinZ2; // 0.30
+    box(0.06, rightH, rFrontPierD, rightX - 0.03, 0.08 + rightH / 2, frontZ - rFrontPierD / 2, wallMat);
+
+    // Right wall knee wall under side window
+    box(0.06, sideWinSillY - 0.08, sideWinD, rightX - 0.03, 0.08 + (sideWinSillY - 0.08) / 2, sideWinMidZ, wallMat);
+
+    // Right wall header above side window up to roof underside (flush, zero gaps)
+    const rHeaderH = (0.08 + rightH) - sideWinLintelY; // 1.26 - 0.88 = 0.38
+    box(0.058, rHeaderH, sideWinD - 0.002, rightX - 0.031, sideWinLintelY + rHeaderH / 2, sideWinMidZ, wallMat);
+
+    // Right side window dark steel frame
+    box(0.05, 0.022, sideWinD, rightX - 0.025, sideWinSillY - 0.011, sideWinMidZ, steelMat);
+    box(0.035, sideWinH, 0.022, rightX - 0.025, sideWinMidY, sideWinZ1 + 0.011, steelMat);
+    box(0.035, sideWinH, 0.022, rightX - 0.025, sideWinMidY, sideWinZ2 - 0.011, steelMat);
+    box(0.025, sideWinH, 0.018, rightX - 0.025, sideWinMidY, sideWinMidZ, steelMat); // center divider
+
+    // Architectural Side Window Glass Pane (illuminates interior)
+    box(0.010, sideWinH - 0.02, sideWinD - 0.02, rightX - 0.025, sideWinMidY, sideWinMidZ, glassMat, group, false);
+
+    // 4. Vertical Blonde Oak Timber Slat Accent Screen (Left Facade)
+    const numSlatsLeft = 13;
+    const slatStepZ = (d - 0.08) / (numSlatsLeft - 1);
+    for (let i = 0; i < numSlatsLeft; i++) {
+      const sz = backZ + 0.04 + i * slatStepZ;
+      box(0.022, leftH, 0.024, leftX - 0.010, 0.08 + leftH / 2, sz, oakMat);
+    }
+    // Front corner wrapping slats on the leftmost solid wall section (from leftX to leftX + 0.22)
+    for (let i = 0; i < 4; i++) {
+      const sx = leftX + 0.03 + i * 0.06;
+      box(0.022, 0.80, 0.024, sx, 0.08 + 0.40, frontZ + 0.010, oakMat);
+    }
+
+    // 5. Front Facade Layout (+Z at frontZ)
+    // Left section: Stucco accent wall with slats (leftX to -0.44)
+    const frontSolidW = 0.22;
+    box(frontSolidW, 0.80, 0.06, leftX + frontSolidW / 2, 0.08 + 0.40, frontZ - 0.03, wallMat);
+
+    // Middle section: Floor-to-ceiling Display Window (-0.44 to 0.08, width 0.52)
+    const winLeftX = leftX + frontSolidW; // -0.44
+    const winRightX = 0.08;
+    const winW = winRightX - winLeftX; // 0.52
+    const winMidX = (winLeftX + winRightX) / 2; // -0.18
+    const winSillY = 0.22;
+    const winLintelY = 0.88;
+    const winH = winLintelY - winSillY; // 0.66
+    const winMidY = (winSillY + winLintelY) / 2; // 0.55
+
+    // Low stucco knee wall / sill underneath display window
+    box(winW, winSillY - 0.08, 0.06, winMidX, 0.08 + (winSillY - 0.08) / 2, frontZ - 0.03, wallMat);
+
+    // Dark steel window frame & sill
+    box(winW, 0.022, 0.05, winMidX, winSillY - 0.011, frontZ - 0.025, steelMat);
+    // Vertical mullions
+    box(0.022, winH, 0.035, winLeftX + 0.011, winMidY, frontZ - 0.025, steelMat);
+    box(0.022, winH, 0.035, winRightX - 0.011, winMidY, frontZ - 0.025, steelMat);
+    box(0.018, winH, 0.025, winMidX, winMidY, frontZ - 0.025, steelMat); // center divider
+
+    // Architectural Display Window Glass Pane
+    box(winW - 0.02, winH - 0.02, 0.010, winMidX, winMidY, frontZ - 0.025, glassMat, group, false);
+
+    // Right section: Modern Entrance Door (+Z facade, 0.08 to rightX = 0.50, width 0.42)
+    const doorLeftX = winRightX; // 0.08
+    const doorRightX = rightX - 0.04; // 0.46
+    const doorW = doorRightX - doorLeftX; // 0.38
+    const doorMidX = (doorLeftX + doorRightX) / 2; // 0.27
+    const doorH = 0.80; // from y=0.08 to y=0.88
+    const doorMidY = 0.08 + doorH / 2; // 0.48
+
+    // Concrete door threshold
+    box(doorW + 0.06, 0.024, 0.10, doorMidX, 0.088, frontZ + 0.03, curbMat);
+
+    // Blonde Oak Door Frame
+    box(0.032, doorH, 0.045, doorLeftX + 0.016, doorMidY, frontZ - 0.025, oakMat);
+    box(0.032, doorH, 0.045, doorRightX - 0.016, doorMidY, frontZ - 0.025, oakMat);
+    box(doorW, 0.032, 0.045, doorMidX, 0.08 + doorH - 0.016, frontZ - 0.025, oakMat);
+    box(doorW, 0.020, 0.045, doorMidX, 0.08 + 0.010, frontZ - 0.025, oakMat);
+
+    // Clear glass door center pane
+    box(doorW - 0.06, doorH - 0.06, 0.012, doorMidX, doorMidY, frontZ - 0.025, glassMat, group, false);
+
+    // Modern vertical black steel pull bar on the door (facing +Z)
+    box(0.016, 0.32, 0.014, doorMidX + 0.08, doorMidY, frontZ + 0.015, steelMat);
+    box(0.014, 0.012, 0.022, doorMidX + 0.08, doorMidY + 0.13, frontZ + 0.002, steelMat);
+    box(0.014, 0.012, 0.022, doorMidX + 0.08, doorMidY - 0.13, frontZ + 0.002, steelMat);
+
+    // Modern minimalist exterior entrance sconce light beside the door
+    box(0.020, 0.046, 0.022, rightX - 0.02, 0.76, frontZ + 0.006, steelMat);
+    box(0.016, 0.018, 0.016, rightX - 0.02, 0.745, frontZ + 0.015, glowMat);
+
+    // Solid wall post on the far right corner (0.46 to 0.50)
+    box(0.04, 0.80, 0.06, rightX - 0.02, 0.08 + 0.40, frontZ - 0.03, wallMat);
+
+    // Continuous Blonde Oak Belt Band (Sits 0.012 proud of stucco on front and right walls for zero z-fighting)
+    // Front wall band: from leftX to rightX + 0.012, front face at frontZ + 0.012
+    box(w + 0.012, 0.04, 0.030, bX + 0.006, 0.88 + 0.02, frontZ - 0.003, oakMat);
+    // Right wall band: from backZ to frontZ + 0.012, right face at rightX + 0.012
+    box(0.030, 0.04, d + 0.012, rightX - 0.003, 0.88 + 0.02, bZ + 0.006, oakMat);
+
+    // Continuous Sloped Front Wall Header from y=0.91 to roof underside (completely flush, zero clipping!)
+    const frontHeaderGeo = this.getGeometry('bakery_front_header_v6', () => {
+      const shape = new THREE.Shape();
+      shape.moveTo(leftX, 0.91);
+      shape.lineTo(rightX, 0.91);
+      shape.lineTo(rightX, yUnderAt(rightX));
+      shape.lineTo(leftX, yUnderAt(leftX));
+      shape.closePath();
+      return new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
+    });
+    const frontHeaderMesh = new THREE.Mesh(frontHeaderGeo, wallMat);
+    frontHeaderMesh.position.set(0, 0, frontZ - 0.06);
+    frontHeaderMesh.castShadow = true;
+    group.add(frontHeaderMesh);
+
+    // 6. Cantilevered Steel Entrance Canopy, Tie Rods & Signboard (Facing +Z!)
+    const canW = doorW + 0.08; // 0.46
+    const canD = 0.24; // extension forward along +Z
+    const canY = 0.90;
+    const canMidZ = frontZ + canD / 2; // 0.48 + 0.12 = 0.60
+
+    // Dark steel canopy slab
+    box(canW, 0.020, canD, doorMidX, canY, canMidZ, steelMat);
+
+    // 2 Precision Diagonal Steel Tie Rods connecting outer canopy corners to the front facade (+Z)
+    for (const rx of [doorMidX - canW / 2 + 0.04, doorMidX + canW / 2 - 0.04]) {
+      const pOut = new THREE.Vector3(rx, canY + 0.010, frontZ + canD - 0.02);
+      const pWall = new THREE.Vector3(rx, canY + 0.22, frontZ + 0.002);
+      const mid = pOut.clone().add(pWall).multiplyScalar(0.5);
+      const len = pOut.distanceTo(pWall);
+      const angle = -Math.atan2(pOut.z - pWall.z, pWall.y - pOut.y);
+      const rod = box(0.010, len, 0.010, mid.x, mid.y, mid.z, steelMat);
+      rod.rotation.x = angle;
+      // Wall mounting anchor plate
+      box(0.028, 0.028, 0.008, rx, canY + 0.22, frontZ + 0.002, steelMat);
+    }
+
+    // Modern Bakery Signboard Mounted Upright on Canopy, Facing +Z (Street & Camera!)
+    const signW = 0.34;
+    const signH = 0.20;
+    const signThick = 0.024;
+    const signY = canY + 0.010 + signH / 2 + 0.020; // 1.03
+    const signZ = canMidZ + 0.02; // 0.62
+
+    // Dark steel perimeter frame & oak panel
+    box(signW + 0.016, signH + 0.016, signThick, doorMidX, signY, signZ, steelMat);
+    box(signW, signH, signThick + 0.004, doorMidX, signY, signZ, oakMat);
+    // Vertical mounting legs
+    box(0.018, 0.026, 0.016, doorMidX - 0.11, canY + 0.010 + 0.013, signZ, steelMat);
+    box(0.018, 0.026, 0.016, doorMidX + 0.11, canY + 0.010 + 0.013, signZ, steelMat);
+
+    // Front face coordinates (+Z outer face)
+    const signFaceZ = signZ + signThick / 2 + 0.004; // outer face!
+    const logoY = signY + 0.035;
+
+    // Stylized Low-Poly Croissant Relief in Golden Bread & Crust on oak signboard
+    // Central plump crescent body
+    box(0.054, 0.036, 0.012, doorMidX, logoY, signFaceZ, breadMat);
+    box(0.032, 0.012, 0.014, doorMidX, logoY + 0.006, signFaceZ + 0.001, crustMat); // golden crest
+    // Left tapered horn
+    const crLeftHorn = new THREE.Group();
+    crLeftHorn.position.set(doorMidX - 0.032, logoY - 0.006, signFaceZ);
+    crLeftHorn.rotation.z = -0.42;
+    box(0.028, 0.018, 0.010, 0, 0, 0, breadMat, crLeftHorn);
+    group.add(crLeftHorn);
+    // Right tapered horn
+    const crRightHorn = new THREE.Group();
+    crRightHorn.position.set(doorMidX + 0.032, logoY - 0.006, signFaceZ);
+    crRightHorn.rotation.z = 0.42;
+    box(0.028, 0.018, 0.010, 0, 0, 0, breadMat, crRightHorn);
+    group.add(crRightHorn);
+
+    // Modern "BAKERY" letter plate below croissant logo (facing +Z!)
+    box(0.20, 0.026, 0.008, doorMidX, signY - 0.052, signFaceZ, steelMat);
+    box(0.16, 0.010, 0.010, doorMidX, signY - 0.052, signFaceZ + 0.002, whiteMat);
+
+    // 7. Asymmetric Mono-Pitch Roof Assembly
+    const roofCenterX = (leftX + rightX) / 2; // -0.08
+    const roofCenterY = (yUnderAt(leftX) + yUnderAt(rightX)) / 2; // 1.155
+    const roofCenterZ = bZ; // -0.05
+
+    const roofGroup = new THREE.Group();
+    roofGroup.position.set(roofCenterX, roofCenterY, roofCenterZ);
+    roofGroup.rotation.z = roofAngleZ;
+
+    const roofSlopeW = w / Math.cos(-roofAngleZ) + 0.32; // ~1.54
+    const roofD = d + 0.26; // 1.32
+    const roofThick = 0.046;
+
+    // The roof decking slab: local y goes from 0 to roofThick, sitting directly atop yUnder!
+    box(roofSlopeW, roofThick, roofD, 0, roofThick / 2, 0, roofDeckMat, roofGroup);
+
+    // Modern architectural batten seams running down roof slope
+    for (const bz of [-roofD / 3, 0, roofD / 3]) {
+      box(roofSlopeW - 0.04, 0.008, 0.016, 0, roofThick + 0.004, bz, oakMat, roofGroup);
+    }
+
+    // Perimeter dark metal fascia trim (flush, zero sticking out!)
+    const fasciaH = roofThick + 0.024;
+    const fThick = 0.022;
+    const fY = roofThick / 2;
+    box(roofSlopeW + fThick * 2, fasciaH, fThick, 0, fY, roofD / 2, steelMat, roofGroup); // Front fascia
+    box(roofSlopeW + fThick * 2, fasciaH, fThick, 0, fY, -roofD / 2, steelMat, roofGroup); // Back fascia
+    box(fThick, fasciaH, roofD, -roofSlopeW / 2, fY, 0, steelMat, roofGroup); // Left low fascia
+    box(fThick, fasciaH, roofD, roofSlopeW / 2, fY, 0, steelMat, roofGroup); // Right high fascia
+
+    // Square gutter along the low left edge (flush with fascia)
+    box(0.030, 0.030, roofD, -roofSlopeW / 2 - 0.015, 0.008, 0, steelMat, roofGroup);
+
+    // Under-roof Exposed Timber Rafter Beams
+    for (const rx of [-0.52, -0.17, 0.17, 0.52]) {
+      box(0.042, 0.050, roofD - 0.06, rx, -0.025, 0, oakMat, roofGroup);
+    }
+    // High overhang exposed rafter tails under right eaves
+    for (let i = 0; i < 4; i++) {
+      const rz = -roofD / 2 + 0.18 + i * (roofD - 0.36) / 3;
+      box(0.14, 0.044, 0.044, roofSlopeW / 2 - 0.07, -0.022, rz, oakMat, roofGroup);
+    }
+    group.add(roofGroup);
+
+    // 8. Interior Warm Glowing Bakery Showcase & Furniture
+    // Back wall tiered bread display shelving
+    const shelfX = winMidX;
+    const shelfZ = backZ + 0.12;
+    for (let i = 0; i < 3; i++) {
+      box(0.44, 0.018, 0.14, shelfX, 0.32 + i * 0.16, shelfZ, oakMat);
+    }
+    // Sourdough boules & bread loaves on shelves
+    cyl(0.040, 0.044, 0.032, 6, shelfX - 0.12, 0.35, shelfZ, breadMat);
+    box(0.044, 0.008, 0.012, shelfX - 0.12, 0.368, shelfZ, crustMat);
+    cyl(0.040, 0.044, 0.032, 6, shelfX + 0.12, 0.35, shelfZ, crustMat);
+    box(0.044, 0.008, 0.012, shelfX + 0.12, 0.368, shelfZ, breadMat);
+    cyl(0.038, 0.042, 0.030, 6, shelfX, 0.51, shelfZ, breadMat);
+
+    // Leaning French Baguettes
+    const bagGroup = new THREE.Group();
+    bagGroup.position.set(shelfX + 0.14, 0.62, shelfZ);
+    bagGroup.rotation.z = 0.22;
+    cyl(0.016, 0.020, 0.16, 5, 0, 0.06, 0, breadMat, bagGroup);
+    box(0.010, 0.08, 0.010, 0.008, 0.06, 0, crustMat, bagGroup);
+    group.add(bagGroup);
+
+    // Warm emissive night glow backdrop behind the bread shelves (soft warm illumination)
+    box(0.48, 0.50, 0.016, shelfX, 0.46, shelfZ - 0.06, glowMat, group, false);
+
+    // Modern Bakery Display Counter with Vertical Slat Oak Face & White Countertop
+    const cntX = winMidX;
+    const cntZ = frontZ - 0.22;
+    const cntY = 0.08 + 0.13;
+    box(0.46, 0.24, 0.18, cntX, cntY, cntZ, oakMat);
+    box(0.48, 0.024, 0.20, cntX, cntY + 0.13, cntZ, whiteMat);
+
+    // Pastry showcase box on the counter
+    box(0.26, 0.09, 0.14, cntX - 0.06, cntY + 0.175, cntZ, glassMat, group, false);
+    box(0.24, 0.01, 0.12, cntX - 0.06, cntY + 0.135, cntZ, whiteMat);
+    box(0.22, 0.006, 0.10, cntX - 0.06, cntY + 0.138, cntZ, glowMat, group, false);
+    // Miniature buns inside showcase
+    box(0.036, 0.022, 0.036, cntX - 0.11, cntY + 0.15, cntZ - 0.025, breadMat);
+    box(0.036, 0.022, 0.036, cntX - 0.03, cntY + 0.15, cntZ - 0.025, crustMat);
+    box(0.040, 0.022, 0.036, cntX - 0.07, cntY + 0.15, cntZ + 0.025, breadMat);
+
+    // Hanging Minimalist Pendant Lights
+    for (const px of [cntX - 0.08, cntX + 0.10]) {
+      box(0.006, 0.20, 0.006, px, 0.92, cntZ, steelMat);
+      cyl(0.022, 0.014, 0.034, 6, px, 0.80, cntZ, glowMat);
+    }
+
+    // 9. Outdoor Patio: Minimalist Bistro Set & Modern Landscaping
+    const patioTableX = -0.12;
+    const patioTableZ = 0.75;
+    const patioY = 0.098;
+
+    // Minimalist Round Steel Cafe Table
+    cyl(0.16, 0.16, 0.012, 10, patioTableX, patioY + 0.22, patioTableZ, steelMat);
+    cyl(0.014, 0.014, 0.21, 6, patioTableX, patioY + 0.105, patioTableZ, steelMat);
+    // 3-spoke flat steel foot base
+    for (let i = 0; i < 3; i++) {
+      const bAng = (i * 2 * Math.PI) / 3;
+      const bx = patioTableX + Math.cos(bAng) * 0.07;
+      const bz = patioTableZ + Math.sin(bAng) * 0.07;
+      box(0.14, 0.008, 0.024, bx, patioY + 0.004, bz, steelMat);
+    }
+
+    // Tabletop Coffee & Pastry
+    cyl(0.032, 0.032, 0.005, 8, patioTableX + 0.04, patioY + 0.23, patioTableZ - 0.03, whiteMat);
+    cyl(0.018, 0.014, 0.024, 6, patioTableX + 0.04, patioY + 0.242, patioTableZ - 0.03, whiteMat);
+    cyl(0.012, 0.012, 0.004, 6, patioTableX + 0.04, patioY + 0.252, patioTableZ - 0.03, crustMat); // coffee
+    cyl(0.042, 0.042, 0.006, 8, patioTableX - 0.04, patioY + 0.23, patioTableZ + 0.03, whiteMat);
+    box(0.036, 0.018, 0.022, patioTableX - 0.04, patioY + 0.24, patioTableZ + 0.03, breadMat);
+
+    // 2 Minimalist Modern Bistro Chairs
+    const addModernChair = (cx: number, cz: number, rotY: number) => {
+      const chair = new THREE.Group();
+      chair.position.set(cx, patioY, cz);
+      chair.rotation.y = rotY;
+
+      for (const lx of [-0.05, 0.05]) {
+        for (const lz of [-0.05, 0.05]) {
+          box(0.012, 0.13, 0.012, lx, 0.065, lz, steelMat, chair);
+        }
+      }
+      box(0.13, 0.014, 0.13, 0, 0.13, 0, steelMat, chair);
+      box(0.012, 0.16, 0.012, -0.05, 0.21, -0.05, steelMat, chair);
+      box(0.012, 0.16, 0.012, 0.05, 0.21, -0.05, steelMat, chair);
+      box(0.12, 0.022, 0.010, 0, 0.26, -0.05, steelMat, chair);
+      box(0.12, 0.016, 0.010, 0, 0.20, -0.05, steelMat, chair);
+
+      group.add(chair);
+    };
+    addModernChair(patioTableX - 0.18, patioTableZ - 0.02, Math.PI / 4.5);
+    addModernChair(patioTableX + 0.15, patioTableZ + 0.06, -Math.PI * 0.72);
+
+    // 10. Potted Olive Tree in Terracotta Planter (Left Patio Corner)
+    const potX = -0.56;
+    const potZ = 0.70;
+    cyl(0.12, 0.085, 0.16, 8, potX, patioY + 0.08, potZ, potMat);
+    cyl(0.11, 0.11, 0.01, 8, potX, patioY + 0.155, potZ, curbMat);
+    cyl(0.016, 0.022, 0.28, 5, potX, patioY + 0.28, potZ, oakMat);
+    const fork = new THREE.Group();
+    fork.position.set(potX + 0.015, patioY + 0.36, potZ);
+    fork.rotation.z = 0.40;
+    cyl(0.012, 0.014, 0.14, 4, 0, 0.06, 0, oakMat, fork);
+    group.add(fork);
+    puff(0.12, potX, patioY + 0.46, potZ, foliageMat);
+    puff(0.095, potX + 0.08, patioY + 0.50, potZ + 0.03, foliageMat);
+    puff(0.085, potX - 0.06, patioY + 0.52, potZ - 0.04, foliageMat);
+    puff(0.075, potX + 0.02, patioY + 0.58, potZ - 0.02, foliageMat);
+    puff(0.024, potX + 0.14, patioY + 0.012, potZ + 0.06, stoneMat);
+    puff(0.020, potX - 0.12, patioY + 0.010, potZ + 0.11, stoneMat);
+
+    // 11. Sleek Modern Square Bollard Lights (Terrace Boundary)
+    const addBollard = (bx: number, bz: number) => {
+      box(0.045, 0.20, 0.045, bx, patioY + 0.10, bz, steelMat);
+      box(0.046, 0.035, 0.046, bx, patioY + 0.18, bz, glowMat);
+      box(0.048, 0.015, 0.048, bx, patioY + 0.205, bz, steelMat);
+    };
+    addBollard(0.80, 0.80);   // Front-right corner
+    addBollard(-0.80, 0.80);  // Front-left corner
+
+    return group;
+  }
+
   // 5. Commercial Buildings (Levels 0-3)
-  createCommercialMesh(level: number, tileX: number = 0, tileY: number = 0): THREE.Group {
+  createCommercialMesh(level: number, tileX: number = 0, tileY: number = 0, archetype?: string): THREE.Group {
+    if (archetype === 'bakery') {
+      if (level === 0) {
+        const group = new THREE.Group();
+        const lineGeo = this.getGeometry('com_level0_line', () => new THREE.BoxGeometry(1.9, 0.05, 1.9));
+        const line = new THREE.Mesh(lineGeo, this.materials.zoneC);
+        line.position.y = 0.06;
+        group.add(line);
+        return group;
+      }
+      return this.createBakeryMesh(level, tileX, tileY);
+    }
     const group = new THREE.Group();
 
     if (level === 0) {

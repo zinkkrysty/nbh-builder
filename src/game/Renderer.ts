@@ -1790,6 +1790,7 @@ export class Renderer {
         oldMesh.userData &&
         oldMesh.userData.type === tile.type &&
         oldMesh.userData.level === tile.level &&
+        oldMesh.userData.archetype === tile.archetype &&
         oldMesh.userData.constructionStatus === tile.constructionStatus &&
         oldMesh.userData.rotation === targetRotation &&
         oldMesh.userData.neighborsHash === neighborsHash
@@ -1822,7 +1823,7 @@ export class Renderer {
         newMesh = this.assets.createResidentialMesh(tile.level, tile.x, tile.y);
         break;
       case 'commercial':
-        newMesh = this.assets.createCommercialMesh(tile.level, tile.x, tile.y);
+        newMesh = this.assets.createCommercialMesh(tile.level, tile.x, tile.y, tile.archetype);
         break;
       case 'industrial':
         newMesh = this.assets.createIndustrialMesh(tile.level);
@@ -1918,6 +1919,7 @@ export class Renderer {
       newMesh.userData = { 
         type: tile.type, 
         level: tile.level, 
+        archetype: tile.archetype,
         constructionStatus: tile.constructionStatus,
         rotation: targetRotation,
         neighborsHash: neighborsHash

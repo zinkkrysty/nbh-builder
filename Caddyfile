@@ -1,0 +1,4 @@
+# Local development reverse proxy for NaboCity
+nabocity.localhost, *.nabocity.localhost {
+	reverse_proxy localhost:5173
+}

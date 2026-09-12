@@ -101,7 +101,7 @@ When evaluating work, the key question is not “does this make the simulation m
     ```bash
     npm run dev
     ```
-4.  Open your browser and navigate to the address shown (usually `http://localhost:5173/`).
+4.  Open your browser and navigate to `https://nabocity.localhost` (or `http://nabocity.localhost:5173/` / `http://localhost:5173/`).
 
 ### Building for Production
 To build and optimize the project for hosting:
