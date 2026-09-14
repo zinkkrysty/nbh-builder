@@ -287,6 +287,10 @@ export class InputManager {
     const coords = this.getIntersectionCoords();
 
     if (coords) {
+      if (this.isBuildingDrag && (e.shiftKey || e.ctrlKey)) {
+        this.isBuildingDrag = false; // Cancel drag if modifier key is pressed
+      }
+
       this.hoveredCell = coords;
 
       if (this.isBuildingDrag && this.activeTool === 'road' && this.dragStartCell) {
@@ -321,6 +325,7 @@ export class InputManager {
 
   onMouseDown(e: MouseEvent) {
     if (e.button !== 0) return; // Only process left click
+    if (e.shiftKey || e.ctrlKey) return; // Ignore if modifier keys are held (used for camera)
 
     this.setRayFromMouseEvent(e);
 
