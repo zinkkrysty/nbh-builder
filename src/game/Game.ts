@@ -1352,10 +1352,11 @@ export class Game {
 
           if (tile.level === 1) {
             // Single exhaust pipe
-            this.renderer.emitChimneySmoke(xPos + 0.4, 1.1, zPos + 0.3);
+            this.renderer.emitChimneySmoke(xPos + 0.4, 1.3, zPos + 0.3);
           } else if (tile.level === 2) {
             // Chimney
-            this.renderer.emitChimneySmoke(xPos - 0.4, 1.7, zPos - 0.4);
+            if (tile.archetype) this.renderer.emitChimneySmoke(xPos + 0.42, 1.69, zPos + 0.315);
+            else this.renderer.emitChimneySmoke(xPos - 0.4, 1.7, zPos - 0.4);
           } else {
             // Level 3 double chimney
             this.renderer.emitChimneySmoke(xPos - 0.4, 2.2, zPos - 0.4);
@@ -1670,7 +1671,7 @@ export class Game {
     }
 
     if (tile.type === 'empty') {
-      detailsContainer.innerHTML = `<p style="color: #8e9aab;">Nothing built here. Use Places to begin a home or local-place project.</p>`;
+      detailsContainer.innerHTML = `<p style="color: var(--muted);">Nothing built here. Use Places to begin a home or local-place project.</p>`;
       return;
     }
 
@@ -1704,9 +1705,9 @@ export class Game {
       detailsContainer.innerHTML = `
         <div class="inspect-row">
           <span class="inspect-label">Type:</span>
-          <span class="inspect-value inspect-badge info" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8; border-color: rgba(2, 132, 199, 0.2); font-weight: 600;">Natural Water</span>
+          <span class="inspect-value inspect-badge info" style="background: rgba(2, 132, 199, 0.15); color: var(--info); border-color: rgba(2, 132, 199, 0.2); font-weight: 600;">Natural Water</span>
         </div>
-        <p style="color: #8e9aab; margin-top: 0.5rem; line-height: 1.4;">A peaceful body of water. Build roads over it to create bridges, or bulldoze it to restore land.</p>
+        <p style="color: var(--muted); margin-top: 0.5rem; line-height: 1.4;">A peaceful body of water. Build roads over it to create bridges, or bulldoze it to restore land.</p>
       `;
       return;
     }
@@ -1715,13 +1716,13 @@ export class Game {
       detailsContainer.innerHTML = `
         <div class="inspect-row">
           <span class="inspect-label">Type:</span>
-          <span class="inspect-value inspect-badge info" style="background: rgba(253, 186, 116, 0.15); color: #ffedd5; border-color: rgba(253, 186, 116, 0.2); font-weight: 600;">Waterfront Boardwalk</span>
+          <span class="inspect-value inspect-badge info" style="background: rgba(253, 186, 116, 0.15); color: var(--warning); border-color: rgba(253, 186, 116, 0.2); font-weight: 600;">Waterfront Boardwalk</span>
         </div>
         <div class="inspect-row">
           <span class="inspect-label">Weekly Upkeep:</span>
           <span class="inspect-value">$${this.sim.getMaintenanceCost('boardwalk')}</span>
         </div>
-        <p style="color: #8e9aab; margin-top: 0.5rem; line-height: 1.4;">A cozy wooden deck built along the waterfront. Generates dynamic piers/docks on adjacent water tiles and boosts nearby residential happiness.</p>
+        <p style="color: var(--muted); margin-top: 0.5rem; line-height: 1.4;">A cozy wooden deck built along the waterfront. Generates dynamic piers/docks on adjacent water tiles and boosts nearby residential happiness.</p>
       `;
       return;
     }
@@ -1786,7 +1787,7 @@ export class Game {
     if (occupants.length > 0) {
       citizensHtml = `
         <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
-        <h3 style="font-size: 0.95rem; font-weight: 600; color: #94a3b8; margin: 0 0 0.5rem 0;">Occupants Profile</h3>
+        <h3 style="font-size: 0.95rem; font-weight: 600; color: var(--muted); margin: 0 0 0.5rem 0;">Occupants Profile</h3>
         <div class="occupants-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding-right: 4px;">
           ${occupants.map(({ resident }) => `
             <div class="occupant-card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
@@ -1794,9 +1795,9 @@ export class Game {
                 <span>${escapeHTML(resident.firstName)} ${escapeHTML(resident.lastName)}</span>
                 <span style="color: #60a5fa; font-size: 0.8rem;">Age ${resident.age}</span>
               </div>
-              <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #94a3b8;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--muted);">
                 <span>Job: ${escapeHTML(resident.occupation)}</span>
-                <span style="color: #94a3b8;">Local resident</span>
+                <span style="color: var(--muted);">Local resident</span>
               </div>
             </div>
           `).join('')}
@@ -1806,13 +1807,13 @@ export class Game {
 
     const readyForNeighbors = homeReadyForMatching;
     const homeReadinessHtml = tile.type === 'residential' && tile.constructionStatus === 'complete' && tile.reservedHouseholdId
-      ? `<p style="color: ${arrivalIssues.length ? '#fcd34d' : '#bfdbfe'}; margin: 0.6rem 0 0; line-height: 1.4;">${arrivalIssues.length ? `Arrival is waiting: ${arrivalIssues.map(escapeHTML).join(' · ')}.` : 'This household is traveling in from the map edge.'}</p>`
+      ? `<p style="color: ${arrivalIssues.length ? 'var(--warning)' : 'var(--info)'}; margin: 0.6rem 0 0; line-height: 1.4;">${arrivalIssues.length ? `Arrival is waiting: ${arrivalIssues.map(escapeHTML).join(' · ')}.` : 'This household is traveling in from the map edge.'}</p>`
       : tile.type === 'residential' && tile.constructionStatus === 'complete' && !readyForNeighbors && !tile.householdId
-      ? `<p style="color: #fcd34d; margin: 0.6rem 0 0; line-height: 1.4;">${homeReadinessIssues.map(escapeHTML).join(' · ')}</p>`
+      ? `<p style="color: var(--warning); margin: 0.6rem 0 0; line-height: 1.4;">${homeReadinessIssues.map(escapeHTML).join(' · ')}</p>`
       : '';
     const invitationHtml = readyForNeighbors ? `
       <hr class="panel-divider" style="margin: 0.75rem 0; border-color: rgba(255,255,255,0.06);">
-      <p style="color: #bbf7d0; margin: 0 0 0.6rem; line-height: 1.4;">This home is ready for new neighbors.</p>
+      <p style="color: var(--positive); margin: 0 0 0.6rem; line-height: 1.4;">This home is ready for new neighbors.</p>
       <button id="btn-review-applications" class="small-btn" style="width: 100%; padding: 8px; cursor: pointer;">Review applications</button>
     ` : '';
 
@@ -1854,7 +1855,7 @@ export class Game {
 
     const applications = this.sim.getAvailableApplications();
     detailsContainer.innerHTML = `
-      <p style="color: #bbf7d0; margin: 0 0 0.7rem;">Choose a household to welcome to this home.</p>
+      <p style="color: var(--positive); margin: 0 0 0.7rem;">Choose a household to welcome to this home.</p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
         ${applications.map(application => {
           const issues = this.sim.getApplicationCompatibilityIssues(application, tile);
@@ -1863,11 +1864,11 @@ export class Game {
           <article style="padding: 9px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.02);">
             <strong>${escapeHTML(application.surname)} household</strong>
             <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 3px;">${application.members.map(member => `${escapeHTML(member.firstName)} · ${escapeHTML(member.occupation)}`).join('<br>')}</div>
-            <p style="font-size: 0.8rem; color: #94a3b8; margin: 7px 0 3px; line-height: 1.35;">${escapeHTML(application.introduction)}</p>
-            <p style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 8px; line-height: 1.35;"><em>${escapeHTML(application.reasonForMoving)}</em></p>
+            <p style="font-size: 0.8rem; color: var(--muted); margin: 7px 0 3px; line-height: 1.35;">${escapeHTML(application.introduction)}</p>
+            <p style="font-size: 0.8rem; color: var(--muted); margin: 0 0 8px; line-height: 1.35;"><em>${escapeHTML(application.reasonForMoving)}</em></p>
             ${compatible
               ? `<button class="small-btn welcome-household-btn" data-application-id="${escapeHTML(application.id)}" style="width: 100%; padding: 7px; cursor: pointer;">Welcome ${escapeHTML(application.surname)}</button>`
-              : `<p style="font-size: 0.78rem; color: #fcd34d; margin: 0 0 8px; line-height: 1.35;">${issues.map(escapeHTML).join(' · ')}</p><button class="small-btn" disabled style="width: 100%; padding: 7px; opacity: .5; cursor: not-allowed;">Not compatible</button>`}
+              : `<p style="font-size: 0.78rem; color: var(--warning); margin: 0 0 8px; line-height: 1.35;">${issues.map(escapeHTML).join(' · ')}</p><button class="small-btn" disabled style="width: 100%; padding: 7px; opacity: .5; cursor: not-allowed;">Not compatible</button>`}
           </article>
         `;
         }).join('')}

@@ -30,6 +30,7 @@ type VisibilityKind = 'land' | 'openWater' | 'shoreWater';
 interface SceneryProp {
   pool: PoolKey;
   index: number;
+  drawSlot?: number;
   visibility: VisibilityKind;
   x: number;
   y: number;
@@ -73,6 +74,7 @@ export class EnvironmentScenery {
   private readonly pools = new Map<PoolKey, THREE.InstancedMesh>();
   private readonly recipes = new Map<string, TileRecipe>();
   private readonly dirtyTiles = new Set<string>();
+  private readonly activeProps = new Map<PoolKey, SceneryProp[]>();
   private readonly poolCounts = new Map<PoolKey, number>();
   private readonly dummy = new THREE.Object3D();
   private readonly hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -107,6 +109,7 @@ export class EnvironmentScenery {
   rebuildAll(): void {
     this.disposePools();
     this.recipes.clear();
+    this.activeProps.clear();
     this.poolCounts.clear();
     this.dirtyTiles.clear();
 
@@ -170,6 +173,7 @@ export class EnvironmentScenery {
   dispose(): void {
     this.disposePools();
     this.recipes.clear();
+    this.activeProps.clear();
     this.dirtyTiles.clear();
     this.poolCounts.clear();
     this.initialized = false;
@@ -304,7 +308,8 @@ export class EnvironmentScenery {
         definition.material(this.assets),
         Math.max(1, count),
       );
-      mesh.count = count;
+      mesh.count = 0;
+      this.activeProps.set(key, []);
       mesh.castShadow = definition.castShadow;
       mesh.receiveShadow = definition.receiveShadow;
       mesh.frustumCulled = false;
@@ -324,14 +329,32 @@ export class EnvironmentScenery {
     for (const prop of recipe.props) {
       const pool = this.pools.get(prop.pool);
       if (!pool) continue;
+      const active = this.activeProps.get(prop.pool)!;
       if (!this.isVisible(recipe.x, recipe.y, prop.visibility)) {
-        pool.setMatrixAt(prop.index, this.hiddenMatrix);
+        if (prop.drawSlot === undefined) continue;
+        // Swap the last visible prop into the vacated slot. Hidden candidates
+        // retain their deterministic recipe but submit no GPU instances.
+        const slot = prop.drawSlot;
+        const last = active.pop()!;
+        if (last !== prop) {
+          pool.getMatrixAt(last.drawSlot!, this.dummy.matrix);
+          pool.setMatrixAt(slot, this.dummy.matrix);
+          last.drawSlot = slot;
+          active[slot] = last;
+        }
+        prop.drawSlot = undefined;
+        pool.count = active.length;
       } else {
+        if (prop.drawSlot === undefined) {
+          prop.drawSlot = active.length;
+          active.push(prop);
+          pool.count = active.length;
+        }
         this.dummy.position.set(centerX + prop.x, baseY + prop.y, centerZ + prop.z);
         this.dummy.rotation.set(0, prop.rotationY, 0);
         this.dummy.scale.set(prop.scaleX, prop.scaleY, prop.scaleZ);
         this.dummy.updateMatrix();
-        pool.setMatrixAt(prop.index, this.dummy.matrix);
+        pool.setMatrixAt(prop.drawSlot!, this.dummy.matrix);
       }
       changedPools.add(prop.pool);
     }

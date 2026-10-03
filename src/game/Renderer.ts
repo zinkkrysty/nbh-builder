@@ -4,10 +4,14 @@ import { Simulation, TileState } from './Simulation';
 import { TrafficManager } from './TrafficManager';
 import { CitizenManager } from './CitizenManager';
 import { ROAD_LAYOUT, StreetscapeSettings, currentStreetscapeSettings } from './RoadLayout';
+import { GroundTerrainChunks } from './GroundTerrainChunks';
+import { StaticBuildingBatches } from './StaticBuildingBatches';
 import { EnvironmentScenery } from './EnvironmentScenery';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
@@ -51,11 +55,11 @@ const DAY_ATMOSPHERE: AtmosphereProfile = {
   skyColor: 0xb9dcf4,
   fogColor: 0xc5d9e2,
   fogDensity: 0.0045,
-  skyFillColor: 0xb8d7ef,
+  skyFillColor: 0xd5e4ea,
   groundFillColor: 0x5d6b5d,
   fillIntensity: 0.76,
-  sunColor: 0xfff5df,
-  sunIntensity: 1.35,
+  sunColor: 0xffedcc,
+  sunIntensity: 1.55,
 };
 
 const GOLDEN_HOUR_ATMOSPHERE: AtmosphereProfile = {
@@ -87,9 +91,9 @@ const NIGHT_ATMOSPHERE: AtmosphereProfile = {
   skyColor: 0x1d2f4d,
   fogColor: 0x3c5878,
   fogDensity: 0.0048,
-  skyFillColor: 0x5f8cbd,
-  groundFillColor: 0x344b66,
-  fillIntensity: 0.78,
+  skyFillColor: 0x8daaca,
+  groundFillColor: 0x536581,
+  fillIntensity: 1.15,
   sunColor: 0x0b1020,
   sunIntensity: 0,
 };
@@ -100,6 +104,7 @@ export class Renderer {
   camera!: THREE.OrthographicCamera;
   renderer!: THREE.WebGLRenderer;
   composer!: EffectComposer;
+  private antialiasPass!: ShaderPass;
   assets: AssetGenerator;
   sim?: Simulation;
 
@@ -144,6 +149,7 @@ export class Renderer {
 
   // Optimizations
   groundMesh!: THREE.InstancedMesh;
+  private groundChunks?: GroundTerrainChunks;
   // Scattered Forest Trees
   treesData: StaticTreeData[] = [];
   trunkMesh?: THREE.InstancedMesh;
@@ -162,6 +168,7 @@ export class Renderer {
 
   // Active Building Meshes
   buildingMeshes: Map<string, THREE.Object3D> = new Map();
+  private staticBuildingBatches?: StaticBuildingBatches;
   private constructionOverlays = new Map<string, HTMLDivElement>();
   private overlayWorldPosition = new THREE.Vector3();
   private constructionOverlaysDirty = true;
@@ -170,6 +177,7 @@ export class Renderer {
   citizens!: CitizenManager;
 
   clearAllBuildings() {
+    this.staticBuildingBatches?.clear();
     this.buildingMeshes.forEach((mesh) => {
       this.scene.remove(mesh);
       this.disposeObject3D(mesh);
@@ -393,8 +401,8 @@ export class Renderer {
 
   // Camera State
   cameraTarget = new THREE.Vector3(0, 0, 0);
-  cameraZoom = 25; // Zoom scale factor for Orthographic
-  cameraAngleX = Math.PI / 6; // Pitch (30 degrees)
+  cameraZoom = 35; // Frame a neighborhood rather than the whole map
+  cameraAngleX = Math.PI / 5.5; // A slightly higher view reveals roofs and streets
   cameraAngleY = Math.PI / 4; // Yaw (45 degrees)
 
   // Reusable vectors to avoid allocations in update loop
@@ -407,8 +415,8 @@ export class Renderer {
 
   // Smooth camera destination states
   desiredCameraTarget = new THREE.Vector3(0, 0, 0);
-  desiredCameraZoom = 25;
-  desiredAngleX = Math.PI / 6;
+  desiredCameraZoom = 35;
+  desiredAngleX = Math.PI / 5.5;
   desiredAngleY = Math.PI / 4;
   keysPressed: { [key: string]: boolean } = {};
 
@@ -477,7 +485,7 @@ export class Renderer {
     // calculated linearly. OutputPass applies the final display conversion.
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.95;
+    this.renderer.toneMappingExposure = 1.04;
     this.container.appendChild(this.renderer.domElement);
 
     // Initialize the post-processing composer
@@ -499,9 +507,12 @@ export class Renderer {
     );
     this.composer.addPass(bloomPass);
 
-    // This must remain the final composer pass so ACES tone mapping and the
-    // sRGB display conversion are each applied exactly once after bloom.
+    // Tone-map once, then smooth display-space edges. FXAA avoids the costly
+    // multisample resolve of half-float buffers on integrated GPUs.
     this.composer.addPass(new OutputPass());
+    this.antialiasPass = new ShaderPass(FXAAShader);
+    this.composer.addPass(this.antialiasPass);
+    this.updateAntialiasResolution();
   }
 
   initLights() {
@@ -539,6 +550,7 @@ export class Renderer {
 
   // Populate Instanced Ground Tiles and Scattered Trees
   initEnvironment() {
+    this.groundChunks?.dispose();
     const size = 50;
     const gridOffset = size / 2;
 
@@ -589,6 +601,7 @@ export class Renderer {
     cliffEdgeRolesAttr.needsUpdate = true;
     cliffCornerRolesAttr.needsUpdate = true;
     this.scene.add(this.groundMesh);
+    this.groundChunks = new GroundTerrainChunks(this.scene, this.groundMesh, size);
 
     // 2. Deterministic, renderer-owned natural scenery. It derives recipes from
     // the neighborhood seed and tile state, so it adds no save data.
@@ -1798,6 +1811,7 @@ export class Renderer {
         return;
       }
 
+      this.staticBuildingBatches?.remove(key);
       this.scene.remove(oldMesh);
       this.disposeObject3D(oldMesh);
       this.buildingMeshes.delete(key);
@@ -1826,7 +1840,7 @@ export class Renderer {
         newMesh = this.assets.createCommercialMesh(tile.level, tile.x, tile.y, tile.archetype);
         break;
       case 'industrial':
-        newMesh = this.assets.createIndustrialMesh(tile.level);
+        newMesh = this.assets.createIndustrialMesh(tile.level, tile.archetype);
         break;
       case 'power':
         newMesh = this.assets.createWindTurbineMesh();
@@ -1835,7 +1849,7 @@ export class Renderer {
         newMesh = this.assets.createWaterTowerMesh();
         break;
       case 'park':
-        newMesh = this.assets.createParkMesh();
+        newMesh = this.assets.createParkMesh(tile.archetype);
         break;
       case 'water_body':
         const neighbors = {
@@ -1946,6 +1960,8 @@ export class Renderer {
 
       this.scene.add(newMesh);
       this.buildingMeshes.set(key, newMesh);
+      this.staticBuildingBatches ??= new StaticBuildingBatches(this.scene);
+      this.staticBuildingBatches.set(key, newMesh);
       this.streetFurnitureDirty = true;
       const rotor = newMesh.getObjectByName('turbine_rotor');
       if (rotor) {
@@ -1994,6 +2010,7 @@ export class Renderer {
     const oldMesh = this.buildingMeshes.get(key);
 
     if (oldMesh) {
+      this.staticBuildingBatches?.remove(key);
       this.scene.remove(oldMesh);
       this.disposeObject3D(oldMesh);
       this.buildingMeshes.delete(key);
@@ -2359,6 +2376,8 @@ export class Renderer {
     // Apply coalesced construction, demolition, and terrain-sculpting updates
     // immediately before rendering. No scenery matrices change on idle frames.
     this.environmentScenery?.refresh();
+    this.staticBuildingBatches?.refresh();
+    this.groundChunks?.refresh();
 
     // 6. Render composer passes
     this.composer.render();
@@ -2494,7 +2513,16 @@ export class Renderer {
     if (this.greenLeavesMesh) this.greenLeavesMesh.instanceMatrix.needsUpdate = true;
     if (this.blossomLeavesMesh) this.blossomLeavesMesh.instanceMatrix.needsUpdate = true;
     this.environmentScenery?.refreshMaterialProfile();
+    this.staticBuildingBatches?.invalidateAll();
     this.citizens?.setMaterialProfile(this.assets.materialProfile);
+  }
+
+  private updateAntialiasResolution() {
+    const pixelRatio = this.renderer.getPixelRatio();
+    this.antialiasPass.uniforms.resolution.value.set(
+      1 / (this.container.clientWidth * pixelRatio),
+      1 / (this.container.clientHeight * pixelRatio),
+    );
   }
 
   onWindowResize() {
@@ -2510,6 +2538,7 @@ export class Renderer {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     if (this.composer) {
       this.composer.setSize(this.container.clientWidth, this.container.clientHeight);
+      this.updateAntialiasResolution();
     }
     this.updateShadowFrustum();
     this.markConstructionOverlaysDirty();

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>NaboCity - Neighborhood Builder</title>
   <meta name="description" content="A calm, low-poly neighborhood builder about welcoming households and creating named local places.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -207,7 +208,8 @@
     </header>
 
     <!-- Left Panel: Neighborhood overview -->
-    <aside class="hud-left glass">
+    <aside id="neighborhood-overview-panel" class="hud-left glass">
+      <button id="btn-overview-toggle" class="overview-toggle" aria-expanded="true" aria-controls="neighborhood-overview-panel">Neighborhood overview <span aria-hidden="true">⌄</span></button>
       <h2>Neighborhood Overview</h2>
       <div class="status-grid">
         <div class="status-card"><span class="status-label">Popularity</span><span class="status-value" id="overview-popularity">50</span></div>

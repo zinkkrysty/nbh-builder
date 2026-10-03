@@ -27,6 +27,7 @@ interface ResidentLayout {
   rotationY: number;
   scale: number;
   walking: boolean;
+  dirty: boolean;
   boxes: Part[];
   tapered: Part[];
   faceted: Part[];
@@ -207,6 +208,8 @@ export class CitizenRenderPool {
     const slot = this.slots.get(id);
     const layout = slot === undefined ? null : this.layouts[slot];
     if (!layout) return;
+    layout.dirty ||= !layout.position.equals(position) || layout.rotationY !== rotationY
+      || layout.scale !== scale || layout.walking !== walking;
     layout.position.copy(position);
     layout.rotationY = rotationY;
     layout.scale = scale;
@@ -215,9 +218,10 @@ export class CitizenRenderPool {
 
   update(deltaTime: number): void {
     this.animationTime += deltaTime;
-    for (let index = 0; index < this.layouts.length; index++) {
+    for (let index = 0; index < this.boxes.count / MAX_BOX_PARTS; index++) {
       const layout = this.layouts[index]!;
-      if (!layout) continue;
+      if (!layout || (!layout.dirty && !(layout.walking && deltaTime > 0))) continue;
+      layout.dirty = false;
       const gait = layout.walking ? Math.sin(this.animationTime * 9 + layout.phase) : 0;
       const bob = layout.walking ? Math.abs(gait) * 0.024 : 0;
       this.rootPosition.copy(layout.position);
@@ -232,11 +236,6 @@ export class CitizenRenderPool {
       this.writePartMatrices(this.wedges, index * MAX_WEDGE_PARTS, MAX_WEDGE_PARTS, layout.wedges, gait);
       this.writePartMatrices(this.glasses, index * MAX_GLASSES_PARTS, MAX_GLASSES_PARTS, layout.glasses, gait);
     }
-    this.boxes.instanceMatrix.needsUpdate = true;
-    this.tapered.instanceMatrix.needsUpdate = true;
-    this.faceted.instanceMatrix.needsUpdate = true;
-    this.wedges.instanceMatrix.needsUpdate = true;
-    this.glasses.instanceMatrix.needsUpdate = true;
   }
 
   getMetrics(): PoolMetrics {
@@ -284,10 +283,14 @@ export class CitizenRenderPool {
     pool.castShadow = true;
     pool.receiveShadow = false;
     pool.frustumCulled = false;
+    pool.count = 0;
     return pool;
   }
 
   private hideUnused(pool: THREE.InstancedMesh, capacity: number): void {
+    // Membership changes must also upload cleared slots, including holes.
+    pool.instanceMatrix.clearUpdateRanges();
+    pool.instanceMatrix.addUpdateRange(0, capacity * 16);
     for (let index = 0; index < capacity; index++) {
       pool.setMatrixAt(index, this.hiddenMatrix);
       pool.setColorAt(index, this.color.set('#ffffff'));
@@ -411,7 +414,7 @@ export class CitizenRenderPool {
     }
     if (appearance.signature === 'book bag') addPart(boxes, 0.34 * shoulder, 0.5, -0.1, 0.23, 0.29, 0.14, accent);
 
-    return { id, resident, phase: index * 0.77, position: new THREE.Vector3(), rotationY: 0, scale: 1, walking: false, boxes, tapered, faceted, wedges, glasses };
+    return { id, resident, phase: index * 0.77, position: new THREE.Vector3(), rotationY: 0, scale: 1, walking: false, dirty: true, boxes, tapered, faceted, wedges, glasses };
   }
 
   private writeColors(): void {
@@ -420,14 +423,22 @@ export class CitizenRenderPool {
     this.hideUnused(this.faceted, this.facetedCapacity);
     this.hideUnused(this.wedges, this.wedgeCapacity);
     this.hideUnused(this.glasses, this.glassesCapacity);
+    let occupiedSlots = 0;
     this.layouts.forEach((layout, index) => {
       if (!layout) return;
+      occupiedSlots = index + 1;
+      layout.dirty = true;
       this.writePartColors(this.boxes, index * MAX_BOX_PARTS, layout.boxes);
       this.writePartColors(this.tapered, index * MAX_TAPERED_PARTS, layout.tapered);
       this.writePartColors(this.faceted, index * MAX_FACETED_PARTS, layout.faceted);
       this.writePartColors(this.wedges, index * MAX_WEDGE_PARTS, layout.wedges);
       this.writePartColors(this.glasses, index * MAX_GLASSES_PARTS, layout.glasses);
     });
+    this.boxes.count = occupiedSlots * MAX_BOX_PARTS;
+    this.tapered.count = occupiedSlots * MAX_TAPERED_PARTS;
+    this.faceted.count = occupiedSlots * MAX_FACETED_PARTS;
+    this.wedges.count = occupiedSlots * MAX_WEDGE_PARTS;
+    this.glasses.count = occupiedSlots * MAX_GLASSES_PARTS;
     [this.boxes, this.tapered, this.faceted, this.wedges, this.glasses].forEach(pool => {
       if (pool.instanceColor) pool.instanceColor.needsUpdate = true;
     });
@@ -438,6 +449,9 @@ export class CitizenRenderPool {
   }
 
   private writePartMatrices(pool: THREE.InstancedMesh, offset: number, maxParts: number, parts: Part[], gait: number): void {
+    // Upload only this resident's slot; stationary residents retain their matrices.
+    pool.instanceMatrix.addUpdateRange(offset * 16, maxParts * 16);
+    pool.instanceMatrix.needsUpdate = true;
     for (let index = 0; index < maxParts; index++) {
       const part = parts[index];
       if (!part) {

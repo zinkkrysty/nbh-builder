@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:render": "node scripts/check-resident-pool.mjs && node scripts/check-scenery-pools.mjs && node scripts/check-building-batches.mjs && node scripts/check-terrain-chunks.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

@@ -396,8 +396,8 @@ export class AssetGenerator {
            // hierarchy without making altitude look like a biome boundary.
            float elevationStep = floor(clamp(vTerrainWorldPos.y / 0.8, 0.0, 4.0) + 0.5) / 4.0;
            vec3 grassAtElevation = mix(
-             vec3(0.415, 0.675, 0.455),
-             vec3(0.525, 0.735, 0.385),
+             vec3(0.305, 0.555, 0.215),
+             vec3(0.465, 0.645, 0.255),
              elevationStep
            );
            vec3 grassShade = grassAtElevation * mix(0.945, 1.055, grassPatch);
@@ -443,7 +443,7 @@ export class AssetGenerator {
            float lowerEdgeShadow = max(max(lowerCliffEdge.x * grassEdgeBand.x, lowerCliffEdge.y * grassEdgeBand.y), max(lowerCliffEdge.z * grassEdgeBand.z, lowerCliffEdge.w * grassEdgeBand.w));
            float lowerGrassShadow = max(lowerEdgeShadow, lowerConcaveCornerShadow) * topFace;
            customColor = mix(customColor, customColor * 0.78, lowerGrassShadow);
-           customColor = mix(customColor, vec3(0.690, 0.805, 0.510), upperGrassLip * 0.52);
+           customColor = mix(customColor, vec3(0.620, 0.755, 0.355), upperGrassLip * 0.52);
 
            diffuseColor = vec4(customColor, opacity);`
         );
@@ -485,9 +485,9 @@ export class AssetGenerator {
       }
     });
 
-    registerBasicMat('roadLine', new THREE.MeshBasicMaterial({
-      color: 0xf59e0b, // Yellow lines
-    }));
+    registerMat('roadLine', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0xe7bc65, roughness: 0.95 })
+      : new THREE.MeshToonMaterial({ color: 0xe7bc65, gradientMap: this.toonGradient }));
 
     registerMat('roadCrosswalk', (type) => {
       if (type === 'standard') {
@@ -671,7 +671,7 @@ export class AssetGenerator {
 
     // Wood & Leaves
     registerMat('trunk', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x78350f, gradientMap: this.toonGradient }));
-    registerMat('leaves', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x16a34a, gradientMap: this.toonGradient }));
+    registerMat('leaves', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x579b46, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0x579b46, gradientMap: this.toonGradient }));
     registerMat('blossom', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.8 }) : new THREE.MeshToonMaterial({ color: 0xf472b6, gradientMap: this.toonGradient }));
     registerMat('darkVoid', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x120c08, roughness: 0.95 }) : new THREE.MeshToonMaterial({ color: 0x120c08, gradientMap: this.toonGradient }));
 
@@ -3834,6 +3834,87 @@ export class AssetGenerator {
   }
 
   // 5. Commercial Buildings (Levels 0-3)
+  private createNeighborhoodShop(level: number, tileX: number, tileY: number, archetype: string): THREE.Group {
+    const group = new THREE.Group();
+    const rand = this.getSeededRandom(tileX, tileY);
+    const p = this.commercialPalettes[Math.floor(rand() * this.commercialPalettes.length)];
+    const cube = this.getGeometry('shop_detail_box', () => new THREE.BoxGeometry(1, 1, 1));
+    const box = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material, parent: THREE.Group = group) => {
+      const mesh = new THREE.Mesh(cube, mat); mesh.scale.set(w, h, d); mesh.position.set(x, y, z);
+      mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh;
+    };
+    const h = level >= 2 ? 1.45 : 0.98;
+    const eave = h + 0.1;
+    box(1.78, 0.07, 1.78, 0, 0.04, 0, this.materials.cement);
+    box(1.36, h, 1.16, 0, h / 2 + 0.1, -0.12, p.wall);
+    box(1.42, 0.09, 1.22, 0, 0.13, -0.12, p.brick);
+    for (const x of [-0.68, 0.68]) for (const z of [-0.7, 0.46]) box(0.045, h, 0.045, x, h / 2 + 0.1, z, p.trim);
+    const rise = 0.4;
+    const gableGeo = this.getGeometry('shop_gable', () => {
+      const shape = new THREE.Shape(); shape.moveTo(-0.68, 0); shape.lineTo(0.68, 0); shape.lineTo(0, rise); shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: 1.16, bevelEnabled: false }); geo.translate(0, 0, -0.58); return geo;
+    });
+    const gable = new THREE.Mesh(gableGeo, p.wall); gable.position.set(0, eave, -0.12); gable.castShadow = true; group.add(gable);
+    const roofRise = rise * 0.79 / 0.68, angle = Math.atan2(roofRise, 0.79), slope = Math.hypot(0.79, roofRise);
+    for (const side of [-1, 1]) {
+      const roof = box(slope, 0.045, 1.42, side * 0.395, eave + rise - roofRise / 2, -0.12, p.roof); roof.rotation.z = -side * angle;
+      for (const z of [-0.83, 0.59]) {
+        const fascia = box(slope + 0.02, 0.045, 0.035, side * 0.395, roof.position.y - 0.02, z, p.trim); fascia.rotation.z = -side * angle;
+      }
+      for (const z of [-0.55, -0.12, 0.31]) {
+        const seam = box(slope, 0.012, 0.012, side * (0.395 + Math.sin(angle) * 0.027), roof.position.y + Math.cos(angle) * 0.027, z, p.roof); seam.rotation.z = -side * angle;
+      }
+    }
+    box(0.07, 0.045, 1.46, 0, eave + rise + 0.02, -0.12, p.roof);
+    const window = (x: number, y: number, z: number, width: number, height: number, rotation = 0) => {
+      const frame = new THREE.Group(); frame.position.set(x, y, z); frame.rotation.y = rotation; group.add(frame);
+      box(width + 0.055, height + 0.055, 0.02, 0, 0, 0.01, p.roof, frame);
+      box(width, height, 0.012, 0, 0, 0.029, this.materials.window, frame).castShadow = false;
+      for (const side of [-1, 1]) {
+        box(0.025, height + 0.07, 0.04, side * (width / 2 + 0.02), 0, 0.035, p.trim, frame);
+        box(width + 0.09, 0.025, 0.04, 0, side * (height / 2 + 0.02), 0.035, p.trim, frame);
+      }
+      box(0.02, height, 0.025, 0, 0, 0.04, p.trim, frame);
+    };
+    window(-0.22, 0.48, 0.46, 0.67, 0.43);
+    box(0.25, 0.66, 0.025, 0.43, 0.43, 0.48, p.roof);
+    window(0.43, 0.53, 0.5, 0.16, 0.29);
+    box(0.025, 0.04, 0.035, 0.51, 0.38, 0.54, this.materials.metal);
+    box(0.34, 0.07, 0.19, 0.43, 0.085, 0.61, p.trim);
+    for (const side of [-1, 1]) window(side * 0.686, 0.6, -0.18, 0.32, 0.32, side * Math.PI / 2);
+    if (level >= 2) {
+      for (const x of [-0.36, 0.36]) window(x, 1.22, 0.46, 0.28, 0.32);
+      box(1.4, 0.045, 1.19, 0, 0.94, -0.12, p.trim);
+    }
+    // Striped canvas awning and a relief emblem, all using existing materials.
+    for (let stripe = 0; stripe < 7; stripe++) {
+      const canopy = box(0.16, 0.025, 0.36, -0.57 + stripe * 0.16, 0.82, 0.64,
+        stripe % 2 ? p.trim : p.accent); canopy.rotation.x = 0.22;
+      box(0.16, 0.09, 0.022, canopy.position.x, 0.745, 0.815, stripe % 2 ? p.trim : p.accent);
+    }
+    box(0.35, 0.18, 0.035, 0, 0.99, 0.51, p.roof);
+    if (archetype === 'cafe') {
+      const cupGeo = this.getGeometry('shop_cup', () => new THREE.CylinderGeometry(0.055, 0.045, 0.07, 8));
+      const cup = new THREE.Mesh(cupGeo, p.trim); cup.position.set(-0.015, 0.99, 0.55); group.add(cup);
+      box(0.035, 0.04, 0.02, 0.05, 0.99, 0.55, p.trim);
+      const tableGeo = this.getGeometry('cafe_patio_table', () => new THREE.CylinderGeometry(0.18, 0.18, 0.035, 8));
+      const table = new THREE.Mesh(tableGeo, p.trim); table.position.set(-0.55, 0.24, 0.71); group.add(table);
+      box(0.035, 0.2, 0.035, -0.55, 0.12, 0.71, this.materials.metal);
+      for (const x of [-0.8, -0.3]) { box(0.14, 0.025, 0.13, x, 0.14, 0.71, p.accent); box(0.025, 0.14, 0.025, x, 0.07, 0.71, this.materials.metal); }
+    } else if (archetype === 'florist' || archetype === 'grocer') {
+      for (const x of [-0.48, -0.12, 0.23]) {
+        box(0.24, 0.13, 0.18, x, 0.13, 0.73, this.materials.trunk);
+        const plant = new THREE.Mesh(this.getEnvironmentBushGeometry('shrub'), this.materials.leaves);
+        plant.scale.setScalar(archetype === 'florist' ? 0.38 : 0.27); plant.position.set(x, 0.2, 0.73); group.add(plant);
+        if (archetype === 'florist') box(0.055, 0.05, 0.055, x, 0.31, 0.73, this.materials.blossom);
+      }
+      box(0.08, 0.08, 0.025, 0, 0.99, 0.54, p.accent);
+    } else {
+      for (let i = 0; i < 3; i++) box(0.035, 0.1 - i * 0.01, 0.02, -0.055 + i * 0.055, 0.99, 0.54, i % 2 ? p.accent : p.trim);
+    }
+    return group;
+  }
+
   createCommercialMesh(level: number, tileX: number = 0, tileY: number = 0, archetype?: string): THREE.Group {
     if (archetype === 'bakery') {
       if (level === 0) {
@@ -3846,6 +3927,7 @@ export class AssetGenerator {
       }
       return this.createBakeryMesh(level, tileX, tileY);
     }
+    if (level > 0 && archetype) return this.createNeighborhoodShop(level, tileX, tileY, archetype);
     const group = new THREE.Group();
 
     if (level === 0) {
@@ -3894,7 +3976,9 @@ export class AssetGenerator {
 
     if (level === 1) {
       // 3 variants: 0 = Cafe/Bakery, 1 = Flower/Grocery, 2 = Bookstore
-      const variant = Math.floor(rand() * 3);
+      const variant = archetype === 'cafe' ? 0
+        : archetype === 'florist' || archetype === 'grocer' ? 1
+          : archetype === 'bookshop' ? 2 : Math.floor(rand() * 3);
       const w = 1.2, h = 0.7, d = 1.1;
       const t = 0.04;
       const yBottom = 0.1; // bottom of walls
@@ -4081,7 +4165,7 @@ export class AssetGenerator {
         group.add(bulb);
       }
     } else if (level === 2) {
-      const variant = Math.floor(rand() * 3);
+      const variant = archetype === 'community_studio' ? 1 : Math.floor(rand() * 3);
       const yBottom = 0.1;
 
       if (variant === 0) {
@@ -4470,7 +4554,12 @@ export class AssetGenerator {
   }
 
   // 6. Industrial Buildings (Levels 0-3)
-  createIndustrialMesh(level: number): THREE.Group {
+  createIndustrialMesh(level: number, archetype?: string): THREE.Group {
+    if (level === 2 && archetype) {
+      const hall = this.createIndustrialMesh(1, archetype);
+      hall.scale.set(1.05, 1.3, 1.05);
+      return hall;
+    }
     const group = new THREE.Group();
 
     if (level === 0) {
@@ -4490,35 +4579,72 @@ export class AssetGenerator {
     group.add(found);
 
     if (level === 1) {
-      // Level 1: Small metal warehouse / workshop
-      const w = 1.4, h = 0.8, d = 1.4;
-      const wallGeo = this.getGeometry('ind_level1_wall', () => {
-        const geo = new THREE.BoxGeometry(w, h, d);
-        geo.translate(0, h / 2 + 0.08, 0);
+      // A small neighborhood workshop: a pitched roof, timber doors and
+      // work yard give it a readable purpose without textures or new materials.
+      const cube = this.getGeometry('workshop_unit_box', () => new THREE.BoxGeometry(1, 1, 1));
+      const box = (w: number, h: number, d: number, x: number, y: number, z: number, material: THREE.Material) => {
+        const mesh = new THREE.Mesh(cube, material);
+        mesh.scale.set(w, h, d);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+        return mesh;
+      };
+      box(1.35, 0.8, 1.25, 0, 0.48, -0.05, this.materials.wallInd);
+      const roofAngle = Math.atan2(0.35, 0.78);
+      for (const side of [-1, 1]) {
+        const panel = box(Math.hypot(0.78, 0.35), 0.045, 1.48,
+          side * 0.39, 1.055, -0.05, this.materials.metal);
+        panel.rotation.z = -side * roofAngle;
+        for (const end of [-1, 1]) {
+          const fascia = box(Math.hypot(0.78, 0.35), 0.05, 0.035,
+            side * 0.39, 1.03, -0.05 + end * 0.74, this.materials.whiteMetal);
+          fascia.rotation.z = -side * roofAngle;
+        }
+      }
+      const gableGeo = this.getGeometry('workshop_gable', () => {
+        const shape = new THREE.Shape();
+        shape.moveTo(-0.675, 0); shape.lineTo(0.675, 0); shape.lineTo(0, 0.303); shape.closePath();
+        const geo = new THREE.ExtrudeGeometry(shape, { depth: 1.25, bevelEnabled: false });
+        geo.translate(0, 0.88, -0.675);
         return geo;
       });
-      const wall = new THREE.Mesh(wallGeo, this.materials.wallInd);
-      wall.castShadow = true;
-      group.add(wall);
-
-      // Sawtooth industrial roof shape
-      const roofGeo = this.getGeometry('ind_level1_roof', () => {
-        const geo = new THREE.CylinderGeometry(0.1, 0.8, 1.4, 3);
-        geo.rotateZ(Math.PI / 2);
-        geo.translate(0, h + 0.2 + 0.08, 0);
-        return geo;
-      });
-      const roof = new THREE.Mesh(roofGeo, this.materials.metal);
-      group.add(roof);
-
-      // Little exhaust pipe
-      const pipeGeo = this.getGeometry('ind_level1_pipe', () => {
-        const geo = new THREE.CylinderGeometry(0.06, 0.06, 0.5, 4);
-        geo.translate(0.4, h + 0.3, 0.3);
-        return geo;
-      });
-      const pipe = new THREE.Mesh(pipeGeo, this.materials.metal);
-      group.add(pipe);
+      const gable = new THREE.Mesh(gableGeo, this.materials.wallInd);
+      gable.castShadow = true; group.add(gable);
+      box(0.78, 0.63, 0.035, -0.12, 0.395, 0.595, this.materials.trunk);
+      for (const x of [-0.53, 0.29]) box(0.035, 0.68, 0.045, x, 0.42, 0.62, this.materials.whiteMetal);
+      box(0.87, 0.045, 0.045, -0.12, 0.755, 0.62, this.materials.whiteMetal);
+      box(0.018, 0.61, 0.025, -0.12, 0.4, 0.625, this.materials.metal);
+      for (const x of [-0.17, -0.07]) box(0.023, 0.075, 0.025, x, 0.4, 0.648, this.materials.metal);
+      // Side windows and timber frames remain legible from the orbit camera.
+      for (const z of [-0.35, 0.25]) {
+        box(0.03, 0.25, 0.32, 0.686, 0.6, z, this.materials.window);
+        for (const end of [-1, 1]) {
+          box(0.045, 0.3, 0.025, 0.708, 0.6, z + end * 0.17, this.materials.whiteMetal);
+          box(0.045, 0.025, 0.365, 0.708, 0.6 + end * 0.14, z, this.materials.whiteMetal);
+        }
+      }
+      // A bench with stacked boards provides a small storytelling silhouette.
+      box(0.45, 0.065, 0.28, 0.57, 0.28, 0.74, this.materials.trunk);
+      for (const x of [0.4, 0.73]) box(0.045, 0.22, 0.22, x, 0.16, 0.74, this.materials.trunk);
+      if (archetype === 'pottery_workshop') {
+        const potGeo = this.getGeometry('workshop_pottery', () => new THREE.CylinderGeometry(0.055, 0.04, 0.09, 8));
+        for (const x of [0.45, 0.57, 0.69]) {
+          const pot = new THREE.Mesh(potGeo, this.materials.dirt); pot.position.set(x, 0.36, 0.74); group.add(pot);
+        }
+      } else if (archetype === 'bike_workshop') {
+        const wheelGeo = this.getGeometry('workshop_bike_wheel', () => new THREE.TorusGeometry(0.09, 0.012, 3, 10));
+        for (const x of [0.46, 0.68]) {
+          const wheel = new THREE.Mesh(wheelGeo, this.materials.metal); wheel.position.set(x, 0.41, 0.74); group.add(wheel);
+        }
+        const frame = box(0.25, 0.018, 0.018, 0.57, 0.46, 0.74, this.materials.whiteMetal); frame.rotation.z = 0.25;
+      } else {
+        for (let i = 0; i < 3; i++) box(0.36, 0.03, 0.055, 0.57, 0.34 + i * 0.035, 0.74, this.materials.whiteMetal);
+      }
+      // Keep the exhaust at the location used by the smoke emitter.
+      box(0.1, 0.46, 0.1, 0.4, 1.02, 0.3, this.materials.metal);
+      box(0.16, 0.04, 0.16, 0.4, 1.27, 0.3, this.materials.metal);
 
     } else if (level === 2) {
       // Level 2: Factory building with loading docks
@@ -4699,21 +4825,28 @@ export class AssetGenerator {
     pipe.position.set(0, 0.93, 0);
     group.add(pipe);
 
-    // Water Sphere/Tank
+    // Painted tank: water's transparent animated shader belongs to waterways,
+    // not to an opaque utility vessel.
     const tankGeo = this.getGeometry('water_tower_tank', () => {
-      const geo = new THREE.SphereGeometry(0.65, 8, 8);
-      geo.scale(1.0, 0.8, 1.0);
+      const geo = new THREE.CylinderGeometry(0.61, 0.61, 0.72, 12);
       geo.translate(0, 2.0, 0);
       return geo;
     });
-    const tank = new THREE.Mesh(tankGeo, this.materials.waterBlue);
+    const tank = new THREE.Mesh(tankGeo, this.materials.whiteMetal);
     tank.castShadow = true;
     group.add(tank);
 
+    const bandGeo = this.getGeometry('water_tower_tank_band', () => new THREE.CylinderGeometry(0.625, 0.625, 0.035, 12, 1, true));
+    for (const y of [1.68, 2.32]) {
+      const band = new THREE.Mesh(bandGeo, this.materials.metal);
+      band.position.y = y;
+      group.add(band);
+    }
+
     // Cap on tank
     const capGeo = this.getGeometry('water_tower_cap', () => {
-      const geo = new THREE.ConeGeometry(0.4, 0.2, 8);
-      geo.translate(0, 2.5, 0);
+      const geo = new THREE.ConeGeometry(0.65, 0.2, 12);
+      geo.translate(0, 2.46, 0);
       return geo;
     });
     const cap = new THREE.Mesh(capGeo, this.materials.whiteMetal);
@@ -4723,7 +4856,7 @@ export class AssetGenerator {
   }
 
   // 9. Park Mesh
-  createParkMesh(): THREE.Group {
+  createParkMesh(archetype?: string): THREE.Group {
     const group = new THREE.Group();
 
     // Grass patch
@@ -4749,17 +4882,23 @@ export class AssetGenerator {
     const benchGroup = new THREE.Group();
     benchGroup.position.set(0.5, 0.1, 0);
 
-    const seatGeo = this.getGeometry('park_bench_seat', () => new THREE.BoxGeometry(0.18, 0.03, 0.6));
-    const seat = new THREE.Mesh(seatGeo, this.materials.trunk);
-    benchGroup.add(seat);
+    const seatGeo = this.getGeometry('park_bench_seat', () => new THREE.BoxGeometry(0.045, 0.03, 0.6));
+    for (const x of [-0.06, 0, 0.06]) {
+      const seat = new THREE.Mesh(seatGeo, this.materials.trunk);
+      seat.position.x = x;
+      benchGroup.add(seat);
+    }
 
     const backGeo = this.getGeometry('park_bench_back', () => {
-      const geo = new THREE.BoxGeometry(0.03, 0.15, 0.6);
+      const geo = new THREE.BoxGeometry(0.03, 0.055, 0.6);
       geo.translate(-0.09, 0.08, 0);
       return geo;
     });
-    const back = new THREE.Mesh(backGeo, this.materials.trunk);
-    benchGroup.add(back);
+    for (const y of [-0.035, 0.035]) {
+      const back = new THREE.Mesh(backGeo, this.materials.trunk);
+      back.position.y = y;
+      benchGroup.add(back);
+    }
 
     const legGeo = this.getGeometry('park_bench_leg', () => new THREE.BoxGeometry(0.04, 0.1, 0.04));
 
@@ -4773,12 +4912,41 @@ export class AssetGenerator {
 
     group.add(benchGroup);
 
-    // Small customized trees in the park
-    for (let i = 0; i < 2; i++) {
-      const tree = this.createTreeMesh();
-      tree.position.set(-0.5, 0.05, -0.4 + i * 0.8);
-      tree.scale.set(0.6, 0.6, 0.6);
-      group.add(tree);
+    const cube = this.getGeometry('park_detail_box', () => new THREE.BoxGeometry(1, 1, 1));
+    const box = (w: number, h: number, d: number, x: number, y: number, z: number, material: THREE.Material) => {
+      const mesh = new THREE.Mesh(cube, material);
+      mesh.scale.set(w, h, d); mesh.position.set(x, y, z);
+      mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh);
+    };
+    if (archetype === 'community_garden') {
+      // Raised beds distinguish a shared garden from a sitting park.
+      for (const z of [-0.47, 0.47]) {
+        box(0.58, 0.12, 0.6, -0.53, 0.1, z, this.materials.trunk);
+        box(0.51, 0.025, 0.53, -0.53, 0.17, z, this.materials.dirt);
+        for (const x of [-0.68, -0.4]) for (const row of [-0.15, 0.15]) {
+          const plant = new THREE.Mesh(this.getEnvironmentBushGeometry('shrub'), this.materials.leaves);
+          plant.scale.set(0.3, 0.42, 0.3); plant.position.set(x, 0.19, z + row);
+          plant.castShadow = true; group.add(plant);
+          const flowerGeo = this.getGeometry('garden_flower', () => new THREE.DodecahedronGeometry(0.025, 0));
+          const flower = new THREE.Mesh(flowerGeo, this.materials.blossom);
+          flower.position.set(x, 0.3, z + row); group.add(flower);
+        }
+      }
+      box(0.28, 0.3, 0.25, 0.56, 0.19, -0.64, this.materials.trunk);
+      box(0.3, 0.03, 0.27, 0.56, 0.355, -0.64, this.materials.metal);
+    } else {
+      for (let i = 0; i < 2; i++) {
+        const tree = this.createTreeMesh();
+        tree.position.set(-0.5, 0.05, -0.4 + i * 0.8);
+        tree.scale.set(0.6, 0.6, 0.6);
+        group.add(tree);
+      }
+      // Low flower borders add color without covering pedestrian space.
+      for (const z of [-0.72, 0.72]) {
+        box(0.48, 0.075, 0.2, 0.55, 0.09, z, this.materials.trunk);
+        box(0.42, 0.09, 0.16, 0.55, 0.16, z, this.materials.leaves);
+        for (const x of [0.4, 0.55, 0.7]) box(0.07, 0.04, 0.07, x, 0.225, z, this.materials.blossom);
+      }
     }
 
     return group;
