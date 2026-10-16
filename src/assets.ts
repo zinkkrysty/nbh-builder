@@ -101,28 +101,37 @@ function createAssetMesh(cell: typeof cells[0]): THREE.Group {
     return assets.createCommercialMesh(cell.level, cell.seedX, cell.seedY);
   }
   if (cell.type === 'industrial') {
-    return assets.createIndustrialMesh(cell.level);
+    return assets.createIndustrialMesh(cell.level, undefined, cell.seedX, cell.seedY);
   }
   if (cell.type === 'park') {
-    return assets.createParkMesh();
+    return assets.createParkMesh(undefined, cell.seedX, cell.seedY);
   }
   if (cell.type === 'tree') {
     const group = new THREE.Group();
-    // Create base plinth/foundation for trees
-    const foundGeo = new THREE.BoxGeometry(1.7, 0.08, 1.7);
+    // Create stone-curbed grass plinth for trees
+    const curbGeo = new THREE.BoxGeometry(1.82, 0.05, 1.82);
+    curbGeo.translate(0, 0.025, 0);
+    group.add(new THREE.Mesh(curbGeo, assets.materials.warmStone));
+    const foundGeo = new THREE.BoxGeometry(1.72, 0.06, 1.72);
     foundGeo.translate(0, 0.04, 0);
     const found = new THREE.Mesh(foundGeo, assets.materials.grass);
+    found.receiveShadow = true;
     group.add(found);
 
-    const tree1 = assets.createTreeMesh();
-    tree1.position.set(-0.25, 0.08, 0.15);
-    tree1.scale.set(0.9, 0.9, 0.9);
+    const tree1 = assets.createTreeMesh(3, 7, 'broadleaf', false);
+    tree1.position.set(-0.34, 0.07, 0.22);
+    tree1.scale.set(0.82, 0.82, 0.82);
     group.add(tree1);
 
-    const tree2 = assets.createTreeMesh();
-    tree2.position.set(0.3, 0.08, -0.3);
-    tree2.scale.set(0.7, 0.7, 0.7);
+    const tree2 = assets.createTreeMesh(11, 5, 'conifer', false);
+    tree2.position.set(0.34, 0.07, -0.26);
+    tree2.scale.set(0.76, 0.76, 0.76);
     group.add(tree2);
+
+    const tree3 = assets.createTreeMesh(7, 13, 'broadleaf', true);
+    tree3.position.set(0.28, 0.07, 0.36);
+    tree3.scale.set(0.58, 0.58, 0.58);
+    group.add(tree3);
 
     return group;
   }
@@ -185,8 +194,17 @@ function generateCellImage(cell: typeof cells[0]): string {
 
   // Position adjustments based on type for framing
   if (cell.type === 'turbine') {
-    bgCamera.position.set(3.4, 2.5, 3.4);
-    bgCamera.lookAt(0, 0.9, 0);
+    bgCamera.position.set(3.5, 2.5, 3.5);
+    bgCamera.lookAt(0, 1.15, 0);
+  } else if (cell.type === 'watertower') {
+    bgCamera.position.set(3.2, 2.35, 3.2);
+    bgCamera.lookAt(0, 1.05, 0);
+  } else if ((cell.type === 'commercial' || cell.type === 'industrial' || cell.type === 'residential') && cell.level >= 3) {
+    bgCamera.position.set(2.85, 2.15, 2.85);
+    bgCamera.lookAt(0, 0.75, 0);
+  } else if ((cell.type === 'commercial' || cell.type === 'industrial' || cell.type === 'residential') && cell.level === 2) {
+    bgCamera.position.set(2.6, 1.95, 2.6);
+    bgCamera.lookAt(0, 0.55, 0);
   } else if (cell.type === 'car' || cell.type === 'road') {
     bgCamera.position.set(2.2, 1.4, 2.2);
     bgCamera.lookAt(0, 0.1, 0);
@@ -197,8 +215,8 @@ function generateCellImage(cell: typeof cells[0]): string {
     bgCamera.position.set(2.4, 1.6, 2.4);
     bgCamera.lookAt(0, -0.1, 0);
   } else {
-    bgCamera.position.set(2.4, 1.8, 2.4);
-    bgCamera.lookAt(0, 0.35, 0);
+    bgCamera.position.set(2.45, 1.85, 2.45);
+    bgCamera.lookAt(0, 0.42, 0);
   }
 
   bgRenderer.render(bgScene, bgCamera);

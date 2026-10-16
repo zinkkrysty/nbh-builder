@@ -15,7 +15,7 @@ export class StaticBuildingBatches {
   set(key: string, source: THREE.Object3D): void {
     this.remove(key);
     const type = source.userData.type;
-    if (!['residential', 'commercial', 'industrial', 'park', 'water'].includes(type)
+    if (!['residential', 'commercial', 'industrial', 'park', 'water', 'boardwalk', 'road'].includes(type)
       || source.userData.constructionStatus === 'planned'
       || source.userData.constructionStatus === 'building') return;
     let eligible = true;

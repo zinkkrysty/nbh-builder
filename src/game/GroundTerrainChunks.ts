@@ -42,9 +42,12 @@ export class GroundTerrainChunks {
     this.lastVersion = version;
     for (const { mesh, indices } of this.chunks) {
       let count = 0;
+      let hasShadowCaster = false;
       for (const sourceIndex of indices) {
         // The existing renderer hides grass beneath water/bridges at y=-100.
-        if (this.source.instanceMatrix.array[sourceIndex * 16 + 13] < -50) continue;
+        const y = this.source.instanceMatrix.array[sourceIndex * 16 + 13];
+        if (y < -50) continue;
+        if (y > 0.01) hasShadowCaster = true;
         this.source.getMatrixAt(sourceIndex, this.matrix);
         mesh.setMatrixAt(count, this.matrix);
         for (const [name, attribute] of attributes) {
@@ -56,6 +59,7 @@ export class GroundTerrainChunks {
         count++;
       }
       mesh.count = count;
+      mesh.castShadow = this.source.castShadow && hasShadowCaster;
       mesh.instanceMatrix.needsUpdate = true;
       for (const [name] of attributes) mesh.geometry.getAttribute(name).needsUpdate = true;
       mesh.computeBoundingSphere();

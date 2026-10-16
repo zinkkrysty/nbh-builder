@@ -1840,7 +1840,7 @@ export class Renderer {
         newMesh = this.assets.createCommercialMesh(tile.level, tile.x, tile.y, tile.archetype);
         break;
       case 'industrial':
-        newMesh = this.assets.createIndustrialMesh(tile.level, tile.archetype);
+        newMesh = this.assets.createIndustrialMesh(tile.level, tile.archetype, tile.x, tile.y);
         break;
       case 'power':
         newMesh = this.assets.createWindTurbineMesh();
@@ -1849,7 +1849,7 @@ export class Renderer {
         newMesh = this.assets.createWaterTowerMesh();
         break;
       case 'park':
-        newMesh = this.assets.createParkMesh(tile.archetype);
+        newMesh = this.assets.createParkMesh(tile.archetype, tile.x, tile.y);
         break;
       case 'water_body':
         const neighbors = {
@@ -1946,8 +1946,12 @@ export class Renderer {
           const isShoreFoam = child.material === this.assets.materials.waterShoreFoam;
           const isInnerShoreFoam = child.material === this.assets.materials.waterShoreFoamInner;
           const isWaterSurface = isWater || isShoreFoam || isInnerShoreFoam;
-          child.castShadow = !isWaterSurface;
-          child.receiveShadow = !isWaterSurface;
+          if (isWaterSurface) {
+            child.castShadow = false;
+            child.receiveShadow = false;
+          } else {
+            child.receiveShadow = true;
+          }
 
           // Both surfaces are transparent and are material-merged into the same
           // tile group. Make their painter order explicit so the water cannot
@@ -2063,8 +2067,14 @@ export class Renderer {
     }
 
     roadMesh.position.set(xPos, yPos, zPos);
+    roadMesh.userData = {
+      type: 'road',
+      constructionStatus: 'complete',
+    };
     this.scene.add(roadMesh);
     this.buildingMeshes.set(key, roadMesh);
+    this.staticBuildingBatches ??= new StaticBuildingBatches(this.scene);
+    this.staticBuildingBatches.set(key, roadMesh);
 
     this.streetFurnitureDirty = true;
   }
