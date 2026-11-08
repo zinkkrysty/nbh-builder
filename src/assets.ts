@@ -156,7 +156,13 @@ function createAssetMesh(cell: typeof cells[0]): THREE.Group {
     return group;
   }
   if (cell.type === 'water_body') {
-    return assets.createWaterBodyMesh(cell.seedX, cell.seedY, { N: false, S: false, E: false, W: false });
+    return assets.createWaterBodyMesh(
+      cell.seedX,
+      cell.seedY,
+      { N: false, S: false, E: false, W: false },
+      { NW: false, NE: false, SE: false, SW: false },
+      { N: true, S: true, E: true, W: true },
+    );
   }
   if (cell.type === 'boardwalk') {
     const boardwalkNeighbors = { N: false, S: false, E: false, W: false };
@@ -166,7 +172,15 @@ function createAssetMesh(cell: typeof cells[0]): THREE.Group {
   if (cell.type === 'bridge') {
     const connections = { N: true, S: true, E: false, W: false };
     const waterNeighbors = { N: true, S: true, E: false, W: false };
-    return assets.createRoadMesh(connections, true, waterNeighbors);
+    return assets.createRoadMesh(
+      connections,
+      true,
+      waterNeighbors,
+      cell.seedX,
+      cell.seedY,
+      { NW: false, NE: false, SE: false, SW: false },
+      { N: false, S: false, E: true, W: true },
+    );
   }
   return new THREE.Group();
 }

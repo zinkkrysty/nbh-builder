@@ -251,44 +251,65 @@ export class EnvironmentScenery {
 
   private createWaterRecipe(recipe: TileRecipe): void {
     const { x, y } = recipe;
-    if (this.random(x, y, 2, 'water-boulder-category') < 0.024) {
+    if (this.random(x, y, 2, 'water-boulder-category') < 0.038) {
       const variant = Math.min(2, Math.floor(this.random(x, y, 2, 'water-boulder-variant') * 3));
-      const boulderX = (this.random(x, y, 2, 'water-boulder-offset-x') - 0.5) * 0.74;
-      const boulderZ = (this.random(x, y, 2, 'water-boulder-offset-z') - 0.5) * 0.74;
-      const scale = 0.58 + this.random(x, y, 2, 'water-boulder-scale') * 0.24;
+      const boulderX = (this.random(x, y, 2, 'water-boulder-offset-x') - 0.5) * 0.68;
+      const boulderZ = (this.random(x, y, 2, 'water-boulder-offset-z') - 0.5) * 0.68;
+      const scale = 0.60 + this.random(x, y, 2, 'water-boulder-scale') * 0.26;
       this.addProp(recipe, {
-        pool: (`rock${variant}` as PoolKey), visibility: 'openWater', x: boulderX, y: -0.22, z: boulderZ,
+        pool: (`rock${variant}` as PoolKey), visibility: 'openWater', x: boulderX, y: -0.20, z: boulderZ,
         rotationY: this.random(x, y, 2, 'water-boulder-rotation') * Math.PI * 2,
-        scaleX: scale, scaleY: scale * 0.72, scaleZ: scale,
+        scaleX: scale, scaleY: scale * 0.74, scaleZ: scale,
+      });
+
+      // Companion smaller river stone next to the main boulder
+      const companionVariant = (variant + 1) % 3;
+      const companionAngle = this.random(x, y, 2, 'water-boulder-comp-angle') * Math.PI * 2;
+      const companionDist = 0.32 + this.random(x, y, 2, 'water-boulder-comp-dist') * 0.14;
+      const companionScale = scale * (0.48 + this.random(x, y, 2, 'water-boulder-comp-scale') * 0.18);
+      this.addProp(recipe, {
+        pool: (`rock${companionVariant}` as PoolKey),
+        visibility: 'openWater',
+        x: boulderX + Math.cos(companionAngle) * companionDist,
+        y: -0.24,
+        z: boulderZ + Math.sin(companionAngle) * companionDist,
+        rotationY: this.random(x, y, 2, 'water-boulder-comp-rot') * Math.PI * 2,
+        scaleX: companionScale,
+        scaleY: companionScale * 0.68,
+        scaleZ: companionScale,
       });
 
       const haloCount = 3 + Math.floor(this.random(x, y, 2, 'water-halo-count') * 4);
       for (let plant = 0; plant < haloCount; plant++) {
         const angle = this.random(x, y, plant + 1, 'water-halo-angle') * Math.PI * 2;
-        const distance = 0.34 + this.random(x, y, plant + 1, 'water-halo-distance') * 0.30;
-        const isReed = this.random(x, y, plant + 1, 'water-halo-kind') > 0.42;
-        const scalePlant = 0.72 + this.random(x, y, plant + 1, 'water-halo-scale') * 0.28;
+        const distance = 0.52 + this.random(x, y, plant + 1, 'water-halo-distance') * 0.34;
+        const isReed = this.random(x, y, plant + 1, 'water-halo-kind') > 0.44;
+        const scalePlant = 0.78 + this.random(x, y, plant + 1, 'water-halo-scale') * 0.30;
         this.addProp(recipe, {
           pool: isReed ? 'reeds' : 'lilyPads', visibility: 'openWater',
-          x: boulderX + Math.cos(angle) * distance, y: isReed ? -0.06 : -0.025, z: boulderZ + Math.sin(angle) * distance,
+          x: boulderX + Math.cos(angle) * distance, y: isReed ? -0.055 : -0.025, z: boulderZ + Math.sin(angle) * distance,
           rotationY: this.random(x, y, plant + 1, 'water-halo-rotation') * Math.PI * 2,
           scaleX: scalePlant, scaleY: scalePlant, scaleZ: scalePlant,
         });
       }
     }
 
-    if (this.random(x, y, 3, 'shore-plants-category') < 0.072) {
-      const isReed = this.random(x, y, 3, 'shore-plants-kind') > 0.34;
-      this.addProp(recipe, {
-        pool: isReed ? 'reeds' : 'lilyPads', visibility: 'shoreWater',
-        x: (this.random(x, y, 3, 'shore-plants-offset-x') - 0.5) * 1.05,
-        y: isReed ? -0.06 : -0.025,
-        z: (this.random(x, y, 3, 'shore-plants-offset-z') - 0.5) * 1.05,
-        rotationY: this.random(x, y, 3, 'shore-plants-rotation') * Math.PI * 2,
-        scaleX: 0.75 + this.random(x, y, 3, 'shore-plants-scale') * 0.28,
-        scaleY: 0.75 + this.random(x, y, 3, 'shore-plants-scale-y') * 0.28,
-        scaleZ: 0.75 + this.random(x, y, 3, 'shore-plants-scale-z') * 0.28,
-      });
+    if (this.random(x, y, 3, 'shore-plants-category') < 0.24) {
+      const shoreCount = 1 + (this.random(x, y, 3, 'shore-plants-pair') < 0.55 ? 1 : 0);
+      for (let idx = 0; idx < shoreCount; idx++) {
+        const salt = 3 + idx * 7;
+        const isReed = this.random(x, y, salt, 'shore-plants-kind') > 0.38;
+        this.addProp(recipe, {
+          pool: isReed ? 'reeds' : 'lilyPads', visibility: 'shoreWater',
+          x: (this.random(x, y, salt, 'shore-plants-offset-x') - 0.5) * 1.15,
+          y: isReed ? -0.055 : -0.025,
+          z: (this.random(x, y, salt, 'shore-plants-offset-z') - 0.5) * 1.15,
+          rotationY: this.random(x, y, salt, 'shore-plants-rotation') * Math.PI * 2,
+          scaleX: 0.80 + this.random(x, y, salt, 'shore-plants-scale') * 0.30,
+          scaleY: 0.80 + this.random(x, y, salt, 'shore-plants-scale-y') * 0.30,
+          scaleZ: 0.80 + this.random(x, y, salt, 'shore-plants-scale-z') * 0.30,
+        });
+      }
     }
   }
 

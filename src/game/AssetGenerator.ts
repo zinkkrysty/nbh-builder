@@ -80,6 +80,8 @@ export class AssetGenerator {
       this.materials.roadLineYellow,
       this.materials.roadCrosswalk,
       this.materials.grass,
+      this.materials.waterBed,
+      this.materials.ropeHemp,
       this.materials.cement,
       this.materials.zoneR,
       this.materials.zoneC,
@@ -372,8 +374,9 @@ export class AssetGenerator {
              cos(worldPos.x * 2.5 + worldPos.z * 0.8) * sin(worldPos.z * 1.2) * 0.22
            );
 
-           // Vertical cliff face wobble that vanishes at every tile elevation step (y = k * 0.8)
-           float yWobble = sin(worldPos.y * (3.14159265 / 0.8));
+           // Vertical cliff face wobble that vanishes at every tile elevation step (y = k * 0.8).
+           // Keep submerged water banks (worldPos.y <= 0) vertical so they never overhang into shoreline foam.
+           float yWobble = worldPos.y > 0.001 ? sin(worldPos.y * (3.14159265 / 0.8)) : 0.0;
            vec3 faceWobble = vec3(
              yWobble * cos(worldPos.x * 1.5 + worldPos.z * 0.5) * 0.12,
              0.0,
@@ -761,12 +764,12 @@ export class AssetGenerator {
           '#include <begin_vertex>',
           `#include <begin_vertex>
            vec4 worldPos = modelMatrix * vec4( transformed, 1.0 );
-           float rawWave = sin(worldPos.x * 1.35 + worldPos.z * 0.72 + uTime * 1.70) * 0.028
-             + cos(worldPos.z * 1.62 - worldPos.x * 0.48 + uTime * 1.25) * 0.023;
-           // The water plane sits 0.04 below terrain. Compress crests so even
-           // the theoretical maximum stays submerged, while extending troughs
-           // to preserve strong faceted motion without flooding the bank.
-           float wave = max(rawWave, 0.0) * 0.58 + min(rawWave, 0.0) * 1.25;
+           // Three non-collinear wave directions produce calm diamond facets
+           // instead of parallel diagonal stripes across the lake.
+           float rawWave = sin(worldPos.x * 1.35 + worldPos.z * 0.95 + uTime * 1.45) * 0.018
+             + cos(worldPos.z * 1.55 - worldPos.x * 0.85 + uTime * 1.15) * 0.016
+             + sin((worldPos.x - worldPos.z) * 1.10 + uTime * 0.95) * 0.012;
+           float wave = max(rawWave, 0.0) * 0.52 + min(rawWave, 0.0) * 1.15;
            transformed += normal * wave;
            vWaterWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
         );
@@ -779,52 +782,37 @@ export class AssetGenerator {
            vec3 waterFaceNormal;
 
            float waterFacetHash(vec2 p) {
-             // Interleaved gradient noise: stable pseudo-random variation made
-             // from dot/fract only, avoiding a trigonometric call per fragment.
              return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
            }`
         )
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
-           // A world-space triangular mosaic gives the flat surface the same
-           // chunky visual language as the terrain. It remains seamless across
-           // water tiles and costs only scalar arithmetic: no texture lookup,
-           // reflection, noise octave, or per-pixel sine wave.
-           vec2 facetGrid = vec2(
-             dot(vWaterWorldPos.xz, vec2(0.72, 0.25)),
-             dot(vWaterWorldPos.xz, vec2(-0.25, 0.72))
-           );
-           vec2 facetCell = floor(facetGrid);
-           vec2 facetLocal = fract(facetGrid);
+           // Clean, restrained low-poly facet variation aligned with the water
+           // mesh grid so triangles read as subtle crystalline facets without
+           // harsh checkerboard contrast or gradient bands.
+           vec2 facetCell = floor(vWaterWorldPos.xz * 2.0);
+           vec2 facetLocal = fract(vWaterWorldPos.xz * 2.0);
            float triangle = step(facetLocal.x, facetLocal.y);
-           vec2 triangleId = facetCell + vec2(triangle * 0.43, triangle * 0.71);
-           float facetBand = floor(waterFacetHash(triangleId) * 3.0) * 0.5;
+           vec2 triangleId = facetCell + vec2(triangle * 0.37, triangle * 0.73);
+           float facetSeed = waterFacetHash(triangleId);
+           vec3 waterTint = mix(vec3(0.95, 0.98, 1.01), vec3(1.04, 1.03, 1.00), facetSeed);
 
-           vec3 coolFacet = vec3(0.87, 0.96, 1.06);
-           vec3 warmFacet = vec3(1.03, 1.02, 0.94);
-           vec3 waterTint = mix(coolFacet, warmFacet, facetBand);
-
-           diffuseColor.rgb *= waterTint;
-           // Use the displaced triangle itself as the detail. Its derivative
-           // normal gives rising and falling wave faces contrasting tones,
-           // without drawn marks, normal maps, or texture reads.
            waterFaceNormal = normalize(cross(dFdx(vWaterWorldPos), dFdy(vWaterWorldPos)));
            if (waterFaceNormal.y < 0.0) waterFaceNormal *= -1.0;
            float faceTilt = dot(waterFaceNormal.xz, normalize(vec2(-0.72, 0.69)));
-           float faceContrast = clamp(faceTilt * 1.35, -0.12, 0.12);
-           diffuseColor.rgb *= 1.0 + faceContrast;`
+           float faceContrast = clamp(faceTilt * 0.70, -0.05, 0.07);
+           float glint = smoothstep(0.055, 0.095, faceTilt) * step(0.72, facetSeed) * 0.08;
+           diffuseColor.rgb = diffuseColor.rgb * waterTint * (1.0 + faceContrast) + vec3(0.82, 0.96, 0.98) * glint;`
         )
         .replace(
           '#include <normal_fragment_begin>',
           `#include <normal_fragment_begin>
-           // Feed the real displaced face normal into Standard and Toon
-           // lighting so the animated geometry, rather than a decal, reads.
            normal = gl_FrontFacing ? waterFaceNormal : -waterFaceNormal;`
         );
     };
 
-    const applyWaterShoreFoamOnBeforeCompile = (shader: any, mat: THREE.Material, style: 'outer' | 'inner') => {
+    const applyWaterShoreFoamOnBeforeCompile = (shader: any, mat: THREE.Material, _style: 'outer' | 'inner') => {
       if (!mat.userData.uTime) {
         mat.userData.uTime = { value: 0 };
       }
@@ -835,11 +823,8 @@ export class AssetGenerator {
           `#include <common>
            uniform float uTime;
            attribute float aShoreFoamFade;
-           attribute float aShoreBandCoord;
-           attribute float aShoreEndFade;
+           attribute vec2 aShoreAnchorOffset;
            varying vec3 vShoreWorldPos;
-           varying float vShoreBandCoord;
-           varying float vShoreEndFade;
 
            vec2 shoreTerrainContour(vec2 p) {
              return vec2(
@@ -851,38 +836,28 @@ export class AssetGenerator {
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-           // Lock both shoreline layers to the same deterministic horizontal
-           // contour as the exposed grass edge; synchronized vertical motion
-           // is applied below.
+           // Anchor every shoreline vertex (including waterward strip edges and
+           // corner caps) to its exact shoreline grid vertex on {-1, 0, +1} so
+           // strips and corners stay 100% locked to the grass bank around turns.
            vec4 shoreWorldPos = modelMatrix * vec4(transformed, 1.0);
-           vShoreBandCoord = aShoreBandCoord;
-           vShoreEndFade = aShoreEndFade;
-           transformed.xz += shoreTerrainContour(shoreWorldPos.xz) * aShoreFoamFade;`
+           vec2 anchorWorldXZ = shoreWorldPos.xz + aShoreAnchorOffset;
+           transformed.xz += shoreTerrainContour(anchorWorldXZ) * aShoreFoamFade;
+           vec4 wavedShorePos = modelMatrix * vec4(transformed, 1.0);
+           float rawShoreWave = (
+             sin(wavedShorePos.x * 1.35 + wavedShorePos.z * 0.95 + uTime * 1.45) * 0.018
+             + cos(wavedShorePos.z * 1.55 - wavedShorePos.x * 0.85 + uTime * 1.15) * 0.016
+             + sin((wavedShorePos.x - wavedShorePos.z) * 1.10 + uTime * 0.95) * 0.012
+           );
+           float shoreWave = max(rawShoreWave, 0.0) * 0.52 + min(rawShoreWave, 0.0) * 1.15;
+           transformed += normal * shoreWave;
+           vShoreWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
         );
-      shader.vertexShader = shader.vertexShader.replace(
-        'transformed.xz += shoreTerrainContour(shoreWorldPos.xz) * aShoreFoamFade;',
-        `transformed.xz += shoreTerrainContour(shoreWorldPos.xz) * aShoreFoamFade;
-         vec4 wavedShorePos = modelMatrix * vec4(transformed, 1.0);
-         // Both shoreline layers use the exact bounded surface displacement,
-         // keeping the contact lip synchronized with passing wave faces.
-         float rawShoreWave = (
-           sin(wavedShorePos.x * 1.35 + wavedShorePos.z * 0.72 + uTime * 1.70) * 0.028
-           + cos(wavedShorePos.z * 1.62 - wavedShorePos.x * 0.48 + uTime * 1.25) * 0.023
-         );
-         float shoreWave = (
-           max(rawShoreWave, 0.0) * 0.58 + min(rawShoreWave, 0.0) * 1.25
-         );
-         transformed += normal * shoreWave;
-         vShoreWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
-      );
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',
           `#include <common>
            uniform float uTime;
            varying vec3 vShoreWorldPos;
-           varying float vShoreBandCoord;
-           varying float vShoreEndFade;
 
            float shorePulseHash(float cell) {
              return fract(52.9829189 * fract(cell * 0.06711056));
@@ -891,82 +866,64 @@ export class AssetGenerator {
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
-           // World-coordinate modulation stays continuous across separately
-           // merged tile strips and around convex or concave shoreline turns.
-           float shoreCoord = (vShoreWorldPos.x + vShoreWorldPos.z) * 0.92 - uTime * 0.075;
+           // Crisp, uniform low-poly shoreline trim without cross-band gradients
+           // so straight segments and corner caps join seamlessly.
+           float shoreCoord = (vShoreWorldPos.x + vShoreWorldPos.z) * 0.75 - uTime * 0.07;
            float shoreCell = floor(shoreCoord);
-           float shorePhase = fract(shoreCoord + shorePulseHash(shoreCell) * 0.28);
-           float shorePulse = smoothstep(0.08, 0.24, shorePhase)
-             * (1.0 - smoothstep(0.62, 0.84, shorePhase));
-
-           ${style === 'inner'
-             ? `// The inset wash resolves into drifting turquoise segments,
-           // suggesting water rolling back from the bank rather than a second outline.
-           float bandProfile = smoothstep(0.02, 0.24, vShoreBandCoord)
-             * (1.0 - smoothstep(0.76, 0.98, vShoreBandCoord));
-           float washPulse = smoothstep(0.14, 0.28, shorePhase)
-             * (1.0 - smoothstep(0.42, 0.60, shorePhase));
-           diffuseColor.rgb *= mix(vec3(0.80, 1.01, 1.08), vec3(1.04, 1.13, 1.08), washPulse);
-           diffuseColor.a *= bandProfile * vShoreEndFade * (0.03 + washPulse * 0.66);`
-             : `// The bank-contact lip always remains present, with warmer
-           // pulses travelling through it so the edge feels alive but stable.
-           float bandCenter = 1.0 - abs(vShoreBandCoord * 2.0 - 1.0);
-           diffuseColor.rgb *= mix(vec3(0.94, 1.01, 1.03), vec3(1.09, 1.09, 0.99), shorePulse * 0.42 + bandCenter * 0.10);
-           diffuseColor.a *= 0.76 + shorePulse * 0.24;`}`
+           float shorePhase = fract(shoreCoord + shorePulseHash(shoreCell) * 0.25);
+           float shorePulse = smoothstep(0.08, 0.28, shorePhase)
+             * (1.0 - smoothstep(0.62, 0.86, shorePhase));
+           diffuseColor.rgb *= mix(vec3(0.96, 1.01, 1.02), vec3(1.06, 1.06, 1.02), shorePulse * 0.35);
+           diffuseColor.a *= 0.88 + shorePulse * 0.12;`
         );
     };
 
-    registerMat('waterBlue', (type) => {
-      if (type === 'standard') {
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x0588bd,
-          roughness: 0.40,
-          metalness: 0.04,
-          transparent: true,
-          opacity: 0.87,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        mat.userData.uTime = { value: 0 };
-        mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
-        return mat;
-      } else {
-        const mat = new THREE.MeshToonMaterial({
-          color: 0x0588bd,
-          gradientMap: this.toonGradient,
-          transparent: true,
-          opacity: 0.87,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        mat.userData.uTime = { value: 0 };
-        mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
-        return mat;
-      }
+    registerMat('waterBed', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0x3b8b99, roughness: 0.92 })
+      : new THREE.MeshToonMaterial({ color: 0x3b8b99, gradientMap: this.toonGradient }));
+
+    registerMat('boardwalkPlank', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0xc8874e, roughness: 0.72 })
+      : new THREE.MeshToonMaterial({ color: 0xc8874e, gradientMap: this.toonGradient }));
+
+    registerMat('boardwalkPlankAlt', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0xb1723d, roughness: 0.76 })
+      : new THREE.MeshToonMaterial({ color: 0xb1723d, gradientMap: this.toonGradient }));
+
+    registerMat('ropeHemp', (type) => type === 'standard'
+      ? new THREE.MeshStandardMaterial({ color: 0xe0c79e, roughness: 0.86 })
+      : new THREE.MeshToonMaterial({ color: 0xe0c79e, gradientMap: this.toonGradient }));
+
+    registerMat('waterBlue', (_type) => {
+      // Use a unified low-poly facet shader across profiles so toonGradient
+      // does not quantize the wave plane into cartoony contour stripes.
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x1d8fb0,
+        roughness: 0.38,
+        metalness: 0.04,
+        transparent: true,
+        opacity: 0.86,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      mat.userData.uTime = { value: 0 };
+      mat.onBeforeCompile = (shader) => applyWaterOnBeforeCompile(shader, mat);
+      return mat;
     });
 
     // A solid, faceted shoreline light edge. It is instanced along every
     // exposed water edge, including boardwalk-facing edges; water-to-water
     // joins and bridge spans remain uninterrupted.
-    registerMat('waterShoreFoam', (type) => {
-      const material = type === 'standard'
-        ? new THREE.MeshStandardMaterial({
-          color: 0xb9e3e8,
-          roughness: 0.72,
-          metalness: 0,
-          transparent: true,
-          opacity: 0.84,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        })
-        : new THREE.MeshToonMaterial({
-          color: 0xb9e3e8,
-          gradientMap: this.toonGradient,
-          transparent: true,
-          opacity: 0.84,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        });
+    registerMat('waterShoreFoam', (_type) => {
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xdcf1f5,
+        roughness: 0.72,
+        metalness: 0,
+        transparent: true,
+        opacity: 0.78,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
       material.userData.uTime = { value: 0 };
       material.onBeforeCompile = (shader) => applyWaterShoreFoamOnBeforeCompile(shader, material, 'outer');
       return material;
@@ -978,19 +935,19 @@ export class AssetGenerator {
     registerMat('waterShoreFoamInner', (type) => {
       const material = type === 'standard'
         ? new THREE.MeshStandardMaterial({
-          color: 0x3fa9bf,
-          roughness: 0.72,
+          color: 0x5cd2de,
+          roughness: 0.70,
           metalness: 0,
           transparent: true,
-          opacity: 0.32,
+          opacity: 0.50,
           depthWrite: false,
           side: THREE.DoubleSide,
         })
         : new THREE.MeshToonMaterial({
-          color: 0x3fa9bf,
+          color: 0x5cd2de,
           gradientMap: this.toonGradient,
           transparent: true,
-          opacity: 0.32,
+          opacity: 0.50,
           depthWrite: false,
           side: THREE.DoubleSide,
         });
@@ -1000,10 +957,10 @@ export class AssetGenerator {
     });
 
     // Vegetation Materials (Seeded water features)
-    registerMat('lotusPink', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.6 }) : new THREE.MeshToonMaterial({ color: 0xf472b6, gradientMap: this.toonGradient }));
-    registerMat('lilypadGreen', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x15803d, gradientMap: this.toonGradient }));
-    registerMat('cattailBrown', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x5c2d17, roughness: 0.9 }) : new THREE.MeshToonMaterial({ color: 0x5c2d17, gradientMap: this.toonGradient }));
-    registerMat('reedGreen', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.95 }) : new THREE.MeshToonMaterial({ color: 0x166534, gradientMap: this.toonGradient }));
+    registerMat('lotusPink', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0xf48ba9, roughness: 0.62 }) : new THREE.MeshToonMaterial({ color: 0xf48ba9, gradientMap: this.toonGradient }));
+    registerMat('lilypadGreen', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x5ea346, roughness: 0.84 }) : new THREE.MeshToonMaterial({ color: 0x5ea346, gradientMap: this.toonGradient }));
+    registerMat('cattailBrown', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x7c3e1f, roughness: 0.88 }) : new THREE.MeshToonMaterial({ color: 0x7c3e1f, gradientMap: this.toonGradient }));
+    registerMat('reedGreen', (type) => type === 'standard' ? new THREE.MeshStandardMaterial({ color: 0x4b8739, roughness: 0.88 }) : new THREE.MeshToonMaterial({ color: 0x4b8739, gradientMap: this.toonGradient }));
 
     // Windows (Glowing at night)
     registerMat('window', (type) => {
@@ -1443,48 +1400,106 @@ export class AssetGenerator {
    * InstancedMesh material array.
    */
   getEnvironmentPlantGeometry(kind: EnvironmentPlantGeometry): THREE.BufferGeometry {
-    const key = kind;
+    const key = `${kind}_v2`;
     return this.getGeometry(key, () => {
       if (kind === 'env_reed_clump') {
         const reedParts: THREE.BufferGeometry[] = [];
         const cattailParts: THREE.BufferGeometry[] = [];
-        const layout = [
-          [-0.20, -0.05, 0.67, -0.13], [-0.06, 0.10, 0.78, 0.10],
-          [0.14, -0.10, 0.61, -0.08], [0.23, 0.13, 0.72, 0.14],
-          [0.02, -0.20, 0.57, 0.05],
+        const stalks = [
+          [-0.18, -0.06, 0.72, -0.11, 0.04],
+          [-0.05, 0.09, 0.84, 0.08, -0.05],
+          [0.12, -0.08, 0.66, -0.07, -0.04],
+          [0.21, 0.11, 0.78, 0.12, 0.06],
+          [0.02, -0.18, 0.60, 0.05, 0.08],
         ] as const;
-        layout.forEach(([x, z, height, lean]) => {
-          const stem = new THREE.CylinderGeometry(0.012, 0.017, height, 4);
-          stem.rotateZ(lean);
-          stem.translate(x, height * 0.5, z);
+        stalks.forEach(([x, z, height, leanZ, leanX]) => {
+          const stem = new THREE.CylinderGeometry(0.011, 0.018, height, 5);
+          stem.translate(0, height * 0.5, 0);
+          stem.rotateZ(leanZ);
+          stem.rotateX(leanX);
+          stem.translate(x, 0, z);
           reedParts.push(stem);
         });
-        layout.slice(0, 3).forEach(([x, z, height, lean]) => {
-          const head = new THREE.CylinderGeometry(0.032, 0.027, 0.16, 5);
-          head.rotateZ(lean);
-          head.translate(x + Math.sin(lean) * 0.035, height - 0.045, z);
+        // Add arching low-poly marsh grass blades around the cattail stalks
+        const blades = [
+          [-0.24, 0.02, 0.48, 0.28, -0.08, 0.3],
+          [-0.10, -0.16, 0.52, -0.22, 0.20, 1.1],
+          [0.08, 0.18, 0.46, 0.18, -0.24, 2.2],
+          [0.24, -0.04, 0.50, -0.26, -0.10, 3.8],
+          [-0.02, 0.04, 0.42, 0.16, 0.18, 4.9],
+          [0.15, -0.15, 0.44, -0.20, 0.16, 5.5],
+        ] as const;
+        blades.forEach(([x, z, height, leanZ, leanX, rotY]) => {
+          const blade = new THREE.ConeGeometry(0.024, height, 4);
+          blade.scale(1.4, 1.0, 0.45);
+          blade.translate(0, height * 0.5, 0);
+          blade.rotateY(rotY);
+          blade.rotateZ(leanZ);
+          blade.rotateX(leanX);
+          blade.translate(x, 0, z);
+          reedParts.push(blade);
+        });
+        stalks.slice(0, 4).forEach(([x, z, height, leanZ, leanX]) => {
+          const head = new THREE.CylinderGeometry(0.032, 0.030, 0.17, 6);
+          head.translate(0, height - 0.12, 0);
+          head.rotateZ(leanZ);
+          head.rotateX(leanX);
+          head.translate(x, 0, z);
           cattailParts.push(head);
+
+          // Tiny spike tip atop the cattail head
+          const spike = new THREE.ConeGeometry(0.009, 0.07, 4);
+          spike.translate(0, height - 0.01, 0);
+          spike.rotateZ(leanZ);
+          spike.rotateX(leanX);
+          spike.translate(x, 0, z);
+          reedParts.push(spike);
         });
         return this.mergeEnvironmentMaterialGroups(reedParts, cattailParts, 'reed/cattail clump');
       }
 
       const leafParts: THREE.BufferGeometry[] = [];
       const flowerParts: THREE.BufferGeometry[] = [];
-      for (let i = 0; i < 6; i++) {
-        const angle = (i / 6) * Math.PI * 2 + 0.18;
-        const radius = i % 2 === 0 ? 0.19 : 0.15;
-        const leaf = new THREE.CylinderGeometry(radius, radius * 0.92, 0.018, 7);
-        leaf.scale(1.22, 1, 0.83);
-        leaf.rotateY(angle);
-        leaf.translate(Math.cos(angle) * 0.16, 0.01, Math.sin(angle) * 0.16);
+      const padSpecs = [
+        { x: 0.0, z: 0.0, r: 0.21, rot: 0.25 },
+        { x: 0.26, z: 0.12, r: 0.16, rot: 1.85 },
+        { x: -0.22, z: 0.18, r: 0.17, rot: 3.40 },
+        { x: -0.16, z: -0.22, r: 0.14, rot: 4.75 },
+        { x: 0.18, z: -0.20, r: 0.13, rot: 0.95 },
+      ];
+      for (const spec of padSpecs) {
+        // Partial cylinder thetaLength (1.82 * PI) creates the classic V-notched lily pad silhouette
+        const leaf = new THREE.CylinderGeometry(spec.r, spec.r * 0.94, 0.020, 7, 1, false, 0, Math.PI * 1.82);
+        leaf.rotateY(spec.rot);
+        leaf.translate(spec.x, 0.012, spec.z);
         leafParts.push(leaf);
       }
+      // Main multi-layered lotus blossom on primary pad
+      for (let i = 0; i < 6; i++) {
+        const outerPetal = new THREE.ConeGeometry(0.044, 0.105, 5);
+        outerPetal.scale(1.15, 1.0, 0.65);
+        outerPetal.translate(0, 0.045, 0);
+        outerPetal.rotateX(0.68);
+        outerPetal.rotateY((i / 6) * Math.PI * 2);
+        outerPetal.translate(0, 0.022, 0);
+        flowerParts.push(outerPetal);
+      }
       for (let i = 0; i < 5; i++) {
-        const petal = new THREE.ConeGeometry(0.045, 0.10, 5);
-        petal.rotateZ(Math.PI / 3);
-        petal.rotateY((i / 5) * Math.PI * 2);
-        petal.translate(0, 0.06, 0);
-        flowerParts.push(petal);
+        const innerPetal = new THREE.ConeGeometry(0.036, 0.085, 5);
+        innerPetal.translate(0, 0.038, 0);
+        innerPetal.rotateX(0.34);
+        innerPetal.rotateY((i / 5) * Math.PI * 2 + 0.31);
+        innerPetal.translate(0, 0.026, 0);
+        flowerParts.push(innerPetal);
+      }
+      // Companion lotus bud on secondary pad
+      for (let i = 0; i < 4; i++) {
+        const budPetal = new THREE.ConeGeometry(0.028, 0.068, 4);
+        budPetal.translate(0, 0.03, 0);
+        budPetal.rotateX(0.28);
+        budPetal.rotateY((i / 4) * Math.PI * 2 + 0.4);
+        budPetal.translate(-0.22, 0.022, 0.18);
+        flowerParts.push(budPetal);
       }
       return this.mergeEnvironmentMaterialGroups(leafParts, flowerParts, 'lily-pad rosette');
     });
@@ -1561,7 +1576,13 @@ export class AssetGenerator {
     isBridge = false,
     neighbors = { N: false, S: false, E: false, W: false },
     tileX = 0,
-    tileY = 0
+    tileY = 0,
+    diagonalNeighbors = NO_WATER_DIAGONALS,
+    shoreEdges = { N: false, S: false, E: false, W: false },
+    innerCorners = { NW: false, NE: false, SE: false, SW: false },
+    innerJoinCorners = { NW: false, NE: false, SE: false, SW: false },
+    contourEdges = { N: true, S: true, E: true, W: true },
+    contourCorners = { NW: true, NE: true, SE: true, SW: true },
   ): THREE.Group {
     const group = new THREE.Group();
 
@@ -1725,22 +1746,20 @@ export class AssetGenerator {
     }
 
     if (isBridge) {
-      // 1. Water underneath
-      group.add(this.createWaterMesh(neighbors));
+      // 1. Water underneath (with full neighbor and shoreline foam state)
+      group.add(this.createWaterMesh(neighbors, diagonalNeighbors, shoreEdges, innerCorners, innerJoinCorners, contourEdges, contourCorners));
 
-      // 2. A bridge follows its road connection. The old fixed north/south
-      // layout made east/west sidewalks sit at the approach ends instead of
-      // beside the carriageway.
+      // 2. A bridge follows its road connection.
       const runsNorthSouth = (N || S) && !(E || W);
       const bridgeLength = 2;
       const bridgeWidth = 2;
       const deckWidth = 1.36;
       const pedestrianWidth = (bridgeWidth - deckWidth) / 2;
       const sidewalkOffset = deckWidth / 2 + pedestrianWidth / 2;
-      const plankCount = 9;
-      const plankLength = 0.20;
-      const plankPitch = 0.225;
-      const sidewalkBaseHeight = 0.035;
+      const plankCount = 10;
+      const plankLength = 0.165;
+      const plankPitch = 0.20;
+      const sidewalkBaseHeight = 0.045;
       const sidewalkPaverHeight = 0.04;
       const sidewalkPaverY = sidewalkBaseHeight + sidewalkPaverHeight / 2;
 
@@ -1752,40 +1771,77 @@ export class AssetGenerator {
         y: number,
         z: number,
         material: THREE.Material,
+        rotX = 0,
+        rotZ = 0,
       ) => {
-        const geometry = new THREE.BoxGeometry(
-          runsNorthSouth ? width : length,
-          height,
-          runsNorthSouth ? length : width,
+        const w = runsNorthSouth ? width : length;
+        const l = runsNorthSouth ? length : width;
+        const geometry = this.getGeometry(
+          `bridge_part_${w.toFixed(3)}_${height.toFixed(3)}_${l.toFixed(3)}`,
+          () => new THREE.BoxGeometry(w, height, l),
         );
         const mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(x, y, z);
+        if (rotX !== 0 || rotZ !== 0) {
+          mesh.rotation.x = runsNorthSouth ? rotX : rotZ;
+          mesh.rotation.z = runsNorthSouth ? rotZ : -rotX;
+        }
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         group.add(mesh);
       };
 
-      // Keep a pair of dark stringers beneath the open plank deck: the narrow
-      // gaps make the warm timber readable from the normal isometric camera.
-      for (const offset of [-deckWidth / 2 + 0.16, deckWidth / 2 - 0.16]) {
-        addBridgePart(0.08, 0.055, bridgeLength, runsNorthSouth ? offset : 0, 0.0275, runsNorthSouth ? 0 : offset, this.materials.charcoalMetal);
+      // Deep under-deck longitudinal girders & dark timber stringer apron
+      addBridgePart(deckWidth + 0.06, 0.036, bridgeLength, 0, 0.024, 0, this.materials.trunk);
+      for (const offset of [-deckWidth / 2 + 0.14, deckWidth / 2 - 0.14]) {
+        addBridgePart(0.10, 0.09, bridgeLength, runsNorthSouth ? offset : 0, -0.015, runsNorthSouth ? 0 : offset, this.materials.charcoalMetal);
       }
 
-      // Transverse planks are individually modelled rather than painted onto a
-      // single slab, so the wood grain rhythm remains clear at gameplay zoom.
+      // Under-deck timber arch struts & submerged stone/timber bridge trestle piers
+      for (const sideOffset of [-0.82, 0.82]) {
+        // Submerged masonry & timber trestle pier at mid-tile supporting the span
+        addBridgePart(0.18, 0.36, 0.22, runsNorthSouth ? sideOffset : 0, -0.20, runsNorthSouth ? 0 : sideOffset, this.materials.warmStone);
+        addBridgePart(0.22, 0.05, 0.26, runsNorthSouth ? sideOffset : 0, -0.01, runsNorthSouth ? 0 : sideOffset, this.materials.curb);
+        // Angled timber arch knee-braces rising from pier to deck underside
+        for (const dir of [-1, 1]) {
+          const braceAlong = dir * 0.44;
+          addBridgePart(
+            0.07,
+            0.06,
+            0.76,
+            runsNorthSouth ? sideOffset : braceAlong,
+            -0.06,
+            runsNorthSouth ? braceAlong : sideOffset,
+            this.materials.boardwalkPlankAlt,
+            dir * 0.22,
+            0,
+          );
+        }
+      }
+
+      // Transverse warm cedar planks with alternating tones for rich low-poly wood grain rhythm
       for (let index = 0; index < plankCount; index += 1) {
         const along = (index - (plankCount - 1) / 2) * plankPitch;
-        addBridgePart(deckWidth - 0.05, 0.09, plankLength, runsNorthSouth ? 0 : along, 0.072, runsNorthSouth ? along : 0, this.materials.trunk);
+        const plankMat = index % 2 === 0 ? this.materials.boardwalkPlank : this.materials.boardwalkPlankAlt;
+        addBridgePart(deckWidth - 0.04, 0.052, plankLength, runsNorthSouth ? 0 : along, 0.062, runsNorthSouth ? along : 0, plankMat);
       }
 
-      // 3. Low, continuous sidewalks use tight paver joints. Together with the
-      // central deck they fill the entire two-metre tile width edge-to-edge.
+      // Subtle longitudinal wheel-runner planks along carriageway tracks
+      for (const trackOffset of [-0.34, 0.34]) {
+        addBridgePart(0.18, 0.012, bridgeLength, runsNorthSouth ? trackOffset : 0, 0.090, runsNorthSouth ? 0 : trackOffset, this.materials.boardwalkPlank);
+      }
+
+      // 3. Stone-curbed pedestrian sidewalks flanking the timber carriageway
       for (const side of [-1, 1]) {
         const sideOffset = side * sidewalkOffset;
+        const innerCurbOffset = side * (deckWidth / 2 + 0.03);
+        const outerFasciaOffset = side * 0.96;
         addBridgePart(pedestrianWidth, sidewalkBaseHeight, bridgeLength, runsNorthSouth ? sideOffset : 0, sidewalkBaseHeight / 2, runsNorthSouth ? 0 : sideOffset, this.materials.trunk);
+        addBridgePart(0.06, 0.055, bridgeLength, runsNorthSouth ? innerCurbOffset : 0, 0.065, runsNorthSouth ? 0 : innerCurbOffset, this.materials.curb);
+        addBridgePart(0.07, 0.09, bridgeLength, runsNorthSouth ? outerFasciaOffset : 0, 0.035, runsNorthSouth ? 0 : outerFasciaOffset, this.materials.warmStone);
         for (let index = 0; index < 6; index += 1) {
           const along = (index - 2.5) * 0.33;
-          addBridgePart(pedestrianWidth - 0.01, sidewalkPaverHeight, 0.32, runsNorthSouth ? sideOffset : along, sidewalkPaverY, runsNorthSouth ? along : sideOffset, this.materials.sidewalk);
+          addBridgePart(pedestrianWidth - 0.04, sidewalkPaverHeight, 0.31, runsNorthSouth ? sideOffset : along, sidewalkPaverY, runsNorthSouth ? along : sideOffset, this.materials.sidewalk);
         }
       }
     } else {
@@ -2083,33 +2139,46 @@ export class AssetGenerator {
       for (const xVal of activeCrosswalksEW) drawCrosswalk(xVal, 0, 'NS');
     }
 
-    // Bridge Railings (using charcoalMetal)
+    // Bridge Railings, Truss Bracing & Stone Shore Abutments
     if (isBridge) {
       const railColor = this.materials.charcoalMetal;
-      const railingHeight = 0.26;
-      const railOffset = 0.965;
+      const woodColor = this.materials.boardwalkPlank;
+      const woodAltColor = this.materials.boardwalkPlankAlt;
+      const stoneColor = this.materials.warmStone;
+      const railingHeight = 0.28;
+      const railOffset = 0.945;
       const sidewalkSurfaceY = 0.075;
       const railingY = sidewalkSurfaceY + railingHeight / 2;
 
-      const addSideRailing = (xOffset: number, zOffset: number, rotY = 0) => {
-        const barGeo = new THREE.BoxGeometry(2.0, 0.04, 0.04);
-        const bar = new THREE.Mesh(barGeo, railColor);
-        bar.position.set(xOffset, sidewalkSurfaceY + railingHeight - 0.02, zOffset);
-        bar.rotation.y = rotY;
-        bar.castShadow = true;
-        group.add(bar);
+      const addSideRailing = (xOffset: number, zOffset: number, rotY = 0, abutmentStart = false, abutmentEnd = false) => {
+        // Warm timber top handrail + charcoal lower rail
+        const topBarGeo = this.getGeometry('bridge_top_rail_wood', () => new THREE.BoxGeometry(2.0, 0.045, 0.065));
+        const topBar = new THREE.Mesh(topBarGeo, woodColor);
+        topBar.position.set(xOffset, sidewalkSurfaceY + railingHeight - 0.015, zOffset);
+        topBar.rotation.y = rotY;
+        topBar.castShadow = true;
+        topBar.receiveShadow = true;
+        group.add(topBar);
 
-        const postGeo = new THREE.BoxGeometry(0.06, railingHeight, 0.06);
-        const footingGeo = new THREE.BoxGeometry(0.12, 0.025, 0.12);
-        for (const off of [-0.9, 0, 0.9]) {
+        const midBarGeo = this.getGeometry('bridge_mid_rail_metal', () => new THREE.BoxGeometry(2.0, 0.024, 0.032));
+        const midBar = new THREE.Mesh(midBarGeo, railColor);
+        midBar.position.set(xOffset, sidewalkSurfaceY + railingHeight * 0.48, zOffset);
+        midBar.rotation.y = rotY;
+        midBar.castShadow = true;
+        group.add(midBar);
+
+        // Uniformly spaced posts at [-0.66, 0, 0.66] so adjacent tiles never double-post at boundaries
+        const postGeo = this.getGeometry('bridge_post_metal', () => new THREE.BoxGeometry(0.065, railingHeight, 0.065));
+        const footingGeo = this.getGeometry('bridge_footing_stone', () => new THREE.BoxGeometry(0.13, 0.035, 0.13));
+        for (const off of [-0.66, 0, 0.66]) {
           const post = new THREE.Mesh(postGeo, railColor);
-          const footing = new THREE.Mesh(footingGeo, railColor);
+          const footing = new THREE.Mesh(footingGeo, stoneColor);
           if (rotY === 0) {
             post.position.set(xOffset + off, railingY, zOffset);
-            footing.position.set(xOffset + off, sidewalkSurfaceY + 0.0125, zOffset);
+            footing.position.set(xOffset + off, sidewalkSurfaceY + 0.0175, zOffset);
           } else {
             post.position.set(xOffset, railingY, zOffset + off);
-            footing.position.set(xOffset, sidewalkSurfaceY + 0.0125, zOffset + off);
+            footing.position.set(xOffset, sidewalkSurfaceY + 0.0175, zOffset + off);
           }
           post.castShadow = true;
           footing.castShadow = true;
@@ -2117,20 +2186,115 @@ export class AssetGenerator {
           group.add(post);
           group.add(footing);
         }
+
+        // Diagonal wooden X-brace truss bars centered in the bays between posts ([-0.33, 0.33] and boundary half-bays [-0.83, 0.83])
+        const diagGeoEW = this.getGeometry('bridge_truss_diag_ew', () => new THREE.BoxGeometry(0.62, 0.026, 0.028));
+        const diagGeoNS = this.getGeometry('bridge_truss_diag_ns', () => new THREE.BoxGeometry(0.028, 0.026, 0.62));
+        for (const bayCenter of [-0.33, 0.33]) {
+          for (const slope of [-0.36, 0.36]) {
+            if (rotY === 0) {
+              const diag = new THREE.Mesh(diagGeoEW, woodAltColor);
+              diag.position.set(xOffset + bayCenter, sidewalkSurfaceY + railingHeight * 0.50, zOffset);
+              diag.rotation.z = slope;
+              diag.castShadow = true;
+              group.add(diag);
+            } else {
+              const diag = new THREE.Mesh(diagGeoNS, woodAltColor);
+              diag.position.set(xOffset, sidewalkSurfaceY + railingHeight * 0.50, zOffset + bayCenter);
+              diag.rotation.x = slope;
+              diag.castShadow = true;
+              group.add(diag);
+            }
+          }
+        }
+        const halfDiagGeoEW = this.getGeometry('bridge_truss_half_diag_ew', () => new THREE.BoxGeometry(0.34, 0.024, 0.028));
+        const halfDiagGeoNS = this.getGeometry('bridge_truss_half_diag_ns', () => new THREE.BoxGeometry(0.028, 0.024, 0.34));
+        for (const endCenter of [-0.83, 0.83]) {
+          for (const slope of [-0.36, 0.36]) {
+            if (rotY === 0) {
+              const diag = new THREE.Mesh(halfDiagGeoEW, woodAltColor);
+              diag.position.set(xOffset + endCenter, sidewalkSurfaceY + railingHeight * 0.50, zOffset);
+              diag.rotation.z = slope;
+              diag.castShadow = true;
+              group.add(diag);
+            } else {
+              const diag = new THREE.Mesh(halfDiagGeoNS, woodAltColor);
+              diag.position.set(xOffset, sidewalkSurfaceY + railingHeight * 0.50, zOffset + endCenter);
+              diag.rotation.x = slope;
+              diag.castShadow = true;
+              group.add(diag);
+            }
+          }
+        }
+
+        // Cozy bridge lantern helper with visible glowing amber glass
+        const lanternPostGeo = this.getGeometry('bridge_lantern_stem', () => new THREE.CylinderGeometry(0.018, 0.022, 0.12, 6));
+        const lanternCupGeo = this.getGeometry('bridge_lantern_cup', () => new THREE.CylinderGeometry(0.044, 0.032, 0.025, 6));
+        const lanternGlassGeo = this.getGeometry('bridge_lantern_glass', () => new THREE.CylinderGeometry(0.046, 0.038, 0.085, 6));
+        const lanternCapGeo = this.getGeometry('bridge_lantern_cap', () => new THREE.ConeGeometry(0.072, 0.048, 6));
+
+        const addBridgeLantern = (lx: number, baseLanternY: number, lz: number) => {
+          const stem = new THREE.Mesh(lanternPostGeo, railColor);
+          stem.position.set(lx, baseLanternY + 0.06, lz);
+          stem.castShadow = true;
+          group.add(stem);
+
+          const cup = new THREE.Mesh(lanternCupGeo, railColor);
+          cup.position.set(lx, baseLanternY + 0.125, lz);
+          cup.castShadow = true;
+          group.add(cup);
+
+          const glass = new THREE.Mesh(lanternGlassGeo, this.materials.lampBulb);
+          glass.position.set(lx, baseLanternY + 0.175, lz);
+          group.add(glass);
+
+          const cap = new THREE.Mesh(lanternCapGeo, railColor);
+          cap.position.set(lx, baseLanternY + 0.238, lz);
+          cap.castShadow = true;
+          group.add(cap);
+        };
+
+        addBridgeLantern(xOffset, sidewalkSurfaceY + railingHeight, zOffset);
+
+        // Warm stone abutment pillars with welcoming lanterns where the bridge meets the land road
+        const addAbutmentPillar = (endSign: number) => {
+          const pillarGeo = this.getGeometry('bridge_abutment_pillar_v2', () => new THREE.BoxGeometry(0.16, 0.34, 0.16));
+          const pillarCapGeo = this.getGeometry('bridge_abutment_cap_v2', () => new THREE.BoxGeometry(0.20, 0.045, 0.20));
+          const endOffset = endSign * 0.88;
+          const px = rotY === 0 ? xOffset + endOffset : xOffset;
+          const pz = rotY === 0 ? zOffset : zOffset + endOffset;
+          const pillar = new THREE.Mesh(pillarGeo, stoneColor);
+          pillar.position.set(px, sidewalkSurfaceY + 0.15, pz);
+          pillar.castShadow = true;
+          pillar.receiveShadow = true;
+          group.add(pillar);
+
+          const pillarCap = new THREE.Mesh(pillarCapGeo, this.materials.cement);
+          pillarCap.position.set(px, sidewalkSurfaceY + 0.34, pz);
+          pillarCap.castShadow = true;
+          pillarCap.receiveShadow = true;
+          group.add(pillarCap);
+
+          addBridgeLantern(px, sidewalkSurfaceY + 0.36, pz);
+        };
+
+        if (abutmentStart) addAbutmentPillar(-1);
+        if (abutmentEnd) addAbutmentPillar(1);
       };
 
       if (N || S) {
-        addSideRailing(-railOffset, 0, Math.PI / 2);
-        addSideRailing(railOffset, 0, Math.PI / 2);
+        addSideRailing(-railOffset, 0, Math.PI / 2, !neighbors.N, !neighbors.S);
+        addSideRailing(railOffset, 0, Math.PI / 2, !neighbors.N, !neighbors.S);
       } else if (E || W) {
-        addSideRailing(0, -railOffset, 0);
-        addSideRailing(0, railOffset, 0);
+        addSideRailing(0, -railOffset, 0, !neighbors.W, !neighbors.E);
+        addSideRailing(0, railOffset, 0, !neighbors.W, !neighbors.E);
       } else {
-        const postGeo = new THREE.BoxGeometry(0.08, railingHeight, 0.08);
+        const postGeo = this.getGeometry('bridge_post_corner_stone', () => new THREE.BoxGeometry(0.16, railingHeight + 0.06, 0.16));
         for (const c of [{ x: -0.9, z: -0.9 }, { x: 0.9, z: -0.9 }, { x: -0.9, z: 0.9 }, { x: 0.9, z: 0.9 }]) {
-          const post = new THREE.Mesh(postGeo, railColor);
-          post.position.set(c.x, railingY, c.z);
+          const post = new THREE.Mesh(postGeo, stoneColor);
+          post.position.set(c.x, railingY + 0.03, c.z);
           post.castShadow = true;
+          post.receiveShadow = true;
           group.add(post);
         }
       }
@@ -2231,13 +2395,13 @@ export class AssetGenerator {
       }
 
       if (!neighbors.E) {
-        const minY = (!neighbors.S || diagonalNeighbors.SE) ? -0.7 : -1;
-        const maxY = (!neighbors.N || diagonalNeighbors.NE) ? 0.7 : 1;
+        const minY = (neighbors.S && diagonalNeighbors.SE) ? -0.7 : -1;
+        const maxY = (neighbors.N && diagonalNeighbors.NE) ? 0.7 : 1;
         addPlane(1, 1.3, minY, maxY, 1, segments);
       }
       if (!neighbors.W) {
-        const minY = (!neighbors.S || diagonalNeighbors.SW) ? -0.7 : -1;
-        const maxY = (!neighbors.N || diagonalNeighbors.NW) ? 0.7 : 1;
+        const minY = (neighbors.S && diagonalNeighbors.SW) ? -0.7 : -1;
+        const maxY = (neighbors.N && diagonalNeighbors.NW) ? 0.7 : 1;
         addPlane(-1.3, -1, minY, maxY, 1, segments);
       }
 
@@ -2260,81 +2424,133 @@ export class AssetGenerator {
     direction: 'N' | 'S' | 'E' | 'W',
     trimStart = false,
     trimEnd = false,
-    inset = 0,
-    bandWidth = 0.10,
-    extendStart = false,
-    extendEnd = false,
-    taperEnds = false,
+    bandWidth = 0.058,
+    startFade = 1,
+    midFade = 1,
+    endFade = 1,
   ): THREE.BufferGeometry {
-    // A cap is one full band-width wide. Trimming only half that width made the
-    // cap overlap both adjoining strips, producing darker diamonds and pale
-    // tabs after alpha blending.
-    const trimStartAmount = trimStart ? bandWidth + inset : 0;
-    const trimEndAmount = trimEnd ? bandWidth + inset : 0;
-    const extendStartAmount = extendStart ? inset : 0;
-    const extendEndAmount = extendEnd ? inset : 0;
-    const runsAlongX = direction === 'N' || direction === 'S';
-    const length = 2.0 - trimStartAmount - trimEndAmount + extendStartAmount + extendEndAmount;
-    const key = `water_shore_foam_${direction.toLowerCase()}_${trimStart ? 1 : 0}_${trimEnd ? 1 : 0}_${inset}_${bandWidth}_${extendStart ? 1 : 0}_${extendEnd ? 1 : 0}_${taperEnds ? 1 : 0}`;
-
+    const key = `water_shore_foam_v2_${direction}_${trimStart ? 1 : 0}_${trimEnd ? 1 : 0}_${bandWidth}_${startFade}_${midFade}_${endFade}`;
     return this.getGeometry(key, () => {
-      const geometry = new THREE.PlaneGeometry(
-        runsAlongX ? length : bandWidth,
-        runsAlongX ? bandWidth : length,
-        runsAlongX ? (taperEnds ? 4 : 2) : 1,
-        runsAlongX ? 1 : (taperEnds ? 4 : 2),
-      );
+      // Three cross-sections along the strip: start (-1 or -1+W), exact midpoint (0),
+      // and end (+1 or 1-W). Keeping the middle cross-section at 0.0 even when
+      // an end is trimmed guarantees exact piecewise-linear alignment with the
+      // 2-segment grass tile boundary.
+      const sCoords = [
+        trimStart ? -1 + bandWidth : -1,
+        0,
+        trimEnd ? 1 - bandWidth : 1,
+      ];
+      const sAnchors = [-1, 0, 1];
+      const sFades = [startFade, midFade, endFade];
 
-      // Shorten only the ends that are joined by another exposed edge. The
-      // matching corner cap below fills that square exactly, avoiding alpha
-      // overlap (darker corners) and tiny gaps (broken corners).
-      if (runsAlongX) {
-        geometry.translate((trimStartAmount - extendStartAmount - trimEndAmount + extendEndAmount) * 0.5, 0, 0);
-      } else {
-        // Plane local Y becomes world -Z after the horizontal rotation.
-        geometry.translate(0, (trimEndAmount - extendEndAmount - trimStartAmount + extendStartAmount) * 0.5, 0);
+      const positions: number[] = [];
+      const normals: number[] = [];
+      const uvs: number[] = [];
+      const fades: number[] = [];
+      const anchorOffsets: number[] = [];
+
+      for (let i = 0; i < 3; i++) {
+        const s = sCoords[i];
+        const sAnchor = sAnchors[i];
+        const fade = sFades[i];
+        const u = (s + 1) * 0.5;
+
+        // Two vertices per cross-section: [0] shore edge, [1] waterward edge
+        for (let j = 0; j < 2; j++) {
+          const offsetFromShore = j === 0 ? 0 : bandWidth;
+          let vx = 0;
+          let vz = 0;
+          let ax = 0;
+          let az = 0;
+
+          if (direction === 'N') {
+            vx = s;
+            vz = -1 + offsetFromShore;
+            ax = sAnchor;
+            az = -1;
+          } else if (direction === 'S') {
+            vx = s;
+            vz = 1 - offsetFromShore;
+            ax = sAnchor;
+            az = 1;
+          } else if (direction === 'E') {
+            vx = 1 - offsetFromShore;
+            vz = s;
+            ax = 1;
+            az = sAnchor;
+          } else {
+            vx = -1 + offsetFromShore;
+            vz = s;
+            ax = -1;
+            az = sAnchor;
+          }
+
+          positions.push(vx, 0, vz);
+          normals.push(0, 1, 0);
+          uvs.push(u, j);
+          fades.push(fade);
+          anchorOffsets.push(ax - vx, az - vz);
+        }
       }
 
-      const uv = geometry.getAttribute('uv') as THREE.BufferAttribute;
-      const fade = new Float32Array(uv.count);
-      const bandCoord = new Float32Array(uv.count);
-      const endFade = new Float32Array(uv.count);
+      // Consistent upward-facing (+Y) winding for each direction
+      const flipWinding = direction === 'N' || direction === 'E';
+      const indices = flipWinding
+        ? [0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5]
+        : [0, 2, 1, 1, 2, 3, 2, 4, 3, 3, 4, 5];
 
-      for (let index = 0; index < uv.count; index++) {
-        // This is intentionally a solid low-poly waterline, so every vertex
-        // follows the terrain contour rather than fading across its width.
-        fade[index] = 1;
-        bandCoord[index] = runsAlongX ? uv.getY(index) : uv.getX(index);
-        const along = runsAlongX ? uv.getX(index) : uv.getY(index);
-        // Vertical strips reverse their local UV direction when rotated into
-        // world Z, so map the semantic start/end flags accordingly.
-        const fromStart = runsAlongX ? along : 1 - along;
-        const fromEnd = runsAlongX ? 1 - along : along;
-        endFade[index] = Math.min(
-          taperEnds && trimStart ? Math.min(fromStart * 4, 1) : 1,
-          taperEnds && trimEnd ? Math.min(fromEnd * 4, 1) : 1,
-        );
-      }
-      geometry.setAttribute('aShoreFoamFade', new THREE.BufferAttribute(fade, 1));
-      geometry.setAttribute('aShoreBandCoord', new THREE.BufferAttribute(bandCoord, 1));
-      geometry.setAttribute('aShoreEndFade', new THREE.BufferAttribute(endFade, 1));
-      // Bake the plane horizontal so the shader's contour offset operates in
-      // the same local X/Z axes as the terrain rather than rotated plane axes.
-      geometry.rotateX(-Math.PI / 2);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setIndex(indices);
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setAttribute('aShoreFoamFade', new THREE.Float32BufferAttribute(fades, 1));
+      geometry.setAttribute('aShoreAnchorOffset', new THREE.Float32BufferAttribute(anchorOffsets, 2));
       return geometry;
     });
   }
 
-  private getWaterShoreFoamCornerGeometry(size: number): THREE.BufferGeometry {
-    return this.getGeometry(`water_shore_foam_corner_${size}`, () => {
-      const geometry = new THREE.PlaneGeometry(size, size, 1, 1);
-      const fade = new Float32Array(geometry.getAttribute('position').count).fill(1);
-      const bandCoord = new Float32Array(geometry.getAttribute('position').count).fill(0.5);
-      const endFade = new Float32Array(geometry.getAttribute('position').count).fill(1);
-      geometry.setAttribute('aShoreFoamFade', new THREE.BufferAttribute(fade, 1));
-      geometry.setAttribute('aShoreBandCoord', new THREE.BufferAttribute(bandCoord, 1));
-      geometry.setAttribute('aShoreEndFade', new THREE.BufferAttribute(endFade, 1));
-      geometry.rotateX(-Math.PI / 2);
+  private getWaterShoreFoamCornerGeometry(
+    corner: 'NW' | 'NE' | 'SE' | 'SW',
+    bandWidth = 0.058,
+    cornerFade = 1,
+  ): THREE.BufferGeometry {
+    return this.getGeometry(`water_shore_foam_corner_v2_${corner}_${bandWidth}_${cornerFade}`, () => {
+      const ax = corner === 'NW' || corner === 'SW' ? -1 : 1;
+      const az = corner === 'NW' || corner === 'NE' ? -1 : 1;
+      const minX = ax < 0 ? -1 : 1 - bandWidth;
+      const maxX = ax < 0 ? -1 + bandWidth : 1;
+      const minZ = az < 0 ? -1 : 1 - bandWidth;
+      const maxZ = az < 0 ? -1 + bandWidth : 1;
+
+      const quad = [
+        [minX, minZ, 0, 0],
+        [maxX, minZ, 1, 0],
+        [minX, maxZ, 0, 1],
+        [maxX, maxZ, 1, 1],
+      ];
+
+      const positions: number[] = [];
+      const normals: number[] = [];
+      const uvs: number[] = [];
+      const fades: number[] = [];
+      const anchorOffsets: number[] = [];
+
+      for (const [vx, vz, u, v] of quad) {
+        positions.push(vx, 0, vz);
+        normals.push(0, 1, 0);
+        uvs.push(u, v);
+        fades.push(cornerFade);
+        anchorOffsets.push(ax - vx, az - vz);
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setIndex([0, 2, 1, 1, 2, 3]);
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setAttribute('aShoreFoamFade', new THREE.Float32BufferAttribute(fades, 1));
+      geometry.setAttribute('aShoreAnchorOffset', new THREE.Float32BufferAttribute(anchorOffsets, 2));
       return geometry;
     });
   }
@@ -2343,78 +2559,55 @@ export class AssetGenerator {
     group: THREE.Group,
     shoreEdges: { N: boolean; S: boolean; E: boolean; W: boolean },
     innerCorners: { NW: boolean; NE: boolean; SE: boolean; SW: boolean },
-    innerJoinCorners: { NW: boolean; NE: boolean; SE: boolean; SW: boolean },
+    _innerJoinCorners: { NW: boolean; NE: boolean; SE: boolean; SW: boolean },
+    contourEdges = { N: true, S: true, E: true, W: true },
+    contourCorners = { NW: true, NE: true, SE: true, SW: true },
   ) {
     const foamMat = this.materials.waterShoreFoam;
-    const innerFoamMat = this.materials.waterShoreFoamInner;
-    // The contact lip sits just above the water plane but far enough below the
-    // terrain that its bounded crest cannot rise through grass.
     const foamY = -0.036;
+    const bandWidth = 0.058;
 
-    const addFoam = (
-      material: THREE.Material,
+    const addStrip = (
       direction: 'N' | 'S' | 'E' | 'W',
-      x: number,
-      z: number,
-      trimStart = false,
-      trimEnd = false,
-      inset = 0,
-      bandWidth = 0.10,
-      extendStart = false,
-      extendEnd = false,
-      taperEnds = false,
+      trimStart: boolean,
+      trimEnd: boolean,
+      startFade: number,
+      midFade: number,
+      endFade: number,
     ) => {
-      const geometry = this.getWaterShoreFoamGeometry(direction, trimStart, trimEnd, inset, bandWidth, extendStart, extendEnd, taperEnds);
-      const foam = new THREE.Mesh(geometry, material);
-      // The quieter wash sits just below the contact lip. Both share the same
-      // displacement phase and remain safely beneath the terrain at crest.
-      foam.position.set(x, material === innerFoamMat ? -0.045 : foamY, z);
+      const geometry = this.getWaterShoreFoamGeometry(direction, trimStart, trimEnd, bandWidth, startFade, midFade, endFade);
+      const foam = new THREE.Mesh(geometry, foamMat);
+      foam.position.set(0, foamY, 0);
       foam.castShadow = false;
       foam.receiveShadow = false;
       group.add(foam);
     };
 
-    const addCorner = (material: THREE.Material, x: number, z: number, size: number) => {
-      const foam = new THREE.Mesh(this.getWaterShoreFoamCornerGeometry(size), material);
-      foam.position.set(x, foamY, z);
+    const addCornerCap = (corner: 'NW' | 'NE' | 'SE' | 'SW', cornerFade: number) => {
+      const foam = new THREE.Mesh(this.getWaterShoreFoamCornerGeometry(corner, bandWidth, cornerFade), foamMat);
+      foam.position.set(0, foamY, 0);
       foam.castShadow = false;
       foam.receiveShadow = false;
       group.add(foam);
     };
 
-    const addBand = (
-      material: THREE.Material,
-      inset: number,
-      bandWidth: number,
-      trimAtCorners: boolean,
-      addCorners: boolean,
-      taperEnds: boolean,
-    ) => {
-      // Inset is measured from the shoreline to the band's outside edge. This
-      // allows the contact lip and inset wash to have distinct visual weights.
-      const center = 1 - inset - bandWidth * 0.5;
-      if (shoreEdges.N) addFoam(material, 'N', 0, -center, trimAtCorners && shoreEdges.W, trimAtCorners && shoreEdges.E, inset, bandWidth, addCorners && innerJoinCorners.NW, addCorners && innerJoinCorners.NE, taperEnds);
-      if (shoreEdges.S) addFoam(material, 'S', 0, center, trimAtCorners && shoreEdges.W, trimAtCorners && shoreEdges.E, inset, bandWidth, addCorners && innerJoinCorners.SW, addCorners && innerJoinCorners.SE, taperEnds);
-      if (shoreEdges.E) addFoam(material, 'E', center, 0, trimAtCorners && shoreEdges.N, trimAtCorners && shoreEdges.S, inset, bandWidth, addCorners && innerJoinCorners.NE, addCorners && innerJoinCorners.SE, taperEnds);
-      if (shoreEdges.W) addFoam(material, 'W', -center, 0, trimAtCorners && shoreEdges.N, trimAtCorners && shoreEdges.S, inset, bandWidth, addCorners && innerJoinCorners.NW, addCorners && innerJoinCorners.SW, taperEnds);
+    const fadeNW = contourCorners.NW ? 1 : 0;
+    const fadeNE = contourCorners.NE ? 1 : 0;
+    const fadeSE = contourCorners.SE ? 1 : 0;
+    const fadeSW = contourCorners.SW ? 1 : 0;
 
-      const corner = center;
-      // Convex / outside shoreline turns: this tile owns both line segments.
-      if (addCorners && shoreEdges.N && shoreEdges.W) addCorner(material, -corner, -corner, bandWidth);
-      if (addCorners && shoreEdges.N && shoreEdges.E) addCorner(material, corner, -corner, bandWidth);
-      if (addCorners && shoreEdges.S && shoreEdges.E) addCorner(material, corner, corner, bandWidth);
-      if (addCorners && shoreEdges.S && shoreEdges.W) addCorner(material, -corner, corner, bandWidth);
+    if (shoreEdges.N) addStrip('N', shoreEdges.W, shoreEdges.E, fadeNW, contourEdges.N ? 1 : 0, fadeNE);
+    if (shoreEdges.S) addStrip('S', shoreEdges.W, shoreEdges.E, fadeSW, contourEdges.S ? 1 : 0, fadeSE);
+    if (shoreEdges.E) addStrip('E', shoreEdges.N, shoreEdges.S, fadeNE, contourEdges.E ? 1 : 0, fadeSE);
+    if (shoreEdges.W) addStrip('W', shoreEdges.N, shoreEdges.S, fadeNW, contourEdges.W ? 1 : 0, fadeSW);
 
-      // Concave / inside turns are owned by the water tile diagonally opposite
-      // the land or boardwalk corner.
-      if (addCorners && innerCorners.NW) addCorner(material, -corner, -corner, bandWidth);
-      if (addCorners && innerCorners.NE) addCorner(material, corner, -corner, bandWidth);
-      if (addCorners && innerCorners.SE) addCorner(material, corner, corner, bandWidth);
-      if (addCorners && innerCorners.SW) addCorner(material, -corner, corner, bandWidth);
-    };
-
-    addBand(foamMat, 0, 0.075, true, true, false);
-    addBand(innerFoamMat, 0.08, 0.14, true, false, true);
+    // Concave water corners (where this water tile owns two perpendicular shore strips)
+    // and convex land corners (where this diagonal water tile joins two neighbor strips)
+    // use the exact same anchor-locked corner cap geometry and grid-vertex contour weight.
+    if ((shoreEdges.N && shoreEdges.W) || innerCorners.NW) addCornerCap('NW', fadeNW);
+    if ((shoreEdges.N && shoreEdges.E) || innerCorners.NE) addCornerCap('NE', fadeNE);
+    if ((shoreEdges.S && shoreEdges.E) || innerCorners.SE) addCornerCap('SE', fadeSE);
+    if ((shoreEdges.S && shoreEdges.W) || innerCorners.SW) addCornerCap('SW', fadeSW);
   }
 
   // 3a. Segmented Water Mesh Creator
@@ -2424,6 +2617,8 @@ export class AssetGenerator {
     shoreEdges = { N: false, S: false, E: false, W: false },
     innerCorners = { NW: false, NE: false, SE: false, SW: false },
     innerJoinCorners = { NW: false, NE: false, SE: false, SW: false },
+    contourEdges = { N: true, S: true, E: true, W: true },
+    contourCorners = { NW: true, NE: true, SE: true, SW: true },
   ): THREE.Group {
     const group = new THREE.Group();
 
@@ -2435,20 +2630,15 @@ export class AssetGenerator {
     water.receiveShadow = true;
     group.add(water);
 
-    this.addWaterShoreFoam(group, shoreEdges, innerCorners, innerJoinCorners);
+    this.addWaterShoreFoam(group, shoreEdges, innerCorners, innerJoinCorners, contourEdges, contourCorners);
 
-    // 2. Bottom Dirt plane (covers bottom grid hole, expanded towards land sides only)
+    // 2. Bottom sandy aqua lakebed plane (covers bottom grid hole with a sunlit lagoon tone instead of muddy brown)
     const dirtGeo = this.getWaterBottomGeometry(neighbors, diagonalNeighbors);
-    const dirt = new THREE.Mesh(dirtGeo, this.materials.dirt);
+    const dirt = new THREE.Mesh(dirtGeo, this.materials.waterBed);
     dirt.rotation.x = -Math.PI / 2;
-    dirt.position.y = -0.4;
+    dirt.position.y = -0.38;
     dirt.receiveShadow = true;
     group.add(dirt);
-
-    // The adjacent ground column already supplies the complete dirt bank down
-    // past the lakebed, including the same displaced contour as the grass rim.
-    // A second square wall here intersected that bank at shoreline turns and
-    // showed through the transparent water as large triangular fins.
 
     return group;
   }
@@ -2462,34 +2652,43 @@ export class AssetGenerator {
     shoreEdges = { N: false, S: false, E: false, W: false },
     innerCorners = { NW: false, NE: false, SE: false, SW: false },
     innerJoinCorners = { NW: false, NE: false, SE: false, SW: false },
+    contourEdges = { N: true, S: true, E: true, W: true },
+    contourCorners = { NW: true, NE: true, SE: true, SW: true },
   ): THREE.Group {
     const group = new THREE.Group();
 
     // Add continuous water mesh
-    group.add(this.createWaterMesh(neighbors, diagonalNeighbors, shoreEdges, innerCorners, innerJoinCorners));
+    group.add(this.createWaterMesh(neighbors, diagonalNeighbors, shoreEdges, innerCorners, innerJoinCorners, contourEdges, contourCorners));
 
-    // Water vegetation is owned by EnvironmentScenery's global instanced
-    // pools. Keeping it out of this per-tile mesh prevents double scatter and
-    // lets boulders, reeds, and lily pads share one deterministic lifecycle.
     void tileX;
     void tileY;
 
     return group;
   }
 
-  getPierDirectionForTile(bx: number, by: number): 'N' | 'S' | 'E' | 'W' | null {
-    if (!this.sim) return null;
-    if (bx < 0 || bx >= this.sim.gridSize || by < 0 || by >= this.sim.gridSize) return null;
-    const tile = this.sim.grid[bx][by];
-    if (tile.type !== 'boardwalk') return null;
+  getPierDirectionForTile(
+    bx: number,
+    by: number,
+    waterNeighborsOverride?: { N: boolean; S: boolean; E: boolean; W: boolean },
+  ): 'N' | 'S' | 'E' | 'W' | null {
+    // Space piers onto alternating checkerboard parity so adjacent boardwalk tiles
+    // never spawn twin piers right next to each other or collide their moored rowboats.
+    if ((bx + by) % 2 !== 0) return null;
 
-    // Recreate waterNeighbors for the neighboring tile
-    const waterNeighbors = {
-      N: tile.y > 0 && (this.sim.grid[tile.x][tile.y - 1].type === 'water_body' || this.sim.grid[tile.x][tile.y - 1].bridge === true),
-      S: tile.y < this.sim.gridSize - 1 && (this.sim.grid[tile.x][tile.y + 1].type === 'water_body' || this.sim.grid[tile.x][tile.y + 1].bridge === true),
-      E: tile.x < this.sim.gridSize - 1 && (this.sim.grid[tile.x + 1][tile.y].type === 'water_body' || this.sim.grid[tile.x + 1][tile.y].bridge === true),
-      W: tile.x > 0 && (this.sim.grid[tile.x - 1][tile.y].type === 'water_body' || this.sim.grid[tile.x - 1][tile.y].bridge === true)
-    };
+    let waterNeighbors = waterNeighborsOverride;
+    if (!waterNeighbors) {
+      if (!this.sim) return null;
+      if (bx < 0 || bx >= this.sim.gridSize || by < 0 || by >= this.sim.gridSize) return null;
+      const tile = this.sim.grid[bx][by];
+      if (tile.type !== 'boardwalk') return null;
+
+      waterNeighbors = {
+        N: tile.y > 0 && (this.sim.grid[tile.x][tile.y - 1].type === 'water_body' || this.sim.grid[tile.x][tile.y - 1].bridge === true),
+        S: tile.y < this.sim.gridSize - 1 && (this.sim.grid[tile.x][tile.y + 1].type === 'water_body' || this.sim.grid[tile.x][tile.y + 1].bridge === true),
+        E: tile.x < this.sim.gridSize - 1 && (this.sim.grid[tile.x + 1][tile.y].type === 'water_body' || this.sim.grid[tile.x + 1][tile.y].bridge === true),
+        W: tile.x > 0 && (this.sim.grid[tile.x - 1][tile.y].type === 'water_body' || this.sim.grid[tile.x - 1][tile.y].bridge === true),
+      };
+    }
 
     const waterDirs: ('N' | 'S' | 'E' | 'W')[] = [];
     if (waterNeighbors.N) waterDirs.push('N');
@@ -2499,10 +2698,12 @@ export class AssetGenerator {
 
     if (waterDirs.length === 0) return null;
 
-    const rand = this.getSeededRandom(bx, by);
-    const pierRoll = rand();
-    if (pierRoll < 0.35) {
-      const index = Math.floor(rand() * waterDirs.length);
+    // Dedicated RNG stream so pier direction is 100% consistent between neighbor
+    // collision queries and createBoardwalkMesh regardless of prop RNG calls.
+    const pierRand = this.getSeededRandom(bx + 101, by + 211);
+    const pierRoll = pierRand();
+    if (pierRoll < 0.72) {
+      const index = Math.floor(pierRand() * waterDirs.length);
       return waterDirs[index];
     }
     return null;
@@ -2578,7 +2779,7 @@ export class AssetGenerator {
     if (activeSides.length === 0) activeSides.push('N');
 
     // Check if we are rendering a custom L-shape corner
-    let isCorner = isOutsideCorner || isInsideCorner;
+    const isCorner = isOutsideCorner || isInsideCorner;
     let cornerType: 'NW' | 'NE' | 'SW' | 'SE' | null = null;
     if (activeSides.length === 2) {
       const s0 = activeSides[0];
@@ -2595,27 +2796,42 @@ export class AssetGenerator {
     let grassX = 0, grassZ = 0;
     if (primaryAlign === 'N' || primaryAlign === 'S') {
       grassX = 0;
-      grassZ = primaryAlign === 'N' ? 0.335 : -0.335;
+      grassZ = primaryAlign === 'N' ? 0.36 : -0.36;
     } else {
-      grassX = primaryAlign === 'E' ? -0.335 : 0.335;
+      grassX = primaryAlign === 'E' ? -0.36 : 0.36;
       grassZ = 0;
     }
 
-    // 3. Render Boardwalk Deck, Planks, and Curbs for each active water side
+    // 3. Render Boardwalk Sub-Deck, Two-Tone Cedar Planks, Stone Retaining Curb, and Waterfront Pilings
+    const pilingGeo = this.getGeometry('boardwalk_edge_piling', () => new THREE.CylinderGeometry(0.052, 0.048, 0.44, 6));
+    const pilingCollarGeo = this.getGeometry('boardwalk_edge_piling_collar', () => new THREE.CylinderGeometry(0.06, 0.06, 0.035, 6));
+
     for (const side of activeSides) {
       let deckX = 0, deckZ = 0;
 
       if (side === 'N' || side === 'S') {
         deckX = 0;
-        deckZ = side === 'N' ? -0.68 : 0.68;
+        deckZ = side === 'N' ? -0.665 : 0.665;
       } else {
-        deckX = side === 'E' ? 0.68 : -0.68;
+        deckX = side === 'E' ? 0.665 : -0.665;
         deckZ = 0;
       }
 
-      // Render 11 parallel planks on the deck
+      // Recessed dark timber sub-deck so bare green grass never pokes through plank gaps
       if (side === 'N' || side === 'S') {
-        const plankGeo = this.getGeometry('boardwalk_plank_ns_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.12, 0.04, 0.70));
+        let subLen = 2.0;
+        let subX = 0;
+        if (isInsideCorner) {
+          subLen = 0.67;
+          subX = (cornerType === 'NW' || cornerType === 'SW') ? -0.665 : 0.665;
+        }
+        const subDeckGeo = this.getGeometry(`boardwalk_subdeck_ns_${subLen}`, () => new THREE.BoxGeometry(subLen, 0.04, 0.68));
+        const subDeck = new THREE.Mesh(subDeckGeo, this.materials.trunk);
+        subDeck.position.set(subX, 0.025, deckZ);
+        subDeck.receiveShadow = true;
+        group.add(subDeck);
+
+        const plankGeo = this.getGeometry('boardwalk_plank_ns_v5', () => new THREE.BoxGeometry(0.145, 0.036, 0.68));
         const spacing = 2.0 / 11;
         const start = -1.0 + spacing / 2;
         for (let i = 0; i < 11; i++) {
@@ -2629,8 +2845,9 @@ export class AssetGenerator {
               if (cornerType === 'SE' && x < 0.33) continue;
             }
           }
-          const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-          plank.position.set(x, 0.06, deckZ);
+          const plankMat = (i + tileX + tileY) % 2 === 0 ? this.materials.boardwalkPlank : this.materials.boardwalkPlankAlt;
+          const plank = new THREE.Mesh(plankGeo, plankMat);
+          plank.position.set(x, 0.062, deckZ);
           plank.receiveShadow = true;
           plank.castShadow = true;
           group.add(plank);
@@ -2638,7 +2855,19 @@ export class AssetGenerator {
       } else {
         // Skip E/W planks completely on inside corners to avoid rendering wood on land
         if (!isInsideCorner) {
-          const plankGeo = this.getGeometry('boardwalk_plank_ew_1_3_narrower_thick_v4_70', () => new THREE.BoxGeometry(0.70, 0.04, 0.12));
+          let subLen = 2.0;
+          let subZ = 0;
+          if (isOutsideCorner) {
+            subLen = 1.33;
+            subZ = (cornerType === 'NW' || cornerType === 'NE') ? 0.335 : -0.335;
+          }
+          const subDeckGeo = this.getGeometry(`boardwalk_subdeck_ew_${subLen}`, () => new THREE.BoxGeometry(0.68, 0.04, subLen));
+          const subDeck = new THREE.Mesh(subDeckGeo, this.materials.trunk);
+          subDeck.position.set(deckX, 0.025, subZ);
+          subDeck.receiveShadow = true;
+          group.add(subDeck);
+
+          const plankGeo = this.getGeometry('boardwalk_plank_ew_v5', () => new THREE.BoxGeometry(0.68, 0.036, 0.145));
           const spacing = 2.0 / 11;
           const start = -1.0 + spacing / 2;
           for (let i = 0; i < 11; i++) {
@@ -2652,8 +2881,9 @@ export class AssetGenerator {
                 if (cornerType === 'SE' && z > 0.33) continue;
               }
             }
-            const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-            plank.position.set(deckX, 0.06, z);
+            const plankMat = (i + tileX + tileY) % 2 === 0 ? this.materials.boardwalkPlank : this.materials.boardwalkPlankAlt;
+            const plank = new THREE.Mesh(plankGeo, plankMat);
+            plank.position.set(deckX, 0.062, z);
             plank.receiveShadow = true;
             plank.castShadow = true;
             group.add(plank);
@@ -2661,11 +2891,11 @@ export class AssetGenerator {
         }
       }
 
-      // Wooden Curb Wall (grass-side) and connecting structural beam (water-side)
+      // Warm stone retaining curb (grass-side) and timber fascia beam (water-side)
       let curbGeo!: THREE.BufferGeometry;
-      let curbPos = new THREE.Vector3(0, 0.04, 0);
+      const curbPos = new THREE.Vector3(0, 0.048, 0);
       let waterBeamGeo!: THREE.BufferGeometry;
-      let waterBeamPos = new THREE.Vector3(0, 0.04, 0);
+      const waterBeamPos = new THREE.Vector3(0, 0.042, 0);
 
       if (side === 'N') {
         let length = 2.0;
@@ -2674,11 +2904,11 @@ export class AssetGenerator {
           length = 0.67;
           centerX = cornerType === 'NW' ? -0.665 : 0.665;
         } else if (isOutsideCorner) {
-          if (cornerType === 'NW') { length = 1.30; centerX = 0.35; }
-          else if (cornerType === 'NE') { length = 1.30; centerX = -0.35; }
+          if (cornerType === 'NW') { length = 1.35; centerX = 0.325; }
+          else if (cornerType === 'NE') { length = 1.35; centerX = -0.325; }
         }
-        curbGeo = this.getGeometry(`boardwalk_curb_n_${length}`, () => new THREE.BoxGeometry(length, 0.08, 0.06));
-        curbPos.set(centerX, 0.04, -0.33);
+        curbGeo = this.getGeometry(`boardwalk_curb_n_${length}`, () => new THREE.BoxGeometry(length, 0.085, 0.075));
+        curbPos.set(centerX, 0.048, -0.315);
 
         let wLength = 2.0;
         let wCenterX = 0;
@@ -2689,8 +2919,8 @@ export class AssetGenerator {
           wLength = 1.94;
           wCenterX = cornerType === 'NW' ? 0.03 : -0.03;
         }
-        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_n_${wLength}`, () => new THREE.BoxGeometry(wLength, 0.08, 0.06));
-        waterBeamPos.set(wCenterX, 0.04, -0.97);
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_n_${wLength}`, () => new THREE.BoxGeometry(wLength, 0.085, 0.065));
+        waterBeamPos.set(wCenterX, 0.042, -0.97);
       } else if (side === 'S') {
         let length = 2.0;
         let centerX = 0;
@@ -2698,11 +2928,11 @@ export class AssetGenerator {
           length = 0.67;
           centerX = cornerType === 'SW' ? -0.665 : 0.665;
         } else if (isOutsideCorner) {
-          if (cornerType === 'SW') { length = 1.30; centerX = 0.35; }
-          else if (cornerType === 'SE') { length = 1.30; centerX = -0.35; }
+          if (cornerType === 'SW') { length = 1.35; centerX = 0.325; }
+          else if (cornerType === 'SE') { length = 1.35; centerX = -0.325; }
         }
-        curbGeo = this.getGeometry(`boardwalk_curb_s_${length}`, () => new THREE.BoxGeometry(length, 0.08, 0.06));
-        curbPos.set(centerX, 0.04, 0.33);
+        curbGeo = this.getGeometry(`boardwalk_curb_s_${length}`, () => new THREE.BoxGeometry(length, 0.085, 0.075));
+        curbPos.set(centerX, 0.048, 0.315);
 
         let wLength = 2.0;
         let wCenterX = 0;
@@ -2713,8 +2943,8 @@ export class AssetGenerator {
           wLength = 1.94;
           wCenterX = cornerType === 'SW' ? 0.03 : -0.03;
         }
-        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_s_${wLength}`, () => new THREE.BoxGeometry(wLength, 0.08, 0.06));
-        waterBeamPos.set(wCenterX, 0.04, 0.97);
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_s_${wLength}`, () => new THREE.BoxGeometry(wLength, 0.085, 0.065));
+        waterBeamPos.set(wCenterX, 0.042, 0.97);
       } else if (side === 'E') {
         let length = 2.0;
         let centerZ = 0;
@@ -2722,11 +2952,11 @@ export class AssetGenerator {
           length = 0.67;
           centerZ = cornerType === 'NE' ? -0.665 : 0.665;
         } else if (isOutsideCorner) {
-          if (cornerType === 'NE') { length = 1.33; centerZ = 0.335; }
-          else if (cornerType === 'SE') { length = 1.33; centerZ = -0.335; }
+          if (cornerType === 'NE') { length = 1.35; centerZ = 0.325; }
+          else if (cornerType === 'SE') { length = 1.35; centerZ = -0.325; }
         }
-        curbGeo = this.getGeometry(`boardwalk_curb_e_${length}`, () => new THREE.BoxGeometry(0.06, 0.08, length));
-        curbPos.set(0.33, 0.04, centerZ);
+        curbGeo = this.getGeometry(`boardwalk_curb_e_${length}`, () => new THREE.BoxGeometry(0.075, 0.085, length));
+        curbPos.set(0.315, 0.048, centerZ);
 
         let wLength = 2.0;
         let wCenterZ = 0;
@@ -2734,8 +2964,8 @@ export class AssetGenerator {
           if (cornerType === 'NE') { wLength = 0.67; wCenterZ = -0.665; }
           else if (cornerType === 'SE') { wLength = 0.67; wCenterZ = 0.665; }
         }
-        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_e_${wLength}`, () => new THREE.BoxGeometry(0.06, 0.08, wLength));
-        waterBeamPos.set(0.97, 0.04, wCenterZ);
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_e_${wLength}`, () => new THREE.BoxGeometry(0.065, 0.085, wLength));
+        waterBeamPos.set(0.97, 0.042, wCenterZ);
       } else if (side === 'W') {
         let length = 2.0;
         let centerZ = 0;
@@ -2743,11 +2973,11 @@ export class AssetGenerator {
           length = 0.67;
           centerZ = cornerType === 'NW' ? -0.665 : 0.665;
         } else if (isOutsideCorner) {
-          if (cornerType === 'NW') { length = 1.33; centerZ = 0.335; }
-          else if (cornerType === 'SW') { length = 1.33; centerZ = -0.335; }
+          if (cornerType === 'NW') { length = 1.35; centerZ = 0.325; }
+          else if (cornerType === 'SW') { length = 1.35; centerZ = -0.325; }
         }
-        curbGeo = this.getGeometry(`boardwalk_curb_w_${length}`, () => new THREE.BoxGeometry(0.06, 0.08, length));
-        curbPos.set(-0.33, 0.04, centerZ);
+        curbGeo = this.getGeometry(`boardwalk_curb_w_${length}`, () => new THREE.BoxGeometry(0.075, 0.085, length));
+        curbPos.set(-0.315, 0.048, centerZ);
 
         let wLength = 2.0;
         let wCenterZ = 0;
@@ -2755,82 +2985,194 @@ export class AssetGenerator {
           if (cornerType === 'NW') { wLength = 0.67; wCenterZ = -0.665; }
           else if (cornerType === 'SW') { wLength = 0.67; wCenterZ = 0.665; }
         }
-        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_w_${wLength}`, () => new THREE.BoxGeometry(0.06, 0.08, wLength));
-        waterBeamPos.set(-0.97, 0.04, wCenterZ);
+        waterBeamGeo = this.getGeometry(`boardwalk_wbeam_w_${wLength}`, () => new THREE.BoxGeometry(0.065, 0.085, wLength));
+        waterBeamPos.set(-0.97, 0.042, wCenterZ);
       }
 
-      const curb = new THREE.Mesh(curbGeo, this.materials.trunk);
+      const curb = new THREE.Mesh(curbGeo, this.materials.warmStone);
       curb.position.copy(curbPos);
       curb.castShadow = true;
+      curb.receiveShadow = true;
       group.add(curb);
 
       const waterBeam = new THREE.Mesh(waterBeamGeo, this.materials.trunk);
       waterBeam.position.copy(waterBeamPos);
       waterBeam.castShadow = true;
+      waterBeam.receiveShadow = true;
       group.add(waterBeam);
+
+      // Waterfront timber pilings descending into the water under the outer fascia
+      if (!isInsideCorner) {
+        for (const pOff of [-0.66, 0, 0.66]) {
+          const px = (side === 'N' || side === 'S') ? pOff : (side === 'E' ? 0.94 : -0.94);
+          const pz = (side === 'N' || side === 'S') ? (side === 'N' ? -0.94 : 0.94) : pOff;
+          const piling = new THREE.Mesh(pilingGeo, this.materials.trunk);
+          piling.position.set(px, -0.18, pz);
+          piling.castShadow = true;
+          group.add(piling);
+
+          const collar = new THREE.Mesh(pilingCollarGeo, this.materials.ropeHemp);
+          collar.position.set(px, 0.01, pz);
+          group.add(collar);
+        }
+      }
     }
 
-    // 4. Spawn Random Elements on the grass portion (ONLY if it is an outside corner surrounded by water)
+    // 4. Spawn Cozy Landward Props on the grass portion (when not an outside corner)
     const isMultiWater = isOutsideCorner;
     if (!isMultiWater) {
       const elementRoll = rand();
-      if (elementRoll < 0.25) {
-        // Spawn a Cozy Wooden Bench facing the water
+      if (elementRoll < 0.28) {
+        // Cozy Two-Tone Park Bench on a Stone Pad facing the water
         const bench = new THREE.Group();
-        // Seat
-        const seatGeo = this.getGeometry('grass_bench_seat', () => new THREE.BoxGeometry(0.5, 0.02, 0.18));
-        const seat = new THREE.Mesh(seatGeo, this.materials.trunk);
-        seat.position.set(0, 0.08, 0);
+
+        const padGeo = this.getGeometry('grass_bench_stone_pad', () => new THREE.BoxGeometry(0.62, 0.025, 0.28));
+        const pad = new THREE.Mesh(padGeo, this.materials.warmStone);
+        pad.position.set(0, 0.0125, 0);
+        pad.receiveShadow = true;
+        bench.add(pad);
+
+        const seatGeo = this.getGeometry('grass_bench_seat_v2', () => new THREE.BoxGeometry(0.52, 0.025, 0.18));
+        const seat = new THREE.Mesh(seatGeo, this.materials.boardwalkPlank);
+        seat.position.set(0, 0.09, 0);
         seat.castShadow = true;
+        seat.receiveShadow = true;
         bench.add(seat);
 
-        // Backrest
-        const backGeo = this.getGeometry('grass_bench_back', () => new THREE.BoxGeometry(0.5, 0.16, 0.02));
-        const back = new THREE.Mesh(backGeo, this.materials.trunk);
-        back.position.set(0, 0.16, 0.08);
+        const backGeo = this.getGeometry('grass_bench_back_v2', () => new THREE.BoxGeometry(0.52, 0.15, 0.025));
+        const back = new THREE.Mesh(backGeo, this.materials.boardwalkPlankAlt);
+        back.position.set(0, 0.17, 0.08);
         back.castShadow = true;
         bench.add(back);
 
-        // Legs
-        const legGeo = this.getGeometry('grass_bench_leg', () => new THREE.BoxGeometry(0.04, 0.08, 0.18));
-        const legL = new THREE.Mesh(legGeo, this.materials.trunk);
-        legL.position.set(-0.22, 0.04, 0);
-        legL.castShadow = true;
-        bench.add(legL);
+        const legGeo = this.getGeometry('grass_bench_leg_v2', () => new THREE.BoxGeometry(0.045, 0.12, 0.19));
+        for (const lx of [-0.22, 0.22]) {
+          const leg = new THREE.Mesh(legGeo, this.materials.charcoalMetal);
+          leg.position.set(lx, 0.06, 0);
+          leg.castShadow = true;
+          bench.add(leg);
+        }
 
-        const legR = new THREE.Mesh(legGeo, this.materials.trunk);
-        legR.position.set(0.22, 0.04, 0);
-        legR.castShadow = true;
-        bench.add(legR);
-
-        // Position bench on grass facing boardwalk
         if (primaryAlign === 'N') {
-          bench.position.set(0, 0, 0.33);
+          bench.position.set(0, 0, 0.36);
           bench.rotation.y = Math.PI;
         } else if (primaryAlign === 'S') {
-          bench.position.set(0, 0, -0.33);
+          bench.position.set(0, 0, -0.36);
           bench.rotation.y = 0;
         } else if (primaryAlign === 'E') {
-          bench.position.set(-0.33, 0, 0);
+          bench.position.set(-0.36, 0, 0);
           bench.rotation.y = -Math.PI / 2;
         } else if (primaryAlign === 'W') {
-          bench.position.set(0.33, 0, 0);
+          bench.position.set(0.36, 0, 0);
           bench.rotation.y = Math.PI / 2;
         }
         group.add(bench);
-      } else if (elementRoll < 0.50) {
-        // Spawn a mini decorative shoreline tree
+      } else if (elementRoll < 0.52) {
+        // Terracotta Flower Planter Box with Colorful Blossoms
+        const planter = new THREE.Group();
+        const boxGeo = this.getGeometry('boardwalk_planter_box', () => new THREE.BoxGeometry(0.46, 0.14, 0.24));
+        const rimGeo = this.getGeometry('boardwalk_planter_rim', () => new THREE.BoxGeometry(0.50, 0.03, 0.28));
+        const soilGeo = this.getGeometry('boardwalk_planter_soil', () => new THREE.BoxGeometry(0.42, 0.02, 0.20));
+        const foliageGeo = this.getGeometry('boardwalk_planter_foliage', () => new THREE.DodecahedronGeometry(0.085, 0));
+        const blossomGeo = this.getGeometry('boardwalk_planter_blossom', () => new THREE.DodecahedronGeometry(0.042, 0));
+
+        const box = new THREE.Mesh(boxGeo, this.materials.terracotta);
+        box.position.y = 0.07;
+        box.castShadow = true;
+        box.receiveShadow = true;
+        planter.add(box);
+
+        const rim = new THREE.Mesh(rimGeo, this.materials.terracotta);
+        rim.position.y = 0.135;
+        rim.castShadow = true;
+        planter.add(rim);
+
+        const soil = new THREE.Mesh(soilGeo, this.materials.dirt);
+        soil.position.y = 0.145;
+        planter.add(soil);
+
+        const flowerMats = [
+          this.materials.lotusPink,
+          this.materials.carYellow,
+          this.materials.carRed,
+          this.materials.awningBlue,
+        ];
+        const primaryFlowerMat = flowerMats[(tileX + tileY) % flowerMats.length];
+        const accentFlowerMat = flowerMats[(tileX + tileY + 1) % flowerMats.length];
+
+        for (const fx of [-0.13, 0, 0.13]) {
+          const leafMound = new THREE.Mesh(foliageGeo, this.materials.leaves);
+          leafMound.position.set(fx, 0.18, 0);
+          leafMound.scale.set(1.1, 0.85, 1.0);
+          leafMound.castShadow = true;
+          planter.add(leafMound);
+        }
+        const blossomOffsets = [
+          { x: -0.14, y: 0.235, z: -0.02, mat: primaryFlowerMat },
+          { x: -0.04, y: 0.245, z: 0.03, mat: accentFlowerMat },
+          { x: 0.05, y: 0.24, z: -0.02, mat: primaryFlowerMat },
+          { x: 0.14, y: 0.235, z: 0.02, mat: accentFlowerMat },
+        ];
+        for (const b of blossomOffsets) {
+          const blossom = new THREE.Mesh(blossomGeo, b.mat);
+          blossom.position.set(b.x, b.y, b.z);
+          blossom.castShadow = true;
+          planter.add(blossom);
+        }
+
+        if (primaryAlign === 'N' || primaryAlign === 'S') {
+          planter.position.set(0, 0, grassZ);
+        } else {
+          planter.position.set(grassX, 0, 0);
+          planter.rotation.y = Math.PI / 2;
+        }
+        group.add(planter);
+      } else if (elementRoll < 0.76) {
+        // Decorative shoreline tree in a stone tree ring
+        const ringGeo = this.getGeometry('boardwalk_tree_ring', () => new THREE.CylinderGeometry(0.24, 0.26, 0.04, 8));
+        const ring = new THREE.Mesh(ringGeo, this.materials.warmStone);
+        ring.position.set(grassX, 0.02, grassZ);
+        ring.receiveShadow = true;
+        group.add(ring);
+
         const tree = this.createTreeMesh(tileX + 11, tileY + 7);
         tree.scale.set(0.55, 0.55, 0.55);
-        tree.position.set(grassX, 0, grassZ);
+        tree.position.set(grassX, 0.02, grassZ);
         group.add(tree);
-      } else if (elementRoll < 0.75) {
-        // Spawn a low-poly green bush/shrub
+      } else if (elementRoll < 0.96) {
+        // Low-poly flowering shrub in a round terracotta pot
+        const potGeo = this.getGeometry('boardwalk_shrub_pot', () => new THREE.CylinderGeometry(0.14, 0.11, 0.11, 7));
+        const potRimGeo = this.getGeometry('boardwalk_shrub_pot_rim', () => new THREE.CylinderGeometry(0.155, 0.15, 0.03, 7));
+        const pot = new THREE.Mesh(potGeo, this.materials.terracotta);
+        pot.position.set(grassX, 0.055, grassZ);
+        pot.castShadow = true;
+        pot.receiveShadow = true;
+        group.add(pot);
+
+        const potRim = new THREE.Mesh(potRimGeo, this.materials.terracotta);
+        potRim.position.set(grassX, 0.11, grassZ);
+        potRim.castShadow = true;
+        group.add(potRim);
+
         const bush = new THREE.Mesh(this.getEnvironmentBushGeometry('shrub'), this.materials.leaves);
         bush.scale.setScalar(0.32);
-        bush.position.set(grassX, 0.10, grassZ);
+        bush.position.set(grassX, 0.18, grassZ);
         bush.castShadow = true;
         group.add(bush);
+
+        const shrubBloomGeo = this.getGeometry('boardwalk_shrub_bloom_v2', () => new THREE.DodecahedronGeometry(0.036, 0));
+        const bloomColors = [this.materials.lotusPink, this.materials.carYellow, this.materials.carRed];
+        const bloomOffsets = [
+          [-0.06, 0.25, 0.05],
+          [0.07, 0.24, -0.04],
+          [0.01, 0.27, 0.02],
+        ];
+        for (let b = 0; b < bloomOffsets.length; b++) {
+          const bloom = new THREE.Mesh(shrubBloomGeo, bloomColors[(tileX + tileY + b) % bloomColors.length]);
+          bloom.position.set(grassX + bloomOffsets[b][0], bloomOffsets[b][1], grassZ + bloomOffsets[b][2]);
+          bloom.castShadow = true;
+          group.add(bloom);
+        }
       }
     }
 
@@ -2862,50 +3204,72 @@ export class AssetGenerator {
       return false;
     };
 
-    // Filter active water directions that don't already contain a pier from another boardwalk
-    const availablePierDirs = isInsideCorner ? [] : activeSides.filter(side => {
-      let wx = tileX;
-      let wy = tileY;
-      if (side === 'N') wy -= 1;
-      else if (side === 'S') wy += 1;
-      else if (side === 'E') wx += 1;
-      else if (side === 'W') wx -= 1;
-
-      // Safety check: ensure target tile is water or a bridge
-      if (this.sim) {
-        if (wx < 0 || wx >= this.sim.gridSize || wy < 0 || wy >= this.sim.gridSize) return false;
-        const targetTile = this.sim.grid[wx][wy];
-        if (targetTile.type !== 'water_body' && !targetTile.bridge) return false;
-      }
-
-      return !isWaterTileOccupiedByAnotherPier(wx, wy, tileX, tileY);
-    });
-
+    // Determine pier direction using the synchronized helper
     let pierDir: 'N' | 'S' | 'E' | 'W' | null = null;
-    if (availablePierDirs.length > 0) {
-      const pierRoll = rand();
-      if (pierRoll < 0.35) {
-        const index = Math.floor(rand() * availablePierDirs.length);
-        pierDir = availablePierDirs[index];
+    if (!isInsideCorner) {
+      const candidateDir = this.getPierDirectionForTile(tileX, tileY, waterNeighbors);
+      if (candidateDir && activeSides.includes(candidateDir)) {
+        let wx = tileX;
+        let wy = tileY;
+        if (candidateDir === 'N') wy -= 1;
+        else if (candidateDir === 'S') wy += 1;
+        else if (candidateDir === 'E') wx += 1;
+        else if (candidateDir === 'W') wx -= 1;
+
+        let targetValid = true;
+        if (this.sim) {
+          if (wx < 0 || wx >= this.sim.gridSize || wy < 0 || wy >= this.sim.gridSize) {
+            targetValid = false;
+          } else {
+            const targetTile = this.sim.grid[wx][wy];
+            if (targetTile.type !== 'water_body' && !targetTile.bridge) targetValid = false;
+          }
+        }
+        if (targetValid && !isWaterTileOccupiedByAnotherPier(wx, wy, tileX, tileY)) {
+          pierDir = candidateDir;
+        }
       }
     }
 
-    // 6. Waterfront Rope Railings (only on water boundary sides, skipping sides with a pier)
-    const placedPostPositions: { x: number, z: number }[] = [];
-    const addRopeRailing = (xOffset: number, zOffset: number, rotY = 0) => {
-      const postGeo = this.getGeometry('boardwalk_post_1_3', () => new THREE.CylinderGeometry(0.04, 0.04, 0.24, 6));
-      const offsets = [-0.95, 0, 0.95];
-      for (const off of offsets) {
-        let px = 0, pz = 0;
-        if (rotY === 0) {
-          px = xOffset + off;
-          pz = zOffset;
-        } else {
-          px = xOffset;
-          pz = zOffset + off;
-        }
+    // 6. Waterfront Rope-and-Timber Railings & Cozy Post Lanterns
+    const placedPostPositions: { x: number; z: number }[] = [];
+    const postGeo = this.getGeometry('boardwalk_post_v5', () => new THREE.CylinderGeometry(0.044, 0.048, 0.25, 6));
+    const postCapGeo = this.getGeometry('boardwalk_post_cap_v5', () => new THREE.BoxGeometry(0.10, 0.025, 0.10));
+    const postCollarGeo = this.getGeometry('boardwalk_post_collar_v5', () => new THREE.CylinderGeometry(0.054, 0.054, 0.032, 6));
+    const lanternStemGeo = this.getGeometry('boardwalk_lantern_stem', () => new THREE.CylinderGeometry(0.016, 0.02, 0.09, 6));
+    const lanternCupGeo = this.getGeometry('boardwalk_lantern_cup', () => new THREE.CylinderGeometry(0.042, 0.030, 0.022, 6));
+    const lanternGlassGeo = this.getGeometry('boardwalk_lantern_glass', () => new THREE.CylinderGeometry(0.044, 0.036, 0.08, 6));
+    const lanternHatGeo = this.getGeometry('boardwalk_lantern_hat', () => new THREE.ConeGeometry(0.068, 0.044, 6));
 
-        // Check if a post is already placed at or very close to (px, pz)
+    const addPostLantern = (px: number, pz: number) => {
+      const stem = new THREE.Mesh(lanternStemGeo, this.materials.charcoalMetal);
+      stem.position.set(px, 0.35, pz);
+      stem.castShadow = true;
+      group.add(stem);
+
+      const cup = new THREE.Mesh(lanternCupGeo, this.materials.charcoalMetal);
+      cup.position.set(px, 0.402, pz);
+      cup.castShadow = true;
+      group.add(cup);
+
+      const glass = new THREE.Mesh(lanternGlassGeo, this.materials.lampBulb);
+      glass.position.set(px, 0.448, pz);
+      group.add(glass);
+
+      const hat = new THREE.Mesh(lanternHatGeo, this.materials.charcoalMetal);
+      hat.position.set(px, 0.506, pz);
+      hat.castShadow = true;
+      group.add(hat);
+    };
+
+    const addRopeRailing = (xOffset: number, zOffset: number, rotY = 0, hasPierOpening = false) => {
+      // Posts at [-0.66, 0, 0.66] produce uniform 0.66m spacing across tile boundaries,
+      // while pier openings add corner entrance posts at [-0.30, 0.30] aligned with the pier pilings.
+      const offsets = hasPierOpening ? [-0.66, -0.30, 0.30, 0.66] : [-0.66, 0, 0.66];
+      for (const off of offsets) {
+        const px = rotY === 0 ? xOffset + off : xOffset;
+        const pz = rotY === 0 ? zOffset : zOffset + off;
+
         const duplicate = placedPostPositions.some(pos => Math.abs(pos.x - px) < 0.01 && Math.abs(pos.z - pz) < 0.01);
         if (duplicate) continue;
 
@@ -2914,172 +3278,275 @@ export class AssetGenerator {
         post.position.set(px, 0.18, pz);
         post.castShadow = true;
         group.add(post);
+
+        const cap = new THREE.Mesh(postCapGeo, this.materials.boardwalkPlank);
+        cap.position.set(px, 0.305, pz);
+        cap.castShadow = true;
+        group.add(cap);
+
+        const collar = new THREE.Mesh(postCollarGeo, this.materials.ropeHemp);
+        collar.position.set(px, 0.235, pz);
+        group.add(collar);
       }
 
-      const ropeGeo = this.getGeometry('boardwalk_rope_1_3', () => new THREE.BoxGeometry(1.9, 0.02, 0.02));
-      const rope = new THREE.Mesh(ropeGeo, this.materials.cement);
-      rope.position.set(xOffset, 0.22, zOffset);
-      rope.rotation.y = rotY;
-      rope.castShadow = true;
-      group.add(rope);
+      if (hasPierOpening) {
+        // Two side rope segments running from the tile boundary (±1.0) into the pier entrance posts (±0.30)
+        const sideRopeGeo = this.getGeometry('boardwalk_rope_pier_side_v2', () => new THREE.BoxGeometry(0.70, 0.026, 0.026));
+        for (const rOff of [-0.65, 0.65]) {
+          const rope = new THREE.Mesh(sideRopeGeo, this.materials.ropeHemp);
+          if (rotY === 0) {
+            rope.position.set(xOffset + rOff, 0.235, zOffset);
+          } else {
+            rope.position.set(xOffset, 0.235, zOffset + rOff);
+            rope.rotation.y = rotY;
+          }
+          rope.castShadow = true;
+          group.add(rope);
+        }
+        // Always place a welcoming lantern on the pier entrance post
+        const lpx = rotY === 0 ? xOffset - 0.66 : xOffset;
+        const lpz = rotY === 0 ? zOffset : zOffset - 0.66;
+        addPostLantern(lpx, lpz);
+      } else {
+        const fullRopeGeo = this.getGeometry('boardwalk_rope_full_2m', () => new THREE.BoxGeometry(2.0, 0.026, 0.026));
+        const rope = new THREE.Mesh(fullRopeGeo, this.materials.ropeHemp);
+        rope.position.set(xOffset, 0.235, zOffset);
+        rope.rotation.y = rotY;
+        rope.castShadow = true;
+        group.add(rope);
+
+        // Place a cozy lantern on every other boardwalk tile's center post
+        if ((tileX + tileY) % 2 === 0) {
+          addPostLantern(xOffset, zOffset);
+        }
+      }
     };
 
     if (!isInsideCorner) {
       for (const side of activeSides) {
-        if (side !== pierDir) {
-          if (side === 'N') addRopeRailing(0, -0.95, 0);
-          else if (side === 'S') addRopeRailing(0, 0.95, 0);
-          else if (side === 'E') addRopeRailing(0.95, 0, Math.PI / 2);
-          else if (side === 'W') addRopeRailing(-0.95, 0, Math.PI / 2);
-        }
+        const hasPier = side === pierDir;
+        if (side === 'N') addRopeRailing(0, -0.94, 0, hasPier);
+        else if (side === 'S') addRopeRailing(0, 0.94, 0, hasPier);
+        else if (side === 'E') addRopeRailing(0.94, 0, Math.PI / 2, hasPier);
+        else if (side === 'W') addRopeRailing(-0.94, 0, Math.PI / 2, hasPier);
       }
     }
 
-    // 7. Spawn Pier platform & Rowboat
+    // 7. Spawn Pier Platform & Painted Low-Poly Rowboat
     if (pierDir) {
       const pier = new THREE.Group();
+      const pierRand = this.getSeededRandom(tileX + 307, tileY + 409);
 
-      // 1. Support Beams (Longitudinal)
-      const beamGeo = this.getGeometry('pier_beam', () => new THREE.BoxGeometry(0.05, 0.03, 0.9));
+      // 1. Longitudinal Support Stringers
+      const beamGeo = this.getGeometry('pier_beam_v3', () => new THREE.BoxGeometry(0.055, 0.04, 0.94));
+      for (const bx of [-0.24, 0.24]) {
+        const beam = new THREE.Mesh(beamGeo, this.materials.trunk);
+        beam.position.set(bx, 0.02, 1.44);
+        beam.receiveShadow = true;
+        beam.castShadow = true;
+        pier.add(beam);
+      }
 
-      const beamL = new THREE.Mesh(beamGeo, this.materials.trunk);
-      beamL.position.set(-0.24, 0.015, 1.45);
-      beamL.receiveShadow = true;
-      beamL.castShadow = true;
-      pier.add(beamL);
-
-      const beamR = new THREE.Mesh(beamGeo, this.materials.trunk);
-      beamR.position.set(0.24, 0.015, 1.45);
-      beamR.receiveShadow = true;
-      beamR.castShadow = true;
-      pier.add(beamR);
-
-      // 2. Transverse Planks (5 planks with gaps showing water underneath)
-      const plankGeo = this.getGeometry('pier_plank', () => new THREE.BoxGeometry(0.54, 0.02, 0.12));
-      const zCoords = [1.09, 1.27, 1.45, 1.63, 1.81];
-      for (const zVal of zCoords) {
-        const plank = new THREE.Mesh(plankGeo, this.materials.trunk);
-        plank.position.set(0, 0.04, zVal);
+      // 2. Transverse Cedar Planks (6 alternating planks + wider end cap)
+      const plankGeo = this.getGeometry('pier_plank_v3', () => new THREE.BoxGeometry(0.58, 0.028, 0.125));
+      const zCoords = [1.06, 1.21, 1.36, 1.51, 1.66, 1.81];
+      for (let i = 0; i < zCoords.length; i++) {
+        const plankMat = i % 2 === 0 ? this.materials.boardwalkPlank : this.materials.boardwalkPlankAlt;
+        const plank = new THREE.Mesh(plankGeo, plankMat);
+        plank.position.set(0, 0.05, zCoords[i]);
         plank.receiveShadow = true;
         plank.castShadow = true;
         pier.add(plank);
       }
 
-      // Support Pilings (at the end of the shorter pier, Z = 1.8)
-      const pilingGeo = this.getGeometry('boardwalk_piling', () => new THREE.CylinderGeometry(0.05, 0.05, 0.44, 6));
-      const pilingL = new THREE.Mesh(pilingGeo, this.materials.trunk);
-      pilingL.position.set(-0.24, -0.18, 1.8);
-      pilingL.castShadow = true;
-      pier.add(pilingL);
+      // 3. Four Timber Mooring Pilings rising above the pier deck with Rope Collars, Caps & Continuous Pier Ropes
+      const pierPilingGeo = this.getGeometry('pier_piling_v5', () => new THREE.CylinderGeometry(0.048, 0.045, 0.62, 6));
+      const pierCollarGeo = this.getGeometry('pier_piling_collar_v5', () => new THREE.CylinderGeometry(0.058, 0.058, 0.032, 6));
+      const pierCapGeo = this.getGeometry('pier_piling_cap_v5', () => new THREE.BoxGeometry(0.098, 0.024, 0.098));
+      const pierSideRopeGeo = this.getGeometry('pier_side_rope_v5', () => new THREE.BoxGeometry(0.026, 0.026, 0.88));
+      for (const pz of [1.38, 1.82]) {
+        for (const px of [-0.30, 0.30]) {
+          const piling = new THREE.Mesh(pierPilingGeo, this.materials.trunk);
+          piling.position.set(px, -0.005, pz);
+          piling.castShadow = true;
+          pier.add(piling);
 
-      const pilingR = new THREE.Mesh(pilingGeo, this.materials.trunk);
-      pilingR.position.set(0.24, -0.18, 1.8);
-      pilingR.castShadow = true;
-      pier.add(pilingR);
+          const collar = new THREE.Mesh(pierCollarGeo, this.materials.ropeHemp);
+          collar.position.set(px, 0.235, pz);
+          pier.add(collar);
 
-      // Accessory (sitting on the shorter pier)
-      const accRoll = rand();
-      if (accRoll < 0.35) {
-        // Lifebuoy
-        const buoyPostGeo = this.getGeometry('buoy_post', () => new THREE.CylinderGeometry(0.015, 0.015, 0.2, 4));
-        const buoyPost = new THREE.Mesh(buoyPostGeo, this.materials.trunk);
-        buoyPost.position.set(0, 0.14, 1.8);
-        buoyPost.castShadow = true;
-        pier.add(buoyPost);
+          const cap = new THREE.Mesh(pierCapGeo, this.materials.boardwalkPlank);
+          cap.position.set(px, 0.305, pz);
+          cap.castShadow = true;
+          pier.add(cap);
+        }
+      }
+      // Continue the boardwalk hemp rope from the entrance posts (z = 0.94) along both sides of the pier (z = 1.82)
+      for (const px of [-0.30, 0.30]) {
+        const pierRope = new THREE.Mesh(pierSideRopeGeo, this.materials.ropeHemp);
+        pierRope.position.set(px, 0.235, 1.38);
+        pierRope.castShadow = true;
+        pier.add(pierRope);
+      }
 
-        const buoyGeo = this.getGeometry('lifebuoy', () => new THREE.TorusGeometry(0.08, 0.025, 6, 12));
+      // 4. Pier Accessory
+      const accRoll = pierRand();
+      if (accRoll < 0.36) {
+        // Lifebuoy mounted on the end-of-pier piling
+        const buoyGeo = this.getGeometry('lifebuoy_v3', () => new THREE.TorusGeometry(0.085, 0.028, 6, 12));
         const buoy = new THREE.Mesh(buoyGeo, this.materials.terracotta);
-        buoy.position.set(0, 0.18, 1.78);
+        buoy.position.set(0.30, 0.19, 1.87);
         buoy.castShadow = true;
         pier.add(buoy);
-      } else if (accRoll < 0.70) {
-        // Bench
-        const benchSeatGeo = this.getGeometry('pier_bench_seat', () => new THREE.BoxGeometry(0.4, 0.02, 0.16));
-        const benchSeat = new THREE.Mesh(benchSeatGeo, this.materials.trunk);
-        benchSeat.position.set(0, 0.06, 1.55); // lowered slightly to rest on planks
+      } else if (accRoll < 0.72) {
+        // Cozy Pier Bench at the end of the dock
+        const benchSeatGeo = this.getGeometry('pier_bench_seat_v3', () => new THREE.BoxGeometry(0.42, 0.024, 0.15));
+        const benchSeat = new THREE.Mesh(benchSeatGeo, this.materials.boardwalkPlank);
+        benchSeat.position.set(0, 0.09, 1.66);
         benchSeat.castShadow = true;
         pier.add(benchSeat);
 
-        const benchBackGeo = this.getGeometry('pier_bench_back', () => new THREE.BoxGeometry(0.4, 0.12, 0.02));
-        const benchBack = new THREE.Mesh(benchBackGeo, this.materials.trunk);
-        benchBack.position.set(0, 0.12, 1.63);
+        const benchBackGeo = this.getGeometry('pier_bench_back_v3', () => new THREE.BoxGeometry(0.42, 0.12, 0.022));
+        const benchBack = new THREE.Mesh(benchBackGeo, this.materials.boardwalkPlankAlt);
+        benchBack.position.set(0, 0.15, 1.73);
         benchBack.castShadow = true;
         pier.add(benchBack);
       } else {
-        // Bollard
-        const bollardGeo = this.getGeometry('pier_bollard', () => new THREE.CylinderGeometry(0.04, 0.04, 0.1, 5));
-        const bollard = new THREE.Mesh(bollardGeo, this.materials.whiteMetal);
-        bollard.position.set(0, 0.09, 1.8);
+        // Maritime Mooring Bollard + Rope Coil
+        const bollardGeo = this.getGeometry('pier_bollard_v3', () => new THREE.CylinderGeometry(0.042, 0.048, 0.12, 6));
+        const bollard = new THREE.Mesh(bollardGeo, this.materials.charcoalMetal);
+        bollard.position.set(-0.18, 0.11, 1.78);
         bollard.castShadow = true;
         pier.add(bollard);
+
+        const coilGeo = this.getGeometry('pier_rope_coil_v3', () => new THREE.TorusGeometry(0.055, 0.018, 5, 10));
+        const coil = new THREE.Mesh(coilGeo, this.materials.ropeHemp);
+        coil.rotation.x = Math.PI / 2;
+        coil.position.set(-0.18, 0.075, 1.78);
+        pier.add(coil);
       }
 
-      // Improved Tapered Low-Poly Rowboat (positioned alongside the shorter pier)
-      const boatRoll = rand();
-      if (boatRoll < 0.40) {
+      // 5. Painted Multi-Part Low-Poly Rowboat with Open Cockpit, Gunwale Trim, Oars & Mooring Rope
+      const boatRoll = pierRand();
+      if (boatRoll < 0.78) {
         const boat = new THREE.Group();
 
-        // Curved tapered hull using ExtrudeGeometry
-        const hullGeo = this.getGeometry('rowboat_hull_shape_v2', () => {
-          const shape = new THREE.Shape();
-          shape.moveTo(0, 0.4);
-          shape.quadraticCurveTo(0.18, 0.22, 0.18, 0.0);
-          shape.lineTo(0.12, -0.4);
-          shape.lineTo(-0.12, -0.4);
-          shape.lineTo(-0.18, 0.0);
-          shape.quadraticCurveTo(-0.18, 0.22, 0, 0.4);
+        const hullMats = [
+          this.materials.carBlue,
+          this.materials.carRed,
+          this.materials.carYellow,
+          this.materials.carWhite,
+          this.materials.carGreen,
+        ];
+        const hullMat = hullMats[(tileX * 3 + tileY * 5) % hullMats.length];
 
-          const extrudeSettings = {
+        // Outer painted hull
+        const hullGeo = this.getGeometry('rowboat_hull_shape_v3', () => {
+          const shape = new THREE.Shape();
+          shape.moveTo(0, 0.44);
+          shape.quadraticCurveTo(0.20, 0.24, 0.19, -0.02);
+          shape.lineTo(0.13, -0.42);
+          shape.lineTo(-0.13, -0.42);
+          shape.lineTo(-0.19, -0.02);
+          shape.quadraticCurveTo(-0.20, 0.24, 0, 0.44);
+
+          const geo = new THREE.ExtrudeGeometry(shape, {
             depth: 0.10,
             bevelEnabled: true,
             bevelSegments: 1,
             steps: 1,
-            bevelSize: 0.015,
-            bevelThickness: 0.015
-          };
-
-          const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            bevelSize: 0.018,
+            bevelThickness: 0.018,
+          });
           geo.center();
           geo.rotateX(-Math.PI / 2);
           return geo;
         });
-        const hull = new THREE.Mesh(hullGeo, this.materials.trunk);
+        const hull = new THREE.Mesh(hullGeo, hullMat);
         hull.receiveShadow = true;
         hull.castShadow = true;
         boat.add(hull);
 
-        // Cross-plank seats inside boat
-        const seatGeo = this.getGeometry('rowboat_seat_mid_v2', () => new THREE.BoxGeometry(0.30, 0.02, 0.12));
-        const seatMid = new THREE.Mesh(seatGeo, this.materials.trunk);
-        seatMid.position.set(0, 0.025, 0.02);
+        // Dark timber inner cockpit well sitting just above the hull top (y = 0.068)
+        const bilgeGeo = this.getGeometry('rowboat_bilge_v3', () => {
+          const shape = new THREE.Shape();
+          shape.moveTo(0, 0.34);
+          shape.quadraticCurveTo(0.14, 0.18, 0.13, -0.02);
+          shape.lineTo(0.09, -0.34);
+          shape.lineTo(-0.09, -0.34);
+          shape.lineTo(-0.13, -0.02);
+          shape.quadraticCurveTo(-0.14, 0.18, 0, 0.34);
+
+          const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: false, steps: 1 });
+          geo.center();
+          geo.rotateX(-Math.PI / 2);
+          return geo;
+        });
+        const bilge = new THREE.Mesh(bilgeGeo, this.materials.trunk);
+        bilge.position.y = 0.065;
+        bilge.receiveShadow = true;
+        boat.add(bilge);
+
+        // Warm cedar gunwale trim rails along port & starboard
+        const gunwaleGeo = this.getGeometry('rowboat_gunwale_rail_v3', () => new THREE.BoxGeometry(0.034, 0.024, 0.72));
+        for (const gx of [-0.165, 0.165]) {
+          const gunwale = new THREE.Mesh(gunwaleGeo, this.materials.boardwalkPlank);
+          gunwale.position.set(gx, 0.078, -0.02);
+          gunwale.rotation.y = gx < 0 ? 0.08 : -0.08;
+          gunwale.castShadow = true;
+          boat.add(gunwale);
+        }
+
+        // Bow, Mid, and Stern Wooden Thwart Seats sitting across the cockpit well
+        const seatBowGeo = this.getGeometry('rowboat_seat_bow_v3', () => new THREE.BoxGeometry(0.24, 0.022, 0.09));
+        const seatBow = new THREE.Mesh(seatBowGeo, this.materials.boardwalkPlank);
+        seatBow.position.set(0, 0.080, 0.20);
+        seatBow.castShadow = true;
+        boat.add(seatBow);
+
+        const seatMidGeo = this.getGeometry('rowboat_seat_mid_v3', () => new THREE.BoxGeometry(0.35, 0.022, 0.12));
+        const seatMid = new THREE.Mesh(seatMidGeo, this.materials.boardwalkPlank);
+        seatMid.position.set(0, 0.080, -0.01);
         seatMid.castShadow = true;
         boat.add(seatMid);
 
-        const seatSternGeo = this.getGeometry('rowboat_seat_stern_v2', () => new THREE.BoxGeometry(0.24, 0.02, 0.10));
-        const seatStern = new THREE.Mesh(seatSternGeo, this.materials.trunk);
-        seatStern.position.set(0, 0.025, -0.22);
+        const seatSternGeo = this.getGeometry('rowboat_seat_stern_v3', () => new THREE.BoxGeometry(0.27, 0.022, 0.10));
+        const seatStern = new THREE.Mesh(seatSternGeo, this.materials.boardwalkPlank);
+        seatStern.position.set(0, 0.080, -0.25);
         seatStern.castShadow = true;
         boat.add(seatStern);
 
-        // Oars resting on side edges
-        const oarGeo = this.getGeometry('rowboat_oar_v2', () => new THREE.BoxGeometry(0.35, 0.01, 0.02));
-        const oarL = new THREE.Mesh(oarGeo, this.materials.cement);
-        oarL.position.set(-0.25, 0.04, -0.05);
-        oarL.rotation.y = -Math.PI / 6;
-        oarL.castShadow = true;
-        boat.add(oarL);
+        // Wooden Oars with Blades resting neatly along the port and starboard gunwales
+        const oarShaftGeo = this.getGeometry('rowboat_oar_shaft_v4', () => new THREE.BoxGeometry(0.018, 0.016, 0.44));
+        const oarBladeGeo = this.getGeometry('rowboat_oar_blade_v4', () => new THREE.BoxGeometry(0.044, 0.012, 0.14));
+        for (const sideSign of [-1, 1]) {
+          const oarGroup = new THREE.Group();
+          const shaft = new THREE.Mesh(oarShaftGeo, this.materials.bakeryOak);
+          shaft.castShadow = true;
+          oarGroup.add(shaft);
 
-        const oarR = new THREE.Mesh(oarGeo, this.materials.cement);
-        oarR.position.set(0.25, 0.04, -0.05);
-        oarR.rotation.y = Math.PI / 6;
-        oarR.castShadow = true;
-        boat.add(oarR);
+          const blade = new THREE.Mesh(oarBladeGeo, this.materials.boardwalkPlank);
+          blade.position.set(0, 0, -0.18);
+          blade.castShadow = true;
+          oarGroup.add(blade);
 
-        boat.position.set(0.45, -0.06, 1.55);
-        boat.rotation.y = (rand() * 0.2 - 0.1) + Math.PI / 12;
-        boat.castShadow = true;
-        boat.receiveShadow = true;
+          oarGroup.position.set(sideSign * 0.165, 0.096, -0.04);
+          oarGroup.rotation.y = sideSign * 0.14;
+          boat.add(oarGroup);
+        }
+
+        const boatSide = ((tileX * 7 + tileY * 3) & 1) === 0 ? 1 : -1;
+        boat.position.set(boatSide * 0.54, -0.045, 1.52);
+        boat.rotation.y = (pierRand() * 0.16 - 0.08) + boatSide * (Math.PI / 16);
         pier.add(boat);
+
+        // Hemp mooring rope connecting the pier piling to the rowboat bow
+        const mooringGeo = this.getGeometry('rowboat_mooring_line_v3', () => new THREE.BoxGeometry(0.26, 0.018, 0.018));
+        const mooring = new THREE.Mesh(mooringGeo, this.materials.ropeHemp);
+        mooring.position.set(boatSide * 0.38, 0.04, 1.30);
+        mooring.rotation.y = -boatSide * 0.32;
+        mooring.rotation.z = -boatSide * 0.22;
+        pier.add(mooring);
       }
 
       if (pierDir === 'N') pier.rotation.y = Math.PI;

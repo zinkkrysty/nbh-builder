@@ -1451,7 +1451,12 @@ export class Renderer {
       const w1 = t1.type === 'water_body' || t1.bridge === true;
       const w2 = t2.type === 'water_body' || t2.bridge === true;
 
-      if (w1 !== w2) return true;
+      if (w1 !== w2) {
+        if (t1.type === 'boardwalk' || t2.type === 'boardwalk' || t1.type === 'road' || t2.type === 'road') {
+          return false;
+        }
+        return true;
+      }
       if (w1 && w2) return false;
       return (t1.elevation || 0) !== (t2.elevation || 0);
     };
@@ -1871,11 +1876,39 @@ export class Renderer {
           const neighbor = this.sim.grid[x][y];
           return neighbor.type === 'water_body' || neighbor.bridge === true;
         };
+        const hasNaturalShoreContour = (x: number, y: number) => {
+          if (!this.sim || x < 0 || x >= this.sim.gridSize || y < 0 || y >= this.sim.gridSize) return true;
+          const neighbor = this.sim.grid[x][y];
+          return neighbor.type !== 'boardwalk' && neighbor.type !== 'road';
+        };
+        const isEngineeredTile = (x: number, y: number) => {
+          if (!this.sim || x < 0 || x >= this.sim.gridSize || y < 0 || y >= this.sim.gridSize) return false;
+          const t = this.sim.grid[x][y];
+          return t.type === 'road' || t.type === 'boardwalk' || t.bridge === true || this.isSlopedRoad(x, y);
+        };
+        const hasNaturalCornerContour = (gx: number, gy: number) => (
+          !isEngineeredTile(gx - 1, gy - 1) &&
+          !isEngineeredTile(gx, gy - 1) &&
+          !isEngineeredTile(gx - 1, gy) &&
+          !isEngineeredTile(gx, gy)
+        );
         const shoreEdges = {
           N: hasExposedWaterEdge(tile.x, tile.y - 1),
           S: hasExposedWaterEdge(tile.x, tile.y + 1),
           E: hasExposedWaterEdge(tile.x + 1, tile.y),
           W: hasExposedWaterEdge(tile.x - 1, tile.y)
+        };
+        const contourEdges = {
+          N: hasNaturalShoreContour(tile.x, tile.y - 1),
+          S: hasNaturalShoreContour(tile.x, tile.y + 1),
+          E: hasNaturalShoreContour(tile.x + 1, tile.y),
+          W: hasNaturalShoreContour(tile.x - 1, tile.y),
+        };
+        const contourCorners = {
+          NW: hasNaturalCornerContour(tile.x, tile.y),
+          NE: hasNaturalCornerContour(tile.x + 1, tile.y),
+          SE: hasNaturalCornerContour(tile.x + 1, tile.y + 1),
+          SW: hasNaturalCornerContour(tile.x, tile.y + 1),
         };
         const diagonalNeighbors = {
           NW: hasWaterConnection(tile.x - 1, tile.y - 1),
@@ -1893,16 +1926,13 @@ export class Renderer {
           SE: hasWaterConnection(tile.x, tile.y + 1) && hasWaterConnection(tile.x + 1, tile.y) && !diagonalNeighbors.SE,
           SW: hasWaterConnection(tile.x, tile.y + 1) && hasWaterConnection(tile.x - 1, tile.y) && !diagonalNeighbors.SW,
         };
-        // A one-edge corner feeds into an inset concave cap owned by another
-        // water tile. The secondary, inward band extends by one band width at
-        // that end so it reaches the cap without a visible break.
         const innerJoinCorners = {
           NW: !hasWaterConnection(tile.x - 1, tile.y - 1) && shoreEdges.N !== shoreEdges.W,
           NE: !hasWaterConnection(tile.x + 1, tile.y - 1) && shoreEdges.N !== shoreEdges.E,
           SE: !hasWaterConnection(tile.x + 1, tile.y + 1) && shoreEdges.S !== shoreEdges.E,
           SW: !hasWaterConnection(tile.x - 1, tile.y + 1) && shoreEdges.S !== shoreEdges.W,
         };
-        newMesh = this.assets.createWaterBodyMesh(tile.x, tile.y, neighbors, diagonalNeighbors, shoreEdges, innerCorners, innerJoinCorners);
+        newMesh = this.assets.createWaterBodyMesh(tile.x, tile.y, neighbors, diagonalNeighbors, shoreEdges, innerCorners, innerJoinCorners, contourEdges, contourCorners);
         break;
       case 'boardwalk':
         const boardwalkNeighbors = {
@@ -2005,6 +2035,14 @@ export class Renderer {
     const SE = diagonalMarker(tile.x + 1, tile.y + 1);
     const SW = diagonalMarker(tile.x - 1, tile.y + 1);
 
+    if (tile.type === 'boardwalk') {
+      const N2 = diagonalMarker(tile.x, tile.y - 2);
+      const S2 = diagonalMarker(tile.x, tile.y + 2);
+      const E2 = diagonalMarker(tile.x + 2, tile.y);
+      const W2 = diagonalMarker(tile.x - 2, tile.y);
+      return `N:${N}-${Nb}|S:${S}-${Sb}|E:${E}-${Eb}|W:${W}-${Wb}|NW:${NW}|NE:${NE}|SE:${SE}|SW:${SW}|N2:${N2}|S2:${S2}|E2:${E2}|W2:${W2}`;
+    }
+
     return `N:${N}-${Nb}|S:${S}-${Sb}|E:${E}-${Eb}|W:${W}-${Wb}|NW:${NW}|NE:${NE}|SE:${SE}|SW:${SW}`;
   }
 
@@ -2028,14 +2066,104 @@ export class Renderer {
     const zPos = (y - gridOffset) * 2;
 
     const isBridge = this.sim ? (this.sim.grid[x][y].bridge || false) : false;
-    const neighbors = {
-      N: y > 0 && (this.sim ? (this.sim.grid[x][y - 1].type === 'water_body' || this.sim.grid[x][y - 1].bridge === true) : false),
-      S: y < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[x][y + 1].type === 'water_body' || this.sim.grid[x][y + 1].bridge === true) : false),
-      E: x < (this.sim ? this.sim.gridSize - 1 : 49) && (this.sim ? (this.sim.grid[x + 1][y].type === 'water_body' || this.sim.grid[x + 1][y].bridge === true) : false),
-      W: x > 0 && (this.sim ? (this.sim.grid[x - 1][y].type === 'water_body' || this.sim.grid[x - 1][y].bridge === true) : false)
+    const hasWaterConnection = (tx: number, ty: number) => {
+      if (!this.sim || tx < 0 || tx >= this.sim.gridSize || ty < 0 || ty >= this.sim.gridSize) return false;
+      const neighbor = this.sim.grid[tx][ty];
+      return neighbor.type === 'water_body' || neighbor.bridge === true;
     };
-    let roadMesh = this.assets.createRoadMesh(connections, isBridge, neighbors, x, y);
+    const hasExposedWaterEdge = (tx: number, ty: number) => {
+      if (!this.sim || tx < 0 || tx >= this.sim.gridSize || ty < 0 || ty >= this.sim.gridSize) return true;
+      const neighbor = this.sim.grid[tx][ty];
+      return neighbor.type !== 'water_body' && !neighbor.bridge;
+    };
+    const hasNaturalShoreContour = (tx: number, ty: number) => {
+      if (!this.sim || tx < 0 || tx >= this.sim.gridSize || ty < 0 || ty >= this.sim.gridSize) return true;
+      const neighbor = this.sim.grid[tx][ty];
+      return neighbor.type !== 'boardwalk' && neighbor.type !== 'road';
+    };
+    const isEngineeredTile = (tx: number, ty: number) => {
+      if (!this.sim || tx < 0 || tx >= this.sim.gridSize || ty < 0 || ty >= this.sim.gridSize) return false;
+      const t = this.sim.grid[tx][ty];
+      return t.type === 'road' || t.type === 'boardwalk' || t.bridge === true || this.isSlopedRoad(tx, ty);
+    };
+    const hasNaturalCornerContour = (gx: number, gy: number) => (
+      !isEngineeredTile(gx - 1, gy - 1) &&
+      !isEngineeredTile(gx, gy - 1) &&
+      !isEngineeredTile(gx - 1, gy) &&
+      !isEngineeredTile(gx, gy)
+    );
+    const neighbors = {
+      N: hasWaterConnection(x, y - 1),
+      S: hasWaterConnection(x, y + 1),
+      E: hasWaterConnection(x + 1, y),
+      W: hasWaterConnection(x - 1, y),
+    };
+    const diagonalNeighbors = {
+      NW: hasWaterConnection(x - 1, y - 1),
+      NE: hasWaterConnection(x + 1, y - 1),
+      SE: hasWaterConnection(x + 1, y + 1),
+      SW: hasWaterConnection(x - 1, y + 1),
+    };
+    const shoreEdges = {
+      N: hasExposedWaterEdge(x, y - 1),
+      S: hasExposedWaterEdge(x, y + 1),
+      E: hasExposedWaterEdge(x + 1, y),
+      W: hasExposedWaterEdge(x - 1, y),
+    };
+    const contourEdges = {
+      N: hasNaturalShoreContour(x, y - 1),
+      S: hasNaturalShoreContour(x, y + 1),
+      E: hasNaturalShoreContour(x + 1, y),
+      W: hasNaturalShoreContour(x - 1, y),
+    };
+    const contourCorners = {
+      NW: hasNaturalCornerContour(x, y),
+      NE: hasNaturalCornerContour(x + 1, y),
+      SE: hasNaturalCornerContour(x + 1, y + 1),
+      SW: hasNaturalCornerContour(x, y + 1),
+    };
+    const innerCorners = {
+      NW: neighbors.N && neighbors.W && !diagonalNeighbors.NW,
+      NE: neighbors.N && neighbors.E && !diagonalNeighbors.NE,
+      SE: neighbors.S && neighbors.E && !diagonalNeighbors.SE,
+      SW: neighbors.S && neighbors.W && !diagonalNeighbors.SW,
+    };
+    const innerJoinCorners = {
+      NW: !diagonalNeighbors.NW && shoreEdges.N !== shoreEdges.W,
+      NE: !diagonalNeighbors.NE && shoreEdges.N !== shoreEdges.E,
+      SE: !diagonalNeighbors.SE && shoreEdges.S !== shoreEdges.E,
+      SW: !diagonalNeighbors.SW && shoreEdges.S !== shoreEdges.W,
+    };
+    let roadMesh = this.assets.createRoadMesh(
+      connections,
+      isBridge,
+      neighbors,
+      x,
+      y,
+      diagonalNeighbors,
+      shoreEdges,
+      innerCorners,
+      innerJoinCorners,
+      contourEdges,
+      contourCorners,
+    );
     roadMesh = this.assets.mergeMeshesByMaterial(roadMesh);
+    if (isBridge) {
+      roadMesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const isWater = child.material === this.assets.materials.waterBlue;
+          const isShoreFoam = child.material === this.assets.materials.waterShoreFoam;
+          const isInnerShoreFoam = child.material === this.assets.materials.waterShoreFoamInner;
+          if (isWater || isShoreFoam || isInnerShoreFoam) {
+            child.castShadow = false;
+            child.receiveShadow = false;
+          }
+          if (isWater) child.renderOrder = 1;
+          if (isInnerShoreFoam) child.renderOrder = 2;
+          if (isShoreFoam) child.renderOrder = 3;
+        }
+      });
+    }
     
     let yPos = this.sim ? (this.sim.grid[x][y].elevation || 0) * 0.8 : 0;
     if (this.sim) {
