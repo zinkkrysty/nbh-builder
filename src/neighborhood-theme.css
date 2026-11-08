@@ -31,6 +31,12 @@
 .status-grid { gap: 4px; }
 .status-card { min-height: 34px; padding: 7px 9px; background: #eeeede; border-color: transparent; box-shadow: none; border-radius: 8px; }
 .status-card:hover { background: #e4e9d9; border-color: #ccd7bf; transform: none; }
+.neighborhood-hopes-card { min-height: auto; padding: 9px 11px; gap: 5px; background: #eeeede; border: 1px solid #dfdfcf; border-radius: 8px; margin-top: 8px; }
+.neighborhood-hopes-card:hover { background: #e4e9d9; border-color: #ccd7bf; }
+.neighborhood-hopes-card .status-label { color: var(--muted); font-size: .68rem; letter-spacing: .06em; }
+.neighborhood-hope-request { color: var(--ink); font-size: .84rem; font-weight: 600; line-height: 1.35; }
+.neighborhood-hope-status { color: #27523f; background: #e1ecd5; border: 1px solid #bfd0ae; font-size: .78rem; font-weight: 500; padding: 5px 8px; border-radius: 6px; line-height: 1.3; }
+.neighborhood-hopes-card.is-fulfilled .neighborhood-hope-status { color: #1e5631; background: #daf0dc; border-color: #a3d4ad; font-weight: 600; }
 .panel-divider { background: #d9dfce; }
 .neighborhood-center-button { background: #e0ead6; border-color: #bfceb2; color: var(--ink); min-height: 58px; }
 .neighborhood-center-button:hover { background: #d3e2c7; }

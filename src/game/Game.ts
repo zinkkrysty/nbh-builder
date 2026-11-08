@@ -1451,8 +1451,10 @@ export class Game {
       const owner = this.sim.getResident(hope.ownerResidentId);
       const ownerName = owner ? `${owner.firstName} ${owner.lastName}` : 'A neighbor';
       hopesCard.style.display = '';
+      const isFulfilled = hope.status === 'fulfilled' && !!hope.targetTile;
+      hopesCard.classList.toggle('is-fulfilled', isFulfilled);
       hopesRequest.innerText = `${ownerName} hopes to start a shared garden.`;
-      hopesStatus.innerText = hope.status === 'fulfilled' && hope.targetTile
+      hopesStatus.innerText = isFulfilled
         ? `Shared garden created at ${this.sim.getGardenName(hope)}.`
         : `Build a reachable park near ${ownerName}'s home.`;
     }

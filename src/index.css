@@ -335,6 +335,47 @@ body, html {
   border: 1px solid rgba(255, 255, 255, 0.02);
 }
 
+.neighborhood-hopes-card {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  min-height: auto;
+  gap: 0.45rem;
+  padding: 0.75rem 0.85rem;
+  margin-top: 0.75rem;
+  text-align: left;
+}
+
+.neighborhood-hopes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.neighborhood-hope-request {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #f1f3f5;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.neighborhood-hope-status {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #77e7b8;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  background: rgba(119, 231, 184, 0.08);
+  border: 1px solid rgba(119, 231, 184, 0.2);
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
 .status-label {
   font-size: 0.85rem;
   color: #8e9aab;
